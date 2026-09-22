@@ -1,0 +1,15 @@
+# Jednolite konce linii niezaleznie od systemu (zespol pracuje na Windows, CI na Linuksie).
+* text=auto eol=lf
+
+# Pliki, ktore MUSZA miec LF - CRLF psuje je w kontenerze i w CI.
+*.sh      text eol=lf
+Makefile  text eol=lf
+*.sql     text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+
+# Pliki binarne
+*.png binary
+*.jpg binary
+*.pdf binary
+*.woff2 binary

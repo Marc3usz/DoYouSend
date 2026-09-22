@@ -1,0 +1,38 @@
+name: Błąd
+description: Coś nie działa
+labels: ["bug"]
+body:
+  - type: textarea
+    id: opis
+    attributes:
+      label: Co się dzieje
+    validations:
+      required: true
+  - type: textarea
+    id: kroki
+    attributes:
+      label: Kroki odtworzenia
+      value: |
+        1. 
+        2. 
+        3. 
+    validations:
+      required: true
+  - type: textarea
+    id: oczekiwane
+    attributes:
+      label: Czego się spodziewałem/am
+    validations:
+      required: true
+  - type: input
+    id: srodowisko
+    attributes:
+      label: Środowisko
+      placeholder: "commit, system, przeglądarka"
+  - type: checkboxes
+    id: dane
+    attributes:
+      label: Dane
+      options:
+        - label: W opisie nie ma prawdziwych danych osobowych ani kluczy
+          required: true

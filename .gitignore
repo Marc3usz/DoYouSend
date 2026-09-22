@@ -1,0 +1,44 @@
+# --- Sekrety i konfiguracja lokalna ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# --- Dane osobowe / importy testowe ---
+# Do repo trafiaja WYLACZNIE dane fikcyjne w testdata/
+data/
+imports/
+*.csv
+!backend/testdata/**/*.csv
+!docs/**/*.csv
+
+# --- Go ---
+/backend/bin/
+/backend/tmp/
+*.exe
+*.test
+*.out
+coverage.*
+
+# --- Node / SvelteKit ---
+node_modules/
+/frontend/.svelte-kit/
+/frontend/build/
+/frontend/.vite/
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# --- Narzedzia / IDE ---
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+
+# --- Claude Code ---
+# .claude/settings.json jest wspolny dla zespolu i JEST commitowany.
+.claude/settings.local.json
+.claude/history/

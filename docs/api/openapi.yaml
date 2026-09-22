@@ -1,0 +1,205 @@
+# Kontrakt miedzy backendem (Go) a frontendem (SvelteKit).
+# PLIK WSPOLNY: zmiana kontraktu idzie osobnym, malym PR-em i jest ogloszona zespolowi.
+# Szkielet z M1 - endpointy dochodza wraz z implementacja domen.
+openapi: 3.0.3
+info:
+  title: DoYouSend API
+  version: 0.1.0
+  description: |
+    Komunikaty e-mail i SMS. Zasada nadrzedna: tresc e-maila i SMS-a dla danego odbiorcy
+    jest identyczna; temat dotyczy wylacznie e-maila.
+servers:
+  - url: http://localhost:8080/api
+
+tags:
+  - name: recipients   # DEV A
+  - name: groups       # DEV A
+  - name: messages     # DEV B
+  - name: batches      # DEV B
+  - name: admin        # DEV C
+  - name: auth         # DEV C
+
+paths:
+  /healthz:
+    get:
+      summary: Stan uslugi
+      responses:
+        "200": { description: OK }
+
+  /recipients:
+    get:
+      tags: [recipients]
+      summary: Lista odbiorcow
+      parameters:
+        - { in: query, name: q,    schema: { type: string } }
+        - { in: query, name: type, schema: { $ref: "#/components/schemas/RecipientType" } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Recipient" }
+    post:
+      tags: [recipients]
+      summary: Dodaje odbiorce
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecipientInput" }
+      responses:
+        "201": { description: Utworzono }
+        "409": { description: Duplikat e-maila lub numeru }
+
+  /recipients/import:
+    post:
+      tags: [recipients]
+      summary: Import z pliku CSV
+      description: Zwraca raport per wiersz: zaimportowane, bledne, duplikaty.
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "200": { description: Raport importu }
+
+  /groups:
+    get:
+      tags: [groups]
+      summary: Lista grup
+      responses:
+        "200": { description: OK }
+
+  /groups/resolve:
+    post:
+      tags: [groups]
+      summary: Rozwija wybor grup i osob do finalnej listy odbiorcow
+      description: |
+        Wynik jest zdeduplikowany: osoba wybrana przez kilka grup wystepuje raz.
+        Odbiorcy bez kompletu danych sa oznaczeni w polu missing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecipientSelection" }
+      responses:
+        "200": { description: Lista odbiorcow z oznaczeniem brakow }
+
+  /messages/preview:
+    post:
+      tags: [messages]
+      summary: Podsumowanie przed zatwierdzeniem
+      description: Dlugosc tresci, liczba czesci SMS na odbiorce, liczba odbiorcow, laczna liczba SMS, koszt.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MessageDraft" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SendEstimate" }
+
+  /batches:
+    get:
+      tags: [batches]
+      summary: Historia wysylek
+      responses:
+        "200": { description: OK }
+    post:
+      tags: [batches]
+      summary: Tworzy wsad (draft)
+      responses:
+        "201": { description: Utworzono }
+
+  /batches/{id}/confirm:
+    post:
+      tags: [batches]
+      summary: Zatwierdza i uruchamia wysylke
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "202": { description: Wysylka uruchomiona }
+
+  /batches/{id}/deliveries:
+    get:
+      tags: [batches]
+      summary: Statusy obu kanalow dla kazdego odbiorcy
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: OK }
+
+  /batches/{id}/retry:
+    post:
+      tags: [batches]
+      summary: Ponawia nieudane wiadomosci we wsadzie
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "202": { description: Ponowienie uruchomione }
+
+components:
+  schemas:
+    RecipientType:
+      type: string
+      enum: [parent, student]
+
+    Recipient:
+      type: object
+      required: [id, firstName, lastName, type]
+      properties:
+        id:        { type: string, format: uuid }
+        firstName: { type: string }
+        lastName:  { type: string }
+        email:     { type: string, nullable: true }
+        phone:     { type: string, nullable: true, description: "E.164" }
+        type:      { $ref: "#/components/schemas/RecipientType" }
+        groupIds:
+          type: array
+          items: { type: string, format: uuid }
+
+    RecipientInput:
+      allOf:
+        - $ref: "#/components/schemas/Recipient"
+
+    RecipientSelection:
+      type: object
+      properties:
+        groupIds:
+          type: array
+          items: { type: string, format: uuid }
+        recipientIds:
+          type: array
+          items: { type: string, format: uuid }
+
+    MessageDraft:
+      type: object
+      required: [subject, body, selection]
+      properties:
+        subject: { type: string, description: "Wylacznie temat e-maila" }
+        body:    { type: string, description: "Jedna wspolna tresc dla obu kanalow" }
+        selection: { $ref: "#/components/schemas/RecipientSelection" }
+
+    SendEstimate:
+      type: object
+      properties:
+        bodyLength:     { type: integer }
+        encoding:       { type: string, enum: [GSM7, UCS2] }
+        partsPerRecipient: { type: integer }
+        recipientCount: { type: integer }
+        totalSmsParts:  { type: integer }
+        estimatedCost:  { type: number, format: double }
+        missingEmail:
+          type: array
+          items: { $ref: "#/components/schemas/Recipient" }
+        missingPhone:
+          type: array
+          items: { $ref: "#/components/schemas/Recipient" }

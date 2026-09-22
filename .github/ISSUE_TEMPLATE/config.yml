@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Specyfikacja wymagań
+    url: https://github.com/Marc3usz/DoYouSend/blob/master/description.md
+    about: Zanim założysz issue, sprawdź, co dokładnie mówi opis projektu.

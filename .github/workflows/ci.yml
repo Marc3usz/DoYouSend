@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache-dependency-path: backend/go.sum
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; echo "Uruchom: make fmt"; exit 1; }
+      - run: go vet ./...
+      - run: go build ./...
+      - run: go test ./... -race
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # npm ci dziala dopiero, gdy package-lock.json jest w repo (po pierwszym npm install).
+      - run: npm ci || npm install
+      - run: npm run check
+      - run: npm run lint
+      - run: npm run build
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Plik .env nie moze byc w repo
+        run: |
+          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+            echo "::error::.env jest w repozytorium - usun go i uniewaznij klucze"
+            exit 1
+          fi
+      - name: Szukanie kluczy i danych kontaktowych spoza domeny testowej
+        run: |
+          pattern='(api[_-]?key|secret|password|token)\s*[:=]\s*["'"'"']?[A-Za-z0-9_\-]{16,}'
+          if git grep -nIE "$pattern" -- . ':!.env.example' ':!docs/**' ':!*.md'; then
+            echo "::error::Mozliwy sekret w repozytorium - przenies go do .env"
+            exit 1
+          fi
+          echo "Brak podejrzanych wartosci."
