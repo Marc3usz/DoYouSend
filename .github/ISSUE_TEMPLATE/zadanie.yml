@@ -1,0 +1,36 @@
+name: Zadanie
+description: Kawałek funkcjonalności do zrobienia
+labels: ["zadanie"]
+body:
+  - type: dropdown
+    id: domena
+    attributes:
+      label: Domena
+      options:
+        - A - odbiorcy i grupy
+        - B - wiadomości i wysyłka
+        - C - integracje, admin, bezpieczeństwo
+        - wspólne (platform, migracje, kontrakt API)
+    validations:
+      required: true
+  - type: textarea
+    id: cel
+    attributes:
+      label: Co ma działać
+      description: Z perspektywy użytkownika. Odwołaj się do sekcji z description.md.
+    validations:
+      required: true
+  - type: textarea
+    id: akceptacja
+    attributes:
+      label: Kryteria akceptacji
+      value: |
+        - [ ] 
+        - [ ] 
+    validations:
+      required: true
+  - type: textarea
+    id: zaleznosci
+    attributes:
+      label: Zależności od innych osób
+      description: Czego potrzebujesz od pozostałych devów, żeby to skończyć.

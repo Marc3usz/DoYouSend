@@ -1,0 +1,31 @@
+# Wlasciciel domeny jest domyslnym recenzentem PR-a.
+# ZAMIEN placeholdery na loginy GitHub (docs/podzial-pracy.md).
+
+# Fallback - zmiany poza domenami oglada caly zespol
+*                                   @Marc3usz @DEV-B @DEV-C
+
+# DEV A - odbiorcy i grupy
+/backend/internal/recipients/       @Marc3usz
+/backend/internal/groups/           @Marc3usz
+/frontend/src/routes/odbiorcy/      @Marc3usz
+/frontend/src/routes/grupy/         @Marc3usz
+
+# DEV B - wiadomosci i wysylka
+/backend/internal/messaging/        @DEV-B
+/backend/internal/delivery/         @DEV-B
+/frontend/src/routes/wiadomosci/    @DEV-B
+/frontend/src/routes/historia/      @DEV-B
+
+# DEV C - integracje, admin, bezpieczenstwo, CI
+/backend/internal/providers/        @DEV-C
+/backend/internal/iam/              @DEV-C
+/frontend/src/routes/admin/         @DEV-C
+/frontend/src/routes/login/         @DEV-C
+/.github/                           @DEV-C
+
+# Pliki wspolne - review calego zespolu
+/backend/internal/platform/         @Marc3usz @DEV-B @DEV-C
+/backend/migrations/                @Marc3usz @DEV-B @DEV-C
+/docs/api/openapi.yaml              @Marc3usz @DEV-B @DEV-C
+/CLAUDE.md                          @Marc3usz @DEV-B @DEV-C
+/.claude/                           @Marc3usz @DEV-B @DEV-C
