@@ -17,7 +17,7 @@ Working language: **code, identifiers, commits, PR titles in English**; user-fac
 | Local env | Docker Compose: Postgres, Redis, Mailpit (fake SMTP)           |
 
 Do not introduce a new framework, ORM or runtime dependency without an ADR
-(`docs/adr/`) — three people share this repo and dependency choices are not local decisions.
+(`docs/adr/`) — four people share this repo and dependency choices are not local decisions.
 
 ## Repo map
 
@@ -26,12 +26,12 @@ backend/            Go API + delivery worker
   cmd/api/          entrypoint
   internal/
     platform/       config, database, httpx — shared plumbing (coordinate before changing)
-    recipients/     recipients CRUD, CSV import, validation      -> owner: DEV A
-    groups/         groups, membership, recipient resolution     -> owner: DEV A
-    messaging/      message composition, preview, SMS part count -> owner: DEV B
-    delivery/       dispatch, queue, per-channel status, retries -> owner: DEV B
-    providers/      email/ + sms/ adapters (incl. fake ones)     -> owner: DEV C
-    iam/            users, roles, auth, audit log                -> owner: DEV C
+    recipients/     recipients CRUD, CSV import, validation      -> owner: DEV A (Marc3usz)
+    groups/         groups, membership, recipient resolution     -> owner: DEV A (Marc3usz)
+    messaging/      message composition, preview, SMS part count -> owner: DEV B (S1D0R-10)
+    delivery/       dispatch, queue, per-channel status, retries -> owner: DEV B (S1D0R-10)
+    providers/      email/ + sms/ adapters (incl. fake ones)     -> owner: DEV C (MichalK252)
+    iam/            users, roles, auth, audit log                -> owner: DEV D (averithefox)
   migrations/       numbered SQL migrations (shared, see below)
 frontend/           SvelteKit UI (routes mirror the same domain split)
 docs/               architecture, work split, git workflow, ADRs

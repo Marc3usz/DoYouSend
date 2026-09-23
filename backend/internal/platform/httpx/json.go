@@ -1,5 +1,5 @@
 // Package httpx holds HTTP plumbing shared by every domain package.
-// Changes here affect all three developers - coordinate before editing.
+// Changes here affect all four developers - coordinate before editing.
 package httpx
 
 import (

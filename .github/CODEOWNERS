@@ -1,31 +1,33 @@
 # Wlasciciel domeny jest domyslnym recenzentem PR-a.
-# ZAMIEN placeholdery na loginy GitHub (docs/podzial-pracy.md).
+# Zob. docs/podzial-pracy.md dla pelnego opisu domen.
 
 # Fallback - zmiany poza domenami oglada caly zespol
-*                                   @Marc3usz @DEV-B @DEV-C
+*                                   @Marc3usz @S1D0R-10 @MichalK252 @averithefox
 
-# DEV A - odbiorcy i grupy
+# DEV A (Marc3usz) - odbiorcy i grupy
 /backend/internal/recipients/       @Marc3usz
 /backend/internal/groups/           @Marc3usz
 /frontend/src/routes/odbiorcy/      @Marc3usz
 /frontend/src/routes/grupy/         @Marc3usz
 
-# DEV B - wiadomosci i wysylka
-/backend/internal/messaging/        @DEV-B
-/backend/internal/delivery/         @DEV-B
-/frontend/src/routes/wiadomosci/    @DEV-B
-/frontend/src/routes/historia/      @DEV-B
+# DEV B (S1D0R-10) - wiadomosci i wysylka
+/backend/internal/messaging/        @S1D0R-10
+/backend/internal/delivery/         @S1D0R-10
+/frontend/src/routes/wiadomosci/    @S1D0R-10
+/frontend/src/routes/historia/      @S1D0R-10
 
-# DEV C - integracje, admin, bezpieczenstwo, CI
-/backend/internal/providers/        @DEV-C
-/backend/internal/iam/              @DEV-C
-/frontend/src/routes/admin/         @DEV-C
-/frontend/src/routes/login/         @DEV-C
-/.github/                           @DEV-C
+# DEV C (MichalK252) - integracje e-mail/SMS
+/backend/internal/providers/        @MichalK252
+
+# DEV D (averithefox) - iam, admin, bezpieczenstwo, CI
+/backend/internal/iam/              @averithefox
+/frontend/src/routes/admin/         @averithefox
+/frontend/src/routes/login/         @averithefox
+/.github/                           @averithefox
 
 # Pliki wspolne - review calego zespolu
-/backend/internal/platform/         @Marc3usz @DEV-B @DEV-C
-/backend/migrations/                @Marc3usz @DEV-B @DEV-C
-/docs/api/openapi.yaml              @Marc3usz @DEV-B @DEV-C
-/CLAUDE.md                          @Marc3usz @DEV-B @DEV-C
-/.claude/                           @Marc3usz @DEV-B @DEV-C
+/backend/internal/platform/         @Marc3usz @S1D0R-10 @MichalK252 @averithefox
+/backend/migrations/                @Marc3usz @S1D0R-10 @MichalK252 @averithefox
+/docs/api/openapi.yaml              @Marc3usz @S1D0R-10 @MichalK252 @averithefox
+/CLAUDE.md                          @Marc3usz @S1D0R-10 @MichalK252 @averithefox
+/.claude/                           @Marc3usz @S1D0R-10 @MichalK252 @averithefox

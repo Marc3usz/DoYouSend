@@ -20,4 +20,4 @@ Closes #
 
 ## Wpływ na inne domeny
 
-<!-- Kogo to dotyka: odbiorcy/grupy (A), wiadomości/wysyłka (B), integracje/admin (C). -->
+<!-- Kogo to dotyka: odbiorcy/grupy (A), wiadomości/wysyłka (B), integracje (C), admin/IAM/CI (D). -->

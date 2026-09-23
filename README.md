@@ -41,7 +41,7 @@ widoczne w historii wysyłek.
   i prawdziwych odbiorców wymaga zgody opiekuna projektu.
 - W repo nie ma i nie może być prawdziwych danych osobowych ani kluczy API.
 
-## Praca zespołowa (3 osoby)
+## Praca zespołowa (4 osoby)
 
 | Dokument | Zawartość |
 |---|---|

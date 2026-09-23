@@ -23,7 +23,7 @@ Treść po angielsku, tryb rozkazujący, bez kropki na końcu tematu.
 
 1. `make check` i `make test` lokalnie — zielone.
 2. PR do `master`, opis z szablonu (`.github/pull_request_template.md`).
-3. Review od jednej z pozostałych dwóch osób; CODEOWNERS przypisuje właściciela domeny.
+3. Review od jednej z pozostałych trzech osób; CODEOWNERS przypisuje właściciela domeny.
 4. Merge: **squash**, tytuł PR w formacie Conventional Commit.
 5. Po merge usuń gałąź i odśwież swoją: `git switch master && git pull --ff-only`.
 
@@ -36,7 +36,7 @@ Treść po angielsku, tryb rozkazujący, bez kropki na końcu tematu.
   zrób osobny mały PR, zmergeuj szybko.
 - Nie formatuj cudzych plików „przy okazji" — formatowanie w osobnym commicie.
 
-## Praca z Claude Code w trzy osoby
+## Praca z Claude Code w cztery osoby
 
 - **Jeden agent = jeden worktree.** Równoległe sesje w tym samym katalogu roboczym nadpisują
   sobie pliki. Nowe zadanie:

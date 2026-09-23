@@ -1,6 +1,6 @@
 # Jak pracujemy
 
-Skrót dla trzyosobowego zespołu. Szczegóły w `docs/`.
+Skrót dla czteroosobowego zespołu. Szczegóły w `docs/`.
 
 1. **Zanim zaczniesz:** `make doctor`, potem `cp .env.example .env`, `make up`, `make migrate`.
    Pełna instrukcja w [README](README.md).

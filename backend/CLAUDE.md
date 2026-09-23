@@ -5,7 +5,7 @@ Go 1.24 API + delivery worker. Read the root `CLAUDE.md` first; this file adds t
 ## Layout
 
 - `cmd/api` — entrypoint, wiring only. No business logic here.
-- `internal/platform/**` — config, database pool, HTTP helpers. **Shared by all three devs:
+- `internal/platform/**` — config, database pool, HTTP helpers. **Shared by all four devs:
   announce changes, keep the surface small.**
 - `internal/<domain>` — one package per domain (see the package doc comment in each for its
   scope and owner). A domain package owns its own storage access, HTTP handlers and tests.
