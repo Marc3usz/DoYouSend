@@ -5,8 +5,12 @@ import (
 	"fmt"
 )
 
-// ErrNegativePrice is returned when the configured SMS part price is below zero.
-var ErrNegativePrice = errors.New("sms part price must not be negative")
+var (
+	// ErrNegativePrice is returned when the configured SMS part price is below zero.
+	ErrNegativePrice = errors.New("sms part price must not be negative")
+	// ErrEmptyBody is returned when a recipient's rendered body is empty: nothing would be sent.
+	ErrEmptyBody = errors.New("message body is empty")
+)
 
 // RenderedMessage is one recipient's final (already personalised) body together with
 // the channels that recipient can be reached on. The same Body goes to both channels.
@@ -30,22 +34,29 @@ type Summary struct {
 	MinPartsPerRecipient int
 	MaxPartsPerRecipient int
 	TotalParts           int
-	// CostMinorUnits is the expected SMS cost in the currency's minor unit (e.g. grosze).
-	CostMinorUnits int64
+	// CostMilli is the expected SMS cost in thousandths of the currency unit
+	// (for PLN: 1000 = 1 zł), so fractional gateway prices such as 0.065 zł stay exact.
+	CostMilli int64
 }
 
 // Summarize builds the pre-send summary for msgs, pricing every SMS part at
-// pricePerPart minor units. E-mail is treated as free.
-func Summarize(msgs []RenderedMessage, pricePerPart int64) (Summary, error) {
-	if pricePerPart < 0 {
+// pricePerPartMilli thousandths of the currency unit (0.08 zł = 80). E-mail is treated as free.
+//
+// msgs must already be deduplicated: a recipient selected through several groups appears
+// exactly once, otherwise counts and cost are overstated.
+func Summarize(msgs []RenderedMessage, pricePerPartMilli int64) (Summary, error) {
+	if pricePerPartMilli < 0 {
 		return Summary{}, fmt.Errorf("summarize batch: %w", ErrNegativePrice)
 	}
 
 	s := Summary{Recipients: len(msgs)}
-	for _, m := range msgs {
+	for i, m := range msgs {
+		if m.Body == "" {
+			return Summary{}, fmt.Errorf("summarize batch: recipient %d: %w", i, ErrEmptyBody)
+		}
 		s = addRecipient(s, m)
 	}
-	s.CostMinorUnits = int64(s.TotalParts) * pricePerPart
+	s.CostMilli = int64(s.TotalParts) * pricePerPartMilli
 	return s, nil
 }
 

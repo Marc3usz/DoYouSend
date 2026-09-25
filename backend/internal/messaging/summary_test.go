@@ -30,7 +30,7 @@ func TestSummarize(t *testing.T) {
 			want: Summary{
 				Recipients: 2, EmailCount: 2, SMSCount: 2,
 				MinPartsPerRecipient: 1, MaxPartsPerRecipient: 1,
-				TotalParts: 2, CostMinorUnits: 18,
+				TotalParts: 2, CostMilli: 18,
 			},
 		},
 		{
@@ -43,7 +43,7 @@ func TestSummarize(t *testing.T) {
 			want: Summary{
 				Recipients: 2, EmailCount: 2, SMSCount: 1, PartialCount: 1,
 				MinPartsPerRecipient: 2, MaxPartsPerRecipient: 2,
-				TotalParts: 2, CostMinorUnits: 20,
+				TotalParts: 2, CostMilli: 20,
 			},
 		},
 		{
@@ -56,7 +56,7 @@ func TestSummarize(t *testing.T) {
 			want: Summary{
 				Recipients: 2, EmailCount: 1, SMSCount: 2, PartialCount: 1, UCS2Count: 1,
 				MinPartsPerRecipient: 1, MaxPartsPerRecipient: 2,
-				TotalParts: 3, CostMinorUnits: 21,
+				TotalParts: 3, CostMilli: 21,
 			},
 		},
 		{
@@ -88,6 +88,44 @@ func TestSummarize(t *testing.T) {
 				t.Errorf("Summarize() = %+v, want %+v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSummarizeRejectsEmptyBody(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  RenderedMessage
+	}{
+		{name: "sms", msg: RenderedMessage{HasPhone: true}},
+		{name: "email", msg: RenderedMessage{HasEmail: true}},
+		{name: "both channels", msg: RenderedMessage{HasEmail: true, HasPhone: true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msgs := []RenderedMessage{{Body: "Hej", HasPhone: true}, tt.msg}
+			_, err := Summarize(msgs, 80)
+			if !errors.Is(err, ErrEmptyBody) {
+				t.Fatalf("Summarize() error = %v, want %v", err, ErrEmptyBody)
+			}
+			if !strings.Contains(err.Error(), "recipient 1") {
+				t.Errorf("Summarize() error = %q, want it to name recipient 1", err)
+			}
+		})
+	}
+}
+
+func TestSummarizeFractionalPrice(t *testing.T) {
+	// 0.065 zł per part = 65 thousandths of PLN; 3 parts -> 0.195 zł.
+	msgs := []RenderedMessage{
+		{Body: "Hej", HasPhone: true},
+		{Body: strings.Repeat("a", 161), HasPhone: true},
+	}
+	got, err := Summarize(msgs, 65)
+	if err != nil {
+		t.Fatalf("Summarize() error = %v", err)
+	}
+	if got.CostMilli != 195 {
+		t.Errorf("Summarize().CostMilli = %d, want 195", got.CostMilli)
 	}
 }
 
