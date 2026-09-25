@@ -99,3 +99,10 @@ These cause the merge conflicts that actually hurt with three parallel Claude se
   `frontend/CLAUDE.md`) — they carry the local details this file deliberately omits.
 - When a decision affects more than one domain, write an ADR in `docs/adr/` instead of
   encoding it silently in code.
+- Before starting work that touches a cross-domain contact point (see "Punkty styku" in
+  `docs/podzial-pracy.md`), check `docs/adr/` for an ADR whose status is still
+  **propozycja** (open/undecided) on that point. Don't silently assume a shape for
+  something an open ADR is tracking — either resolve it with the other domain owner first,
+  or build against the status quo and flag the ADR again in the PR description. When you
+  resolve one, update its `Status`/`Decyzja`/`Konsekwencje` in place instead of leaving it
+  stale next to code that has moved on.
