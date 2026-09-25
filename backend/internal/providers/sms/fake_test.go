@@ -2,11 +2,24 @@ package sms
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"testing"
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
 )
+
+func TestNewFake_NilLogger(t *testing.T) {
+	t.Parallel()
+
+	f := NewFake(nil)
+	if f.logger == nil {
+		t.Fatal("expected default logger when nil is passed")
+	}
+	if f.Channel() != providers.ChannelSMS {
+		t.Errorf("Channel() = %v, want %v", f.Channel(), providers.ChannelSMS)
+	}
+}
 
 func TestFake_Send(t *testing.T) {
 	t.Parallel()
@@ -33,6 +46,16 @@ func TestFake_Send(t *testing.T) {
 			msg: providers.Message{
 				RecipientID: "r-002",
 				To:          "",
+				Body:        "test",
+			},
+			wantErr:     true,
+			isPermanent: true,
+		},
+		{
+			name: "newline in To is rejected",
+			msg: providers.Message{
+				RecipientID: "r-003",
+				To:          "+48500100101\r\ninjection",
 				Body:        "test",
 			},
 			wantErr:     true,
@@ -94,6 +117,37 @@ func TestFake_CancelledContext(t *testing.T) {
 	}
 	if !providers.IsTransient(err) {
 		t.Errorf("cancelled context should be transient, got: %v", err)
+	}
+}
+
+func TestFake_MessageLimit(t *testing.T) {
+	t.Parallel()
+
+	limit := 3
+	f := NewFakeWithLimit(limit, nil)
+
+	for i := 1; i <= 5; i++ {
+		_, err := f.Send(context.Background(), providers.Message{
+			RecipientID: fmt.Sprintf("r-%d", i),
+			To:          fmt.Sprintf("+4850010010%d", i),
+			Body:        "msg",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error on message %d: %v", i, err)
+		}
+	}
+
+	sent := f.Sent()
+	if len(sent) != limit {
+		t.Fatalf("expected exactly %d messages in buffer, got %d", limit, len(sent))
+	}
+
+	// Should have kept the 3 most recent: r-3, r-4, r-5
+	expectedIDs := []string{"r-3", "r-4", "r-5"}
+	for i, exp := range expectedIDs {
+		if sent[i].RecipientID != exp {
+			t.Errorf("sent[%d].RecipientID = %s, want %s", i, sent[i].RecipientID, exp)
+		}
 	}
 }
 

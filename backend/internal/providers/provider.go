@@ -66,7 +66,8 @@ type Result struct {
 // The delivery package depends on this interface — never on a vendor SDK directly.
 //
 // Implementations must:
-//   - honour DRY_RUN: when enabled, record the message without sending it,
+//   - honour DRY_RUN: when enabled, record the message without sending it
+//     (can be enforced via WrapDryRun or internal adapter checks),
 //   - classify errors as permanent or transient using the helpers in this package,
 //   - be safe for concurrent use from the delivery worker.
 type Provider interface {
