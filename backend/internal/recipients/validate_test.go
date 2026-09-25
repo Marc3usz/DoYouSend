@@ -13,6 +13,9 @@ func TestValidateEmail(t *testing.T) {
 		{"missing at", "jan.kowalskiexample.test", true},
 		{"missing domain dot", "jan@example", true},
 		{"contains space", "jan kowalski@example.test", true},
+		{"leading dot in domain", "jan@.example.test", true},
+		{"double dot in domain", "jan@example..test", true},
+		{"trailing dot in domain", "jan@example.test.", true},
 		{"empty", "", true},
 	}
 	for _, tc := range cases {
@@ -43,6 +46,28 @@ func TestValidatePhone(t *testing.T) {
 			err := ValidatePhone(tc.phone)
 			if (err != nil) != tc.wantErr {
 				t.Errorf("ValidatePhone(%q) error = %v, wantErr %v", tc.phone, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestNormalizePhone(t *testing.T) {
+	cases := []struct {
+		name  string
+		phone string
+		want  string
+	}{
+		{"already E.164", "+48500100101", "+48500100101"},
+		{"spaced CLAUDE.md style", "+48 500 100 101", "+48500100101"},
+		{"bare 9-digit local number", "500100101", "+48500100101"},
+		{"hyphenated", "500-100-101", "+48500100101"},
+		{"00 international prefix", "0048500100101", "+48500100101"},
+		{"garbage stays garbage", "abc", "abc"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := NormalizePhone(tc.phone); got != tc.want {
+				t.Errorf("NormalizePhone(%q) = %q, want %q", tc.phone, got, tc.want)
 			}
 		})
 	}
@@ -99,6 +124,26 @@ func TestRecipientValidate(t *testing.T) {
 				Type:      TypeParent,
 			},
 			wantErrs: 2,
+		},
+		{
+			name: "loose CSV phone format is normalized before validation",
+			recipient: Recipient{
+				FirstName: "Jan",
+				LastName:  "Kowalski",
+				Phone:     "500 100 101",
+				Type:      TypeParent,
+			},
+			wantErrs: 0,
+		},
+		{
+			name: "whitespace-only name is not a name",
+			recipient: Recipient{
+				FirstName: "   ",
+				LastName:  "Kowalski",
+				Email:     "jan.kowalski@example.test",
+				Type:      TypeParent,
+			},
+			wantErrs: 1,
 		},
 	}
 	for _, tc := range cases {

@@ -1,6 +1,9 @@
 package recipients
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Type distinguishes who a recipient is in the school context.
 type Type string
@@ -29,10 +32,10 @@ type Recipient struct {
 func (r Recipient) Validate() []FieldError {
 	var errs []FieldError
 
-	if r.FirstName == "" {
+	if strings.TrimSpace(r.FirstName) == "" {
 		errs = append(errs, FieldError{Field: "first_name", Message: "first name is required"})
 	}
-	if r.LastName == "" {
+	if strings.TrimSpace(r.LastName) == "" {
 		errs = append(errs, FieldError{Field: "last_name", Message: "last name is required"})
 	}
 	if r.Type != TypeParent && r.Type != TypeStudent {
@@ -44,13 +47,16 @@ func (r Recipient) Validate() []FieldError {
 			errs = append(errs, FieldError{Field: "email", Message: err.Error()})
 		}
 	}
+	// Validate the normalized form: callers may still hold loose CSV/UI input
+	// ("500 100 101", "+48 500 100 101") at this point, since normalization
+	// only needs to happen once, right before a value is persisted.
 	if r.Phone != "" {
-		if err := ValidatePhone(r.Phone); err != nil {
+		if err := ValidatePhone(NormalizePhone(r.Phone)); err != nil {
 			errs = append(errs, FieldError{Field: "phone", Message: err.Error()})
 		}
 	}
 	if r.Email == "" && r.Phone == "" {
-		errs = append(errs, FieldError{Field: "email", Message: "recipient must have an e-mail or a phone number"})
+		errs = append(errs, FieldError{Field: "contact", Message: "recipient must have an e-mail or a phone number"})
 	}
 
 	return errs

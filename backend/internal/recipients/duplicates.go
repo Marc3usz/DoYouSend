@@ -19,7 +19,7 @@ func FindDuplicates(candidates []Recipient) []Duplicate {
 		return normalizeEmail(r.Email)
 	})...)
 	dups = append(dups, groupBy(candidates, func(r Recipient) string {
-		return r.Phone
+		return NormalizePhone(r.Phone)
 	})...)
 	return dups
 }
