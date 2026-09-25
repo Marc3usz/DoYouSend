@@ -21,7 +21,10 @@ const (
 // Render substitutes {{name}} placeholders in tmpl with values from fields.
 // The result is the single body sent over BOTH e-mail and SMS for one recipient.
 // Text outside placeholders is copied byte for byte; inserted values are never
-// expanded again. An unclosed "{{" is kept as literal text.
+// expanded again. An unmatched "{{" is kept as literal text.
+//
+// An error concerns this one recipient only: the caller marks that recipient as failed
+// and carries on with the rest of the batch; it must never abort the whole send.
 func Render(tmpl string, fields map[string]string) (string, error) {
 	var b strings.Builder
 	b.Grow(len(tmpl))
@@ -65,17 +68,19 @@ func Placeholders(tmpl string) []string {
 }
 
 // nextPlaceholder finds the first complete {{name}} in s and returns its trimmed name,
-// the text before it and the text after it.
+// the text before it and the text after it. The "{{" nearest to the closing "}}" wins,
+// so in "{{abc {{imie}}" the placeholder is "imie" and "{{abc " stays literal.
 func nextPlaceholder(s string) (name, before, after string, ok bool) {
-	start := strings.Index(s, placeholderOpen)
-	if start < 0 {
+	first := strings.Index(s, placeholderOpen)
+	if first < 0 {
 		return "", "", "", false
 	}
-	inner := s[start+len(placeholderOpen):]
-	end := strings.Index(inner, placeholderClose)
+	end := strings.Index(s[first+len(placeholderOpen):], placeholderClose)
 	if end < 0 {
 		return "", "", "", false
 	}
-	name = strings.TrimSpace(inner[:end])
-	return name, s[:start], inner[end+len(placeholderClose):], true
+	end += first + len(placeholderOpen)
+	start := strings.LastIndex(s[:end], placeholderOpen)
+	name = strings.TrimSpace(s[start+len(placeholderOpen) : end])
+	return name, s[:start], s[end+len(placeholderClose):], true
 }

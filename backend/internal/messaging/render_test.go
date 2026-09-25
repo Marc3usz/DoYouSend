@@ -23,6 +23,8 @@ func TestRender(t *testing.T) {
 		{name: "single braces stay literal", tmpl: "Zbiór {a, b}", want: "Zbiór {a, b}"},
 		{name: "whitespace in text preserved", tmpl: "  {{imie}}\n\nkoniec  ", want: "  Anna\n\nkoniec  "},
 		{name: "value is not re-expanded", tmpl: "{{imie}}", want: "Anna"},
+		{name: "unmatched open braces before placeholder stay literal", tmpl: "{{abc unrelated {{imie}}", want: "{{abc unrelated Anna"},
+		{name: "triple open braces keep one literal brace", tmpl: "{{{imie}}", want: "{Anna"},
 		{name: "unknown placeholder", tmpl: "Hej {{imiee}}", wantErr: ErrUnknownPlaceholder},
 		{name: "empty placeholder name", tmpl: "Hej {{}}", wantErr: ErrUnknownPlaceholder},
 	}
@@ -58,7 +60,7 @@ func TestRenderDoesNotExpandValues(t *testing.T) {
 }
 
 func TestPlaceholders(t *testing.T) {
-	got := Placeholders("{{imie}} {{ klasa }} {{imie}} {{brak")
+	got := Placeholders("{{x {{imie}} {{ klasa }} {{imie}} {{brak")
 	want := []string{"imie", "klasa"}
 	if len(got) != len(want) {
 		t.Fatalf("Placeholders() = %v, want %v", got, want)
