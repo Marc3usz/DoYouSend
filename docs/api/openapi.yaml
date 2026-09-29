@@ -56,17 +56,49 @@ paths:
   /recipients/import:
     post:
       tags: [recipients]
-      summary: Import z pliku CSV
-      description: Zwraca raport per wiersz: zaimportowane, bledne, duplikaty.
+      summary: Import z pliku CSV lub XLSX
+      description: |
+        Zapisuje wiersze poprawne (wszystkie albo zaden) i zwraca raport per wiersz.
+        Wymaga roli administratora. Jeszcze niezaimplementowany: czeka na baze
+        (platform/database) i middleware rol (iam).
       requestBody:
+        required: true
         content:
           multipart/form-data:
-            schema:
-              type: object
-              properties:
-                file: { type: string, format: binary }
+            schema: { $ref: "#/components/schemas/ImportFile" }
       responses:
-        "200": { description: Raport importu }
+        "200":
+          description: Raport importu; valid to wiersze zapisane
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImportReport" }
+        "400": { $ref: "#/components/responses/ImportFileError" }
+        "413": { $ref: "#/components/responses/ImportFileError" }
+        "422": { $ref: "#/components/responses/ImportFileError" }
+
+  /recipients/import/check:
+    post:
+      tags: [recipients]
+      summary: Sprawdza plik importu bez zapisu (podglad)
+      description: |
+        Ten sam raport co /recipients/import, ale nic nie zapisuje. Dopoki nie ma bazy,
+        duplikaty sa wykrywane tylko w obrebie pliku, a endpoint nie wymaga logowania
+        (zwraca wylacznie dane z przeslanego pliku). Po podlaczeniu bazy sprawdza tez
+        duplikaty wzgledem zapisanych odbiorcow i od tej chwili wymaga roli administratora.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: "#/components/schemas/ImportFile" }
+      responses:
+        "200":
+          description: Raport per wiersz
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImportReport" }
+        "400": { $ref: "#/components/responses/ImportFileError" }
+        "413": { $ref: "#/components/responses/ImportFileError" }
+        "422": { $ref: "#/components/responses/ImportFileError" }
 
   /groups:
     get:
@@ -203,3 +235,85 @@ components:
         missingPhone:
           type: array
           items: { $ref: "#/components/schemas/Recipient" }
+
+    ImportFile:
+      type: object
+      required: [file]
+      properties:
+        file:
+          type: string
+          format: binary
+          description: CSV (UTF-8, separator , albo ;) lub XLSX (pierwszy arkusz), najwyzej 5 MB i 5000 wierszy
+
+    ImportReport:
+      type: object
+      description: Kazdy niepusty wiersz danych jest dokladnie na jednej liscie. row to numer wiersza w pliku (naglowek = 1).
+      required: [valid, invalid, duplicates]
+      properties:
+        valid:
+          type: array
+          items:
+            type: object
+            required: [row, recipient]
+            properties:
+              row:       { type: integer }
+              recipient: { $ref: "#/components/schemas/ImportedRecipient" }
+        invalid:
+          type: array
+          items:
+            type: object
+            required: [row, errors]
+            properties:
+              row: { type: integer }
+              errors:
+                type: array
+                items: { $ref: "#/components/schemas/ImportFieldError" }
+        duplicates:
+          type: array
+          items:
+            type: object
+            required: [row, field]
+            description: Dokladnie jedno z duplicateOfRow / existingRecipientId jest ustawione.
+            properties:
+              row:   { type: integer }
+              field: { type: string, enum: [email, phone] }
+              duplicateOfRow:      { type: integer, description: "Wczesniejszy wiersz pliku z ta sama wartoscia" }
+              existingRecipientId: { type: string, format: uuid, description: "Zapisany odbiorca z ta sama wartoscia" }
+
+    ImportedRecipient:
+      type: object
+      required: [firstName, lastName, type]
+      properties:
+        firstName: { type: string }
+        lastName:  { type: string }
+        email:     { type: string, nullable: true }
+        phone:     { type: string, nullable: true, description: "E.164" }
+        type:      { $ref: "#/components/schemas/RecipientType" }
+
+    ImportFieldError:
+      type: object
+      required: [field, message]
+      properties:
+        field:
+          type: string
+          enum: [first_name, last_name, type, email, phone, contact, encoding, row]
+          description: Stabilny klucz dla UI (contact = brak e-maila i telefonu, row = wiersza nie da sie odczytac)
+        message: { type: string, description: "Szczegol diagnostyczny po angielsku, nie do wyswietlania wprost" }
+
+    ImportFileErrorBody:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [missing_file, empty_file, missing_columns, invalid_header, unsupported_format, file_too_large, too_many_rows, unclosed_quote]
+        message: { type: string, description: "Szczegol diagnostyczny po angielsku, np. lista brakujacych kolumn" }
+
+  responses:
+    ImportFileError:
+      description: |
+        Pliku nie da sie uzyc jako calosci (pojedyncze zle wiersze trafiaja do raportu, nie tutaj).
+        400 = brak pola file albo zly multipart, 413 = file_too_large, 422 = pozostale kody.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ImportFileErrorBody" }
