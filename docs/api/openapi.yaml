@@ -306,14 +306,15 @@ components:
       properties:
         code:
           type: string
-          enum: [missing_file, empty_file, missing_columns, invalid_header, unsupported_format, file_too_large, too_many_rows, unclosed_quote]
+          enum: [invalid_request, missing_file, empty_file, missing_columns, invalid_header, unsupported_format, file_too_large, too_many_rows, unclosed_quote]
         message: { type: string, description: "Szczegol diagnostyczny po angielsku, np. lista brakujacych kolumn" }
 
   responses:
     ImportFileError:
       description: |
         Pliku nie da sie uzyc jako calosci (pojedyncze zle wiersze trafiaja do raportu, nie tutaj).
-        400 = brak pola file albo zly multipart, 413 = file_too_large, 422 = pozostale kody.
+        400 = invalid_request (to nie multipart) albo missing_file (brak pola file),
+        413 = file_too_large, 422 = pozostale kody.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ImportFileErrorBody" }
