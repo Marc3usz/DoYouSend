@@ -5,7 +5,15 @@
 //   - providers/email: SMTP (Mailpit locally) and the production e-mail service,
 //   - providers/sms:   the SMS gateway and a "fake" gateway that records messages.
 //
-// Dry-run mode can be enforced per provider or via the WrapDryRun decorator.
+// Usage:
+//
+//	cfg := providers.ConfigFromEnv()            // reads .env variables
+//	p, err := providers.New(cfg, logger)        // builds Email + SMS providers
+//	// p.Email and p.SMS implement providers.Provider
+//
+// Dry-run mode is enforced automatically by New when Config.DryRun is true —
+// both providers are wrapped with WrapDryRun so no messages leave the system.
+//
 // Note: SMS part counting is owned and calculated by package messaging (MeasureSMS),
 // while delivery per recipient is executed here.
 //
