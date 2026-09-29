@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestParseCSV(t *testing.T) {
+func TestReadCSVReport(t *testing.T) {
 	cases := []struct {
 		name  string
 		input string
@@ -87,14 +87,15 @@ func TestParseCSV(t *testing.T) {
 			},
 		},
 		{
-			name: "row numbers follow file lines across blank lines and quoted newlines",
-			input: "first_name,last_name,email,phone,type\n" +
+			name: "row numbers follow file lines across blank lines, blank records and quoted newlines",
+			input: "first_name;last_name;email;phone;type\n" +
 				"\n" +
-				"\"Anna\nMaria\",Testowa,anna@example.test,,parent\n" +
-				"Piotr,Przykladowy,piotr@example.test,,parent\n",
+				"\"Anna\nMaria\";Testowa;anna@example.test;;parent\n" +
+				";;;;\n" +
+				"Piotr;Przykladowy;piotr@example.test;;parent\n",
 			want: ImportReport{Valid: []ImportedRow{
 				{Row: 3, Recipient: Recipient{FirstName: "Anna\nMaria", LastName: "Testowa", Email: "anna@example.test", Type: TypeParent}},
-				{Row: 5, Recipient: Recipient{FirstName: "Piotr", LastName: "Przykladowy", Email: "piotr@example.test", Type: TypeParent}},
+				{Row: 6, Recipient: Recipient{FirstName: "Piotr", LastName: "Przykladowy", Email: "piotr@example.test", Type: TypeParent}},
 			}},
 		},
 		{
@@ -115,18 +116,51 @@ func TestParseCSV(t *testing.T) {
 					{Row: 3, Recipient: Recipient{FirstName: "Maria", LastName: "Kowalska", Email: "maria.kowalska@example.test", Type: TypeParent}},
 				},
 				Invalid: []InvalidRow{
-					{Row: 2, Errors: []FieldError{{Field: "csv", Message: `bare " in non-quoted-field`}}},
+					{Row: 2, Errors: []FieldError{{Field: "row", Message: `bare " in non-quoted-field`}}},
 				},
 			},
 		},
 		{
-			name: "an unclosed quote swallows the rest of the file into one invalid row",
+			name: "an unclosed quote in the last row only affects that row",
 			input: "first_name,last_name,email,phone,type\n" +
-				"\"Jan,Kowalski,a@example.test,,parent\n" +
-				"Maria,Kowalska,maria.kowalska@example.test,,parent\n",
-			want: ImportReport{Invalid: []InvalidRow{
-				{Row: 2, Errors: []FieldError{{Field: "csv", Message: `extraneous or missing " in quoted-field`}}},
-			}},
+				"Maria,Kowalska,maria.kowalska@example.test,,parent\n" +
+				"\"Jan,Kowalski,a@example.test,,parent\n",
+			want: ImportReport{
+				Valid: []ImportedRow{
+					{Row: 2, Recipient: Recipient{FirstName: "Maria", LastName: "Kowalska", Email: "maria.kowalska@example.test", Type: TypeParent}},
+				},
+				Invalid: []InvalidRow{
+					{Row: 3, Errors: []FieldError{{Field: "row", Message: `extraneous or missing " in quoted-field`}}},
+				},
+			},
+		},
+		{
+			name: "a closed multi-line field followed by a stray quote is one bad row",
+			input: "first_name,last_name,email,phone,type\n" +
+				"\"Anna\nMaria\"x,Testowa,anna@example.test,,parent\n" +
+				"Piotr,Przykladowy,piotr@example.test,,parent\n",
+			want: ImportReport{
+				Valid: []ImportedRow{
+					{Row: 4, Recipient: Recipient{FirstName: "Piotr", LastName: "Przykladowy", Email: "piotr@example.test", Type: TypeParent}},
+				},
+				Invalid: []InvalidRow{
+					{Row: 2, Errors: []FieldError{{Field: "row", Message: `extraneous or missing " in quoted-field`}}},
+				},
+			},
+		},
+		{
+			name: "trailing empty cells are ignored, a row with too many filled columns is reported",
+			input: "first_name,last_name,email,phone,type" + strings.Repeat(",", 200) + "\n" +
+				"Jan,Kowalski,jan.kowalski@example.test,,parent" + strings.Repeat(",", 200) + "\n" +
+				"Maria,Kowalska,maria.kowalska@example.test,,parent" + strings.Repeat(",", MaxImportColumns) + "x\n",
+			want: ImportReport{
+				Valid: []ImportedRow{
+					{Row: 2, Recipient: Recipient{FirstName: "Jan", LastName: "Kowalski", Email: "jan.kowalski@example.test", Type: TypeParent}},
+				},
+				Invalid: []InvalidRow{
+					{Row: 3, Errors: []FieldError{{Field: "row", Message: "row has more than 100 filled columns"}}},
+				},
+			},
 		},
 		{
 			name:  "header only",
@@ -136,41 +170,25 @@ func TestParseCSV(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := ParseCSV(strings.NewReader(tc.input))
+			got, err := parseReport([]byte(tc.input))
 			if err != nil {
-				t.Fatalf("ParseCSV() error = %v", err)
+				t.Fatalf("parseReport() error = %v", err)
 			}
 			if !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("ParseCSV() =\n%+v\nwant\n%+v", got, tc.want)
+				t.Errorf("parseReport() =\n%+v\nwant\n%+v", got, tc.want)
 			}
 		})
 	}
 }
 
-func TestParseCSVFileErrors(t *testing.T) {
-	cases := []struct {
-		name      string
-		input     string
-		wantErrIs error
-		wantInMsg string
-	}{
-		{"empty file", "", nil, "file is empty"},
-		{"missing columns", "first_name,last_name,email\n", ErrMissingColumns, "phone, type"},
-		{"column given twice", "imie,first_name,last_name,email,phone,type\n", nil, "more than once"},
-		{"malformed header", "first_name,\"last_name,email,phone,type\n", nil, "read csv header"},
+func TestReadCSVRowLimit(t *testing.T) {
+	file := func(dataRows int) []byte {
+		return []byte("first_name,last_name,email,phone,type\n" + strings.Repeat("Jan,Kowalski,,+48500100101,parent\n", dataRows))
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := ParseCSV(strings.NewReader(tc.input))
-			if err == nil {
-				t.Fatal("ParseCSV() error = nil, want error")
-			}
-			if tc.wantErrIs != nil && !errors.Is(err, tc.wantErrIs) {
-				t.Errorf("ParseCSV() error = %v, want errors.Is %v", err, tc.wantErrIs)
-			}
-			if !strings.Contains(err.Error(), tc.wantInMsg) {
-				t.Errorf("ParseCSV() error = %q, want it to contain %q", err, tc.wantInMsg)
-			}
-		})
+	if _, err := parseReport(file(MaxImportRows)); err != nil {
+		t.Errorf("%d data rows: error = %v, want nil", MaxImportRows, err)
+	}
+	if _, err := parseReport(file(MaxImportRows + 1)); !errors.Is(err, ErrTooManyRows) {
+		t.Errorf("%d data rows: error = %v, want %v", MaxImportRows+1, err, ErrTooManyRows)
 	}
 }
