@@ -11,23 +11,40 @@
 	let file = $state<File | null>(null);
 	let checking = $state(false);
 	let report = $state<ImportReport | null>(null);
+	let reportFileName = $state('');
 	let failure = $state<FileErrorText | null>(null);
+
+	// A result on screen always belongs to the currently selected file, so
+	// choosing another file (or cancelling the picker) clears it.
+	function selectFile(next: File | null) {
+		file = next;
+		report = null;
+		failure = null;
+	}
 
 	// The check is triggered by the user, so it runs in the browser (through
 	// the /api dev proxy) rather than in a load function.
 	async function check(event: SubmitEvent) {
 		event.preventDefault();
-		if (!file) {
+		const checked = file;
+		report = null;
+		failure = null;
+		if (!checked) {
 			failure = fileErrorText({ code: 'missing_file', message: '' });
 			return;
 		}
 		checking = true;
-		report = null;
-		failure = null;
 		try {
-			report = await checkImportFile(file);
+			const result = await checkImportFile(checked);
+			// Drop a late answer for a file that is no longer selected.
+			if (file === checked) {
+				report = result;
+				reportFileName = checked.name;
+			}
 		} catch (err) {
-			failure = fileErrorText(importFileError(err));
+			if (file === checked) {
+				failure = fileErrorText(importFileError(err));
+			}
 		} finally {
 			checking = false;
 		}
@@ -56,7 +73,7 @@
 		type="file"
 		name="file"
 		accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-		onchange={(e) => (file = e.currentTarget.files?.[0] ?? null)}
+		onchange={(e) => selectFile(e.currentTarget.files?.[0] ?? null)}
 	/>
 	<button type="submit" disabled={checking}>{checking ? 'Sprawdzam…' : 'Sprawdź plik'}</button>
 </form>
@@ -72,8 +89,8 @@
 
 {#if report}
 	<p class="summary" aria-live="polite">
-		Poprawne: <strong>{report.valid.length}</strong> · Błędne:
-		<strong>{report.invalid.length}</strong> · Duplikaty:
+		Plik <strong>{reportFileName}</strong> — poprawne: <strong>{report.valid.length}</strong>,
+		błędne: <strong>{report.invalid.length}</strong>, duplikaty:
 		<strong>{report.duplicates.length}</strong>
 	</p>
 
