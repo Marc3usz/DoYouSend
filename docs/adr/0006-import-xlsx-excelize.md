@@ -1,9 +1,8 @@
 # ADR-0006: Import odbiorców z XLSX przez bibliotekę excelize
 
-- **Status:** propozycja — do akceptacji w review PR-a z importem odbiorców; przed merge
-  zmienić na „przyjęta”
+- **Status:** przyjęta — zaakceptowana w review PR #8 przez MichalK252 (DEV C)
 - **Data:** 2026-09-29
-- **Uczestnicy:** Marc3usz (DEV A) proponuje; zależność w `go.mod` wymaga zgody zespołu
+- **Uczestnicy:** Marc3usz (DEV A) proponuje, MichalK252 (DEV C) akceptuje
 
 ## Kontekst
 

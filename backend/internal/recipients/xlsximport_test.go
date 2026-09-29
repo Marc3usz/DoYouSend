@@ -164,3 +164,41 @@ func TestReadXLSXWideRows(t *testing.T) {
 		t.Errorf("parseFile() =\n%+v\nwant\n%+v", rows, want)
 	}
 }
+
+func TestReadXLSXScanLimit(t *testing.T) {
+	build := func(strayRow int) []byte {
+		f := excelize.NewFile()
+		defer func() { _ = f.Close() }()
+		if err := f.SetSheetRow("Sheet1", "A1", &[]any{"first_name", "last_name", "email", "phone", "type"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.SetSheetRow("Sheet1", "A2", &[]any{"Jan", "Kowalski", "jan.kowalski@example.test", nil, "parent"}); err != nil {
+			t.Fatal(err)
+		}
+		cell, err := excelize.CoordinatesToCellName(1, strayRow)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := f.SetCellValue("Sheet1", cell, "x"); err != nil {
+			t.Fatal(err)
+		}
+		buf, err := f.WriteToBuffer()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return buf.Bytes()
+	}
+
+	report, err := parseReport(build(maxXLSXScannedRows))
+	if err != nil {
+		t.Fatalf("stray cell in row %d: error = %v, want nil", maxXLSXScannedRows, err)
+	}
+	if len(report.Valid) != 1 || len(report.Invalid) != 1 || report.Invalid[0].Row != maxXLSXScannedRows {
+		t.Errorf("stray cell in row %d: report = %+v, want row 2 valid and the stray row invalid", maxXLSXScannedRows, report)
+	}
+
+	_, err = parseReport(build(maxXLSXScannedRows + 1))
+	if !errors.Is(err, ErrTooManyRows) {
+		t.Errorf("stray cell in row %d: error = %v, want %v", maxXLSXScannedRows+1, err, ErrTooManyRows)
+	}
+}

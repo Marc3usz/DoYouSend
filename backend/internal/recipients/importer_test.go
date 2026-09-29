@@ -120,3 +120,21 @@ func TestImporterErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestImporterLooksUpEachContactOnce(t *testing.T) {
+	store := &fakeStore{}
+	input := "first_name,last_name,email,phone,type\n" +
+		"Jan,Kowalski,jan.kowalski@example.test,500100101,parent\n" +
+		"Jan,Kowalski,JAN.KOWALSKI@example.test,+48 500 100 101,parent\n" +
+		"Jan,Kowalski,jan.kowalski@example.test,500100101,parent\n"
+
+	if _, err := NewImporter(store).Check(context.Background(), strings.NewReader(input)); err != nil {
+		t.Fatalf("Check() error = %v", err)
+	}
+	if want := []string{"jan.kowalski@example.test"}; !reflect.DeepEqual(store.lookedUpEmails, want) {
+		t.Errorf("looked up e-mails %v, want %v", store.lookedUpEmails, want)
+	}
+	if want := []string{"+48500100101"}; !reflect.DeepEqual(store.lookedUpPhones, want) {
+		t.Errorf("looked up phones %v, want %v", store.lookedUpPhones, want)
+	}
+}

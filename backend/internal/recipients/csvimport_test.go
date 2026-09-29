@@ -34,6 +34,14 @@ func TestReadCSVReport(t *testing.T) {
 			}},
 		},
 		{
+			name: "spelled-out header names, extra spaces and mixed case",
+			input: "First Name,Last  Name, Adres E-mail ,Nr telefonu,Typ\n" +
+				"Jan,Kowalski,jan.kowalski@example.test,500100101,rodzic\n",
+			want: ImportReport{Valid: []ImportedRow{
+				{Row: 2, Recipient: Recipient{FirstName: "Jan", LastName: "Kowalski", Email: "jan.kowalski@example.test", Phone: "+48500100101", Type: TypeParent}},
+			}},
+		},
+		{
 			name: "invalid rows are reported with every error and do not stop the import",
 			input: "first_name,last_name,email,phone,type\n" +
 				",Kowalski,not-an-email,+48500100101,teacher\n" +

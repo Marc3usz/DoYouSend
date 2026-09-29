@@ -66,7 +66,7 @@ func TestClassifyAgainstExisting(t *testing.T) {
 	}
 	existing := ExistingContacts{
 		Emails: map[string]string{"jan.kowalski@example.test": "id-jan"},
-		Phones: map[string]string{"+48500100104": "id-zofia"},
+		Phones: map[string]string{"+48 500 100 104": "id-zofia"}, // stored before normalization
 	}
 
 	got := classify(rows, existing)

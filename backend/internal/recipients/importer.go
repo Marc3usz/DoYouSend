@@ -45,16 +45,20 @@ func (im *Importer) Check(ctx context.Context, r io.Reader) (ImportReport, error
 		return ImportReport{}, err
 	}
 
+	// Each value is looked up once, however many rows repeat it.
 	var emails, phones []string
+	seen := make(map[string]bool)
 	for _, p := range rows {
 		if len(p.Errors) > 0 {
 			continue
 		}
-		if email := normalizeEmail(p.Recipient.Email); email != "" {
+		if email := normalizeEmail(p.Recipient.Email); email != "" && !seen["email:"+email] {
+			seen["email:"+email] = true
 			emails = append(emails, email)
 		}
-		if p.Recipient.Phone != "" {
-			phones = append(phones, p.Recipient.Phone)
+		if phone := p.Recipient.Phone; phone != "" && !seen["phone:"+phone] {
+			seen["phone:"+phone] = true
+			phones = append(phones, phone)
 		}
 	}
 

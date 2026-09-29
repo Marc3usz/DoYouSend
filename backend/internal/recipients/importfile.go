@@ -183,8 +183,10 @@ func classify(rows []parsedRow, existing ExistingContacts) ImportReport {
 	for email, id := range existing.Emails {
 		emailOwner[normalizeEmail(email)] = owner{id: id}
 	}
+	// Normalize what the store returns too: stored rows predating
+	// NormalizePhone must still collide with the normalized file values.
 	for phone, id := range existing.Phones {
-		phoneOwner[phone] = owner{id: id}
+		phoneOwner[NormalizePhone(phone)] = owner{id: id}
 	}
 
 	var report ImportReport
@@ -216,13 +218,14 @@ func classify(rows []parsedRow, existing ExistingContacts) ImportReport {
 	return report
 }
 
-// columnAliases maps accepted header names (case-insensitive) to the canonical
-// column. Polish names are accepted because school exports use them.
+// columnAliases maps accepted header names (case-insensitive, runs of spaces
+// collapsed) to the canonical column. Polish names and spelled-out variants
+// are accepted because school exports use them.
 var columnAliases = map[string]string{
-	"first_name": "first_name", "imie": "first_name", "imię": "first_name",
-	"last_name": "last_name", "nazwisko": "last_name",
-	"email": "email", "e-mail": "email",
-	"phone": "phone", "telefon": "phone",
+	"first_name": "first_name", "first name": "first_name", "imie": "first_name", "imię": "first_name",
+	"last_name": "last_name", "last name": "last_name", "nazwisko": "last_name",
+	"email": "email", "e-mail": "email", "adres email": "email", "adres e-mail": "email",
+	"phone": "phone", "telefon": "phone", "numer telefonu": "phone", "nr telefonu": "phone",
 	"type": "type", "typ": "type",
 }
 
@@ -239,7 +242,7 @@ var typeAliases = map[string]Type{
 func mapColumns(header []string) (map[string]int, error) {
 	cols := make(map[string]int)
 	for i, name := range header {
-		canonical, ok := columnAliases[strings.ToLower(strings.TrimSpace(name))]
+		canonical, ok := columnAliases[strings.Join(strings.Fields(strings.ToLower(name)), " ")]
 		if !ok {
 			continue
 		}

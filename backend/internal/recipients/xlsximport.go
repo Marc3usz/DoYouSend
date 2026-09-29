@@ -13,6 +13,13 @@ import (
 // equal to it also stops excelize from spilling worksheets to temp files.
 const maxXLSXUnzippedSize = 64 << 20
 
+// maxXLSXScannedRows bounds how far down the worksheet readXLSX looks, blank
+// rows included. excelize visits every row number up to the last one present,
+// so one stray cell in row 1048576 would otherwise cost a million iterations
+// for a file of a few kilobytes. It leaves room for the header, MaxImportRows
+// data rows and as many blank rows between them.
+const maxXLSXScannedRows = 2*MaxImportRows + 1
+
 // readXLSX reads the first worksheet of an XLSX workbook into rows, skipping
 // blank ones (see docs/adr/0006-import-xlsx-excelize.md). Cell values are
 // read raw, without number formats, so a phone typed as a number stays
@@ -48,6 +55,9 @@ func readXLSX(data []byte) ([]sourceRow, error) {
 	// Next yields every row number in order, including rows absent from the
 	// file, so the counter is the row number shown in the spreadsheet.
 	for n := 1; it.Next(); n++ {
+		if n > maxXLSXScannedRows {
+			return nil, fmt.Errorf("%w: the worksheet has content below row %d, delete everything that is not part of the list", ErrTooManyRows, maxXLSXScannedRows)
+		}
 		cells, err := it.Columns(excelize.Options{RawCellValue: true})
 		switch {
 		case err != nil:
