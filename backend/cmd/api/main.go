@@ -16,6 +16,7 @@ import (
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/config"
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/httpx"
+	"github.com/Marc3usz/DoYouSend/backend/internal/recipients"
 )
 
 func main() {
@@ -31,6 +32,7 @@ func main() {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		httpx.JSON(w, http.StatusOK, map[string]any{"status": "ok", "dryRun": cfg.DryRun})
 	})
+	mux.Handle("POST /api/recipients/import/check", recipients.HandleCheckImport(logger))
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.APIPort,

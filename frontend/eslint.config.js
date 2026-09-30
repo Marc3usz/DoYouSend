@@ -11,7 +11,11 @@ export default [
 	},
 	{
 		files: ['**/*.svelte'],
-		languageOptions: { parserOptions: { parser: ts.parser } }
+		languageOptions: { parserOptions: { parser: ts.parser } },
+		// svelte-check (TypeScript) already rejects undefined names, and no-undef
+		// does not know browser globals such as File; typescript-eslint turns it
+		// off for .ts files for the same reason.
+		rules: { 'no-undef': 'off' }
 	},
 	{ ignores: ['build/', '.svelte-kit/', 'node_modules/'] }
 ];

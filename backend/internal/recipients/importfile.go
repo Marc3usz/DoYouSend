@@ -28,6 +28,7 @@ var (
 	ErrFileTooLarge      = fmt.Errorf("file is larger than %d MB", MaxImportFileSize>>20)
 	ErrTooManyRows       = fmt.Errorf("file has more than %d data rows", MaxImportRows)
 	ErrUnclosedQuote     = errors.New("a quote in the file is never closed")
+	ErrInvalidHeader     = errors.New("invalid header row")
 )
 
 // ImportReport is the per-row outcome of an import file (description.md:
@@ -107,6 +108,17 @@ var (
 	oleMagic = []byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1}
 )
 
+// ParseFile reads an import file and reports every row, checking duplicates
+// only inside the file. It needs no storage, so it can serve a preview before
+// the database exists; Importer.Check also checks stored recipients.
+func ParseFile(r io.Reader) (ImportReport, error) {
+	rows, err := parseFile(r)
+	if err != nil {
+		return ImportReport{}, err
+	}
+	return classify(rows, ExistingContacts{}), nil
+}
+
 // parseFile reads an import file, detects its format from the content (not
 // the file name) and validates every data row. A bad row never makes it
 // fail; an error means the file as a whole is unusable.
@@ -141,10 +153,10 @@ func parseRows(rows []sourceRow) ([]parsedRow, error) {
 	}
 	header := rows[0]
 	if header.Err != nil {
-		return nil, fmt.Errorf("header row %d: %s", header.Row, header.Err.Message)
+		return nil, fmt.Errorf("%w %d: %s", ErrInvalidHeader, header.Row, header.Err.Message)
 	}
 	if errs := checkEncoding(header.Fields); errs != nil {
-		return nil, fmt.Errorf("header row %d: %s", header.Row, errs[0].Message)
+		return nil, fmt.Errorf("%w %d: %s", ErrInvalidHeader, header.Row, errs[0].Message)
 	}
 	cols, err := mapColumns(header.Fields)
 	if err != nil {
@@ -247,7 +259,7 @@ func mapColumns(header []string) (map[string]int, error) {
 			continue
 		}
 		if _, dup := cols[canonical]; dup {
-			return nil, fmt.Errorf("column %q appears more than once in the header", canonical)
+			return nil, fmt.Errorf("%w: column %q appears more than once", ErrInvalidHeader, canonical)
 		}
 		cols[canonical] = i
 	}
