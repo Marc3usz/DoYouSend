@@ -9,14 +9,9 @@ import (
 	"testing"
 )
 
-// parseReport is parseFile + classify without a store: duplicates are only
-// detected inside the file.
+// parseReport runs ParseFile on data.
 func parseReport(data []byte) (ImportReport, error) {
-	rows, err := parseFile(bytes.NewReader(data))
-	if err != nil {
-		return ImportReport{}, err
-	}
-	return classify(rows, ExistingContacts{}), nil
+	return ParseFile(bytes.NewReader(data))
 }
 
 func TestParseFileErrors(t *testing.T) {
@@ -29,12 +24,12 @@ func TestParseFileErrors(t *testing.T) {
 		{"empty file", nil, ErrEmptyFile, ""},
 		{"only blank records", []byte(";;;;\n\n;;;;\n"), ErrEmptyFile, ""},
 		{"missing columns", []byte("first_name,last_name,email\n"), ErrMissingColumns, "phone, type"},
-		{"column given twice", []byte("imie,first_name,last_name,email,phone,type\n"), nil, "more than once"},
-		{"malformed header", []byte("first_name,\"last_name,email,phone,type\n"), nil, "header row 1"},
-		{"header not UTF-8", []byte("Imi\xea;Nazwisko;E-mail;Telefon;Typ\n"), nil, "UTF-8"},
+		{"column given twice", []byte("imie,first_name,last_name,email,phone,type\n"), ErrInvalidHeader, "more than once"},
+		{"malformed header", []byte("first_name,\"last_name,email,phone,type\n"), ErrInvalidHeader, "header row 1"},
+		{"header not UTF-8", []byte("Imi\xea;Nazwisko;E-mail;Telefon;Typ\n"), ErrInvalidHeader, "UTF-8"},
 		{"unclosed quote swallowing the rest", []byte("first_name,last_name,email,phone,type\n\"Jan,Kowalski,a@example.test,,parent\nMaria,Kowalska,m@example.test,,parent\n"), ErrUnclosedQuote, "row 2"},
 		{"unclosed quote without trailing newline", []byte("first_name,last_name,email,phone,type\n\"Jan,Kowalski,a@example.test,,parent\nMaria,Kowalska,m@example.test,,parent"), ErrUnclosedQuote, "row 2"},
-		{"header too wide", []byte(strings.Repeat("x,", MaxImportColumns) + "first_name,last_name,email,phone,type\n"), nil, "more than 100"},
+		{"header too wide", []byte(strings.Repeat("x,", MaxImportColumns) + "first_name,last_name,email,phone,type\n"), ErrInvalidHeader, "more than 100"},
 		{"too large", bytes.Repeat([]byte("a"), MaxImportFileSize+1), ErrFileTooLarge, ""},
 		{"legacy xls", []byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1, 0, 0}, ErrUnsupportedFormat, ".xls"},
 		{"corrupted zip", []byte("PK\x03\x04 definitely not a zip"), ErrUnsupportedFormat, ""},
