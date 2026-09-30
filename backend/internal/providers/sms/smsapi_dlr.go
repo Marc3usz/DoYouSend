@@ -1,101 +1,172 @@
 package sms
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
+	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
 )
 
-// SMSAPI DLR (Delivery Report) webhook payload.
-//
-// SMSAPI sends a POST request to the configured callback URL with a JSON body
-// containing the delivery status. See https://www.smsapi.pl/docs (Raport doręczeń).
-//
-// Example payload:
-//
-//	{
-//	  "id": "abc123",
-//	  "status": "DELIVERED",
-//	  "date": 1727600000
-//	}
+// SMSAPIDLRAckResponse is the plain-text response body that the SMSAPI callback
+// endpoint must return to acknowledge receipt. If the endpoint does not return "OK",
+// SMSAPI retries sending the report periodically.
+const SMSAPIDLRAckResponse = "OK"
 
-// smsapiDLRPayload is the raw JSON structure of an SMSAPI DLR webhook callback.
-type smsapiDLRPayload struct {
-	// ID is the SMSAPI message identifier, stored as ProviderMessageID when
-	// the message was sent.
-	ID string `json:"id"`
+// SMSAPI status code mappings based on official documentation:
+// https://www.smsapi.pl/docs/#18-lista-statusow-doreczenia
+//
+// Terminal success:
+//   404: DELIVERED (Dostarczona)
+//
+// In-flight / intermediate (must be StatusSent, never StatusSending to avoid re-triggering):
+//   403: SENT (Wysłana do operatora)
+//   409: QUEUE (Kolejka u operatora)
+//   410: ACCEPTED (Zaakceptowana przez operatora)
+//   411: RENEWAL (Ponawianie)
+//
+// Terminal failures:
+//   401: NOT_FOUND (Błędny numer ID lub raport wygasł)
+//   402: EXPIRED (Przedawniona — numer niedostępny zbyt długo)
+//   405: UNDELIVERED (Niedostarczona — błędny numer lub niedostępny)
+//   406: FAILED (Nieudana — błąd bramki)
+//   407: REJECTED (Odrzucona przez operatora)
+//   408: UNKNOWN (Nieznany — brak możliwości doręczenia)
+//   412: STOP (Zatrzymana)
 
-	// Status is the SMSAPI delivery status string:
-	// DELIVERED, UNDELIVERED, EXPIRED, REJECTED, UNKNOWN, QUEUE, SENT.
-	Status string `json:"status"`
+var smsapiStatusCodeMap = map[string]struct {
+	status providers.DeliveryStatus
+	errMsg string
+}{
+	// Success
+	"404":       {status: providers.StatusDelivered},
+	"DELIVERED": {status: providers.StatusDelivered},
 
-	// Date is the Unix timestamp when SMSAPI observed the status change.
-	// Zero when the status is intermediate (QUEUE, SENT).
-	Date int64 `json:"date"`
+	// In-flight / operator progress (StatusSent)
+	"403":      {status: providers.StatusSent},
+	"SENT":     {status: providers.StatusSent},
+	"409":      {status: providers.StatusSent},
+	"QUEUE":    {status: providers.StatusSent},
+	"410":      {status: providers.StatusSent},
+	"ACCEPTED": {status: providers.StatusSent},
+	"411":      {status: providers.StatusSent},
+	"RENEWAL":  {status: providers.StatusSent},
+
+	// Failures
+	"401":         {status: providers.StatusFailed, errMsg: "message not found or report expired in SMSAPI"},
+	"NOT_FOUND":   {status: providers.StatusFailed, errMsg: "message not found or report expired in SMSAPI"},
+	"402":         {status: providers.StatusFailed, errMsg: "delivery timed out, message expired before reaching handset"},
+	"EXPIRED":     {status: providers.StatusFailed, errMsg: "delivery timed out, message expired before reaching handset"},
+	"405":         {status: providers.StatusFailed, errMsg: "message could not be delivered to the handset"},
+	"UNDELIVERED": {status: providers.StatusFailed, errMsg: "message could not be delivered to the handset"},
+	"406":         {status: providers.StatusFailed, errMsg: "message sending failed at SMSAPI gateway"},
+	"FAILED":      {status: providers.StatusFailed, errMsg: "message sending failed at SMSAPI gateway"},
+	"407":         {status: providers.StatusFailed, errMsg: "message rejected by carrier or invalid recipient number"},
+	"REJECTED":    {status: providers.StatusFailed, errMsg: "message rejected by carrier or invalid recipient number"},
+	"408":         {status: providers.StatusFailed, errMsg: "no delivery report available from carrier (undeliverable)"},
+	"UNKNOWN":     {status: providers.StatusFailed, errMsg: "no delivery report available from carrier (undeliverable)"},
+	"412":         {status: providers.StatusFailed, errMsg: "message delivery stopped"},
+	"STOP":        {status: providers.StatusFailed, errMsg: "message delivery stopped"},
 }
 
-// smsapiStatusMap maps SMSAPI status strings to canonical DeliveryStatus values.
-// Statuses not in this map are treated as intermediate/informational and produce
-// StatusSent (the message is still in flight).
-var smsapiStatusMap = map[string]providers.DeliveryStatus{
-	"DELIVERED":   providers.StatusDelivered,
-	"UNDELIVERED": providers.StatusFailed,
-	"EXPIRED":     providers.StatusFailed,
-	"REJECTED":    providers.StatusFailed,
-	"SENT":        providers.StatusSent,
-	"QUEUE":       providers.StatusSending,
-}
-
-// smsapiErrorMessages provides human-readable error reasons for failed statuses.
-var smsapiErrorMessages = map[string]string{
-	"UNDELIVERED": "message could not be delivered to the handset",
-	"EXPIRED":     "delivery timed out, the message expired before reaching the handset",
-	"REJECTED":    "message rejected by the operator or the recipient number is invalid",
-}
-
-// ParseSMSAPIDLR parses an SMSAPI DLR webhook body into a canonical
-// DeliveryReport. The body should be a JSON object with at least "id" and
-// "status" fields.
+// ParseSMSAPIDLR parses parameters from an SMSAPI delivery report callback.
 //
-// Returns ErrMalformedReport if the JSON is invalid or required fields are missing.
-func ParseSMSAPIDLR(body io.Reader) (providers.DeliveryReport, error) {
-	var p smsapiDLRPayload
-	if err := json.NewDecoder(body).Decode(&p); err != nil {
-		return providers.DeliveryReport{}, fmt.Errorf(
-			"%w: invalid JSON: %w", providers.ErrMalformedReport, err,
-		)
+// According to SMSAPI documentation, reports are sent via HTTP GET (or POST)
+// with query/form parameters:
+//   - MsgId (or msg_id): message ID(s), comma-separated when batched
+//   - status: numerical status code(s) (e.g. "404", "405"), comma-separated
+//   - status_name: optional textual status name(s) (e.g. "DELIVERED"), comma-separated
+//   - donedate: optional delivery unixtime timestamp(s), comma-separated
+//
+// Example query string:
+//   MsgId=613F1B14346335B944450980&status=404&status_name=DELIVERED&donedate=1631525653
+//
+// When multiple reports arrive in a single request, values are comma-separated:
+//   MsgId=id1,id2&status=404,405&donedate=1631525653,1631525676
+//
+// Returns a slice of DeliveryReport structs, one per message ID.
+// Returns ErrMalformedReport if required fields are missing, counts mismatch,
+// or status codes are unrecognised.
+func ParseSMSAPIDLR(values url.Values) ([]providers.DeliveryReport, error) {
+	msgIDRaw := getFirst(values, "MsgId", "msg_id", "id")
+	if strings.TrimSpace(msgIDRaw) == "" {
+		return nil, fmt.Errorf("%w: missing required parameter MsgId", providers.ErrMalformedReport)
 	}
 
-	if p.ID == "" {
-		return providers.DeliveryReport{}, fmt.Errorf(
-			"%w: missing required field \"id\"", providers.ErrMalformedReport,
-		)
-	}
-	if p.Status == "" {
-		return providers.DeliveryReport{}, fmt.Errorf(
-			"%w: missing required field \"status\"", providers.ErrMalformedReport,
-		)
+	statusRaw := getFirst(values, "status", "status_name")
+	if strings.TrimSpace(statusRaw) == "" {
+		return nil, fmt.Errorf("%w: missing required parameter status", providers.ErrMalformedReport)
 	}
 
-	status, ok := smsapiStatusMap[p.Status]
-	if !ok {
-		// Unknown status — treat as "still in flight" rather than failing.
-		status = providers.StatusSent
+	dateRaw := getFirst(values, "donedate", "date")
+
+	ids := splitTrimmed(msgIDRaw)
+	statuses := splitTrimmed(statusRaw)
+	dates := splitTrimmed(dateRaw)
+
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("%w: empty MsgId list", providers.ErrMalformedReport)
+	}
+	if len(ids) != len(statuses) {
+		return nil, fmt.Errorf("%w: mismatched MsgId count (%d) and status count (%d)",
+			providers.ErrMalformedReport, len(ids), len(statuses))
+	}
+	if len(dates) > 0 && len(dates) != len(ids) {
+		return nil, fmt.Errorf("%w: mismatched MsgId count (%d) and donedate count (%d)",
+			providers.ErrMalformedReport, len(ids), len(dates))
 	}
 
-	var ts time.Time
-	if p.Date > 0 {
-		ts = time.Unix(p.Date, 0).UTC()
+	reports := make([]providers.DeliveryReport, len(ids))
+	for i, id := range ids {
+		if id == "" {
+			return nil, fmt.Errorf("%w: empty MsgId item at index %d", providers.ErrMalformedReport, i)
+		}
+
+		rawStatus := statuses[i]
+		mapping, ok := smsapiStatusCodeMap[strings.ToUpper(rawStatus)]
+		if !ok {
+			return nil, fmt.Errorf("%w: unrecognized SMSAPI status %q for MsgId %s",
+				providers.ErrMalformedReport, rawStatus, id)
+		}
+
+		var ts time.Time
+		if i < len(dates) && dates[i] != "" {
+			if sec, err := strconv.ParseInt(dates[i], 10, 64); err == nil && sec > 0 {
+				ts = time.Unix(sec, 0).UTC()
+			}
+		}
+
+		reports[i] = providers.DeliveryReport{
+			ProviderMessageID: id,
+			Channel:           providers.ChannelSMS,
+			Status:            mapping.status,
+			ErrorMessage:      mapping.errMsg,
+			Timestamp:         ts,
+		}
 	}
 
-	return providers.DeliveryReport{
-		ProviderMessageID: p.ID,
-		Channel:           providers.ChannelSMS,
-		Status:            status,
-		ErrorMessage:      smsapiErrorMessages[p.Status],
-		Timestamp:         ts,
-	}, nil
+	return reports, nil
+}
+
+func getFirst(v url.Values, keys ...string) string {
+	for _, k := range keys {
+		if val := v.Get(k); val != "" {
+			return val
+		}
+	}
+	return ""
+}
+
+func splitTrimmed(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	res := make([]string, len(parts))
+	for i, p := range parts {
+		res[i] = strings.TrimSpace(p)
+	}
+	return res
 }

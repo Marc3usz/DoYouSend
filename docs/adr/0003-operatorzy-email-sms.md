@@ -12,40 +12,47 @@ wymaga rejestracji u operatora).
 
 ## Decyzja
 
-### E-mail: SMTP (Mailpit → dowolny serwer SMTP)
+### E-mail: Mailpit lokalnie, docelowo SendGrid (ADR-0008)
 
-Adapter `email.Mailpit` działa przez standardowy protokół SMTP, więc nie zależy od żadnego
-dostawcy. Lokalnie łączy się z Mailpitem (port 1025, bez auth, nic nie wychodzi na zewnątrz).
-W środowisku produkcyjnym wystarczy podmienić `SMTP_HOST`, `SMTP_PORT` i dane uwierzytelniające
-na dowolny serwer SMTP (szkolny serwer pocztowy, SendGrid SMTP Relay, Amazon SES SMTP itp.).
-Nie potrzebujemy dedykowanego SDK.
+- **Lokalnie i w testach:** Adapter `email.Mailpit` działa przez standardowy protokół SMTP
+  (port 1025 w `docker compose`, bez auth, `DRY_RUN=true`, nic nie wychodzi na zewnątrz).
+- **Środowisko produkcyjne:** Wstępnie planowano dowolny serwer SMTP, jednak ze względu na
+  wymóg raportów doręczeń per odbiorca (status `delivered`) oraz konieczność wyłączenia
+  click trackingu (zasada identyczności treści e-mail/SMS z `CLAUDE.md`), wybór docelowego
+  dostawcy e-mail reguluje propozycja **ADR-0008** (SendGrid Web API v3, PR #13).
 
 ### SMS: SMSAPI.pl
 
 Wybieramy **SMSAPI** (https://www.smsapi.pl/) z następujących powodów:
 
-1. **Masowa wysyłka i raporty doręczeń (DLR)** — callback URL (webhook) ze statusami
-   `DELIVERED`, `UNDELIVERED`, `EXPIRED`, `REJECTED`. Pozwala aktualizować `deliveries.status`
-   niemal w czasie rzeczywistym.
-2. **Konto testowe/sandbox** — dostępne bez kosztów, z limitem 50 SMS-ów i dedykowanym
-   numerem testowym. Wystarczające do developmentu i CI.
-3. **Polskie znaki i UCS-2** — SMSAPI poprawnie liczy części przy znakach spoza GSM-7.
+1. **Raporty doręczeń (DLR):**
+   - Callback URL (webhook) wywoływany przez SMSAPI metodą GET z parametrami w URL:
+     `MsgId` (ID wiadomości), `status` (kod liczbowy statusu, np. 404 = DELIVERED, 405 = UNDELIVERED),
+     `status_name`, `donedate` (unixtime) oraz opcjonalny `idx`.
+   - SMSAPI obsługuje paczkowanie: przy wielu wiadomościach wartości w parametrach
+     są rozdzielone przecinkami (np. `MsgId=id1,id2&status=404,405`).
+   - Endpoint odbiorczy musi odpowiedzieć zwykłym tekstem `OK`, inaczej SMSAPI ponawia
+     wysyłkę raportu cyklicznie.
+2. **Konto testowe/sandbox:** Dostępne bez kosztów, z limitem testowym i dedykowanym
+   środowiskiem. Wystarczające do developmentu i CI.
+3. **Polskie znaki i UCS-2:** SMSAPI poprawnie liczy części przy znakach spoza GSM-7.
    Nasze `messaging.MeasureSMS` liczy części po stronie backendu, SMSAPI weryfikuje.
-4. **Koszt** — ok. 0.07-0.09 PLN/SMS w prepaidzie, zgodne z `SMS_PRICE_PER_PART_PLN=0.08`
+4. **Koszt:** Ok. 0.07-0.09 PLN/SMS w prepaidzie, zgodne z `SMS_PRICE_PER_PART_PLN=0.08`
    w `.env.example`.
-5. **API** — proste REST API z kluczem Bearer, bez ciężkiego SDK.
+5. **API:** Proste REST API z kluczem Bearer, bez konieczności instalowania zewnętrznych SDK.
 
-Adapter SMSAPI będzie w `internal/providers/sms/smsapi.go`, a parser webhooków DLR
-w `internal/providers/sms/smsapi_dlr.go`. Lokalnie i z `DRY_RUN=true` nadal używamy
-providera `fake`.
+Adapter SMSAPI docelowo znajdzie się w `internal/providers/sms/smsapi.go`, a parser callbacków
+DLR w `internal/providers/sms/smsapi_dlr.go`. Lokalnie i z `DRY_RUN=true` nadal domyślnie
+używamy providera `fake`.
 
 ## Konsekwencje
 
-- Wybór operatora nie wycieknie poza `internal/providers`; reszta kodu zna tylko interfejs.
-- Klucze trafiają wyłącznie do `.env` (`SMS_API_KEY`, `SMS_API_SECRET`); przejście na
-  wysyłkę produkcyjną wymaga zgody opiekuna projektu.
-- Webhook DLR musi trafić na publiczny endpoint (`POST /providers/sms/dlr`), który DEV D
-  uwzględni w routingu i zabezpieczy walidacją podpisu lub IP allowlist od SMSAPI.
-- Jeśli SMSAPI przestanie działać lub zmieni warunki, podmiana na innego operatora wymaga
-  jedynie nowego adaptera w `internal/providers/sms/` i wpisu w fabryce
-  (`providers/setup`). Reszta kodu się nie zmienia.
+- Wybór operatora nie wycieka poza `internal/providers`; reszta kodu (zwłaszcza `delivery`)
+  zna wyłącznie wspólny interfejs `providers.Provider` oraz kanoniczny model `providers.DeliveryReport`.
+- Klucze trafiają wyłącznie do `.env` (`SMS_API_KEY`, `SMS_API_SECRET`).
+- Webhook DLR SMSAPI wymaga publicznego endpointu (`GET /providers/sms/dlr`), który:
+  - parsuje parametry `MsgId`, `status`, `donedate` (obsługując wartości pojedyncze i listy po przecinku),
+  - aktualizuje `deliveries.status`,
+  - zwraca odpowiedź HTTP 200 z treścią `OK`.
+- Endpoint callbacku SMSAPI powinien zostać zabezpieczony przez DEV D na poziomie routingu / reverse proxy
+  poprzez weryfikację adresów IP serwerów SMSAPI (`89.174.81.98, 91.185.187.219, 213.189.53.211, 31.186.83.18, 212.91.26.253`).
