@@ -117,10 +117,10 @@ func ParseSMSAPIDLR(values url.Values) ([]providers.DeliveryReport, error) {
 
 		reports[i] = providers.DeliveryReport{
 			ProviderMessageID: id,
-			Channel: providers.ChannelSMS,
-			Status: st,
-			ErrorMessage: errMsg,
-			Timestamp: ts,
+			Channel:           providers.ChannelSMS,
+			Status:            st,
+			ErrorMessage:      errMsg,
+			Timestamp:         ts,
 		}
 	}
 
