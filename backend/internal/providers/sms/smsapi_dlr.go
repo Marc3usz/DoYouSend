@@ -58,10 +58,12 @@ func mapSMSAPIStatus(raw string) (providers.DeliveryStatus, string, bool) {
 //   - donedate: optional delivery unixtime timestamp(s), comma-separated
 //
 // Example query string:
-//   MsgId=613F1B14346335B944450980&status=404&status_name=DELIVERED&donedate=1631525653
+//
+//	MsgId=613F1B14346335B944450980&status=404&status_name=DELIVERED&donedate=1631525653
 //
 // When multiple reports arrive in a single request, values are comma-separated:
-//   MsgId=id1,id2&status=404,405&donedate=1631525653,1631525676
+//
+//	MsgId=id1,id2&status=404,405&donedate=1631525653,1631525676
 //
 // Returns a slice of DeliveryReport structs, one per message ID.
 // Returns ErrMalformedReport if required fields are missing, counts mismatch,
