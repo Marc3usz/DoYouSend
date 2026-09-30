@@ -47,7 +47,7 @@ func readXLSX(data []byte) ([]sourceRow, error) {
 	}
 	it, err := f.Rows(sheets[0])
 	if err != nil {
-		return nil, fmt.Errorf("read worksheet %q: %w", sheets[0], err)
+		return nil, fmt.Errorf("%w: read worksheet %q: %w", ErrUnsupportedFormat, sheets[0], err)
 	}
 	defer func() { _ = it.Close() }()
 
@@ -72,7 +72,7 @@ func readXLSX(data []byte) ([]sourceRow, error) {
 		}
 	}
 	if err := it.Error(); err != nil {
-		return nil, fmt.Errorf("read worksheet %q: %w", sheets[0], err)
+		return nil, fmt.Errorf("%w: read worksheet %q: %w", ErrUnsupportedFormat, sheets[0], err)
 	}
 	return rows, nil
 }
