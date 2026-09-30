@@ -15,60 +15,37 @@ import (
 // SMSAPI retries sending the report periodically.
 const SMSAPIDLRAckResponse = "OK"
 
-// SMSAPI status code mappings based on official documentation:
-// https://www.smsapi.pl/docs/#18-lista-statusow-doreczenia
-//
-// Terminal success:
-//   404: DELIVERED (Dostarczona)
-//
-// In-flight / intermediate (must be StatusSent, never StatusSending to avoid re-triggering):
-//   403: SENT (Wysłana do operatora)
-//   409: QUEUE (Kolejka u operatora)
-//   410: ACCEPTED (Zaakceptowana przez operatora)
-//   411: RENEWAL (Ponawianie)
-//
-// Terminal failures:
-//   401: NOT_FOUND (Błędny numer ID lub raport wygasł)
-//   402: EXPIRED (Przedawniona — numer niedostępny zbyt długo)
-//   405: UNDELIVERED (Niedostarczona — błędny numer lub niedostępny)
-//   406: FAILED (Nieudana — błąd bramki)
-//   407: REJECTED (Odrzucona przez operatora)
-//   408: UNKNOWN (Nieznany — brak możliwości doręczenia)
-//   412: STOP (Zatrzymana)
+// mapSMSAPIStatus maps SMSAPI status code or name to canonical DeliveryStatus
+// based on official documentation: https://www.smsapi.pl/docs/#18-lista-statusow-doreczenia
+func mapSMSAPIStatus(raw string) (providers.DeliveryStatus, string, bool) {
+	switch strings.ToUpper(raw) {
+	// Terminal success
+	case "404", "DELIVERED":
+		return providers.StatusDelivered, "", true
 
-var smsapiStatusCodeMap = map[string]struct {
-	status providers.DeliveryStatus
-	errMsg string
-}{
-	// Success
-	"404":       {status: providers.StatusDelivered},
-	"DELIVERED": {status: providers.StatusDelivered},
+	// In-flight / operator progress (StatusSent, never StatusSending to avoid duplicate delivery)
+	case "403", "SENT", "409", "QUEUE", "410", "ACCEPTED", "411", "RENEWAL":
+		return providers.StatusSent, "", true
 
-	// In-flight / operator progress (StatusSent)
-	"403":      {status: providers.StatusSent},
-	"SENT":     {status: providers.StatusSent},
-	"409":      {status: providers.StatusSent},
-	"QUEUE":    {status: providers.StatusSent},
-	"410":      {status: providers.StatusSent},
-	"ACCEPTED": {status: providers.StatusSent},
-	"411":      {status: providers.StatusSent},
-	"RENEWAL":  {status: providers.StatusSent},
+	// Terminal failures
+	case "401", "NOT_FOUND":
+		return providers.StatusFailed, "message not found or report expired in SMSAPI", true
+	case "402", "EXPIRED":
+		return providers.StatusFailed, "delivery timed out, message expired before reaching handset", true
+	case "405", "UNDELIVERED":
+		return providers.StatusFailed, "message could not be delivered to the handset", true
+	case "406", "FAILED":
+		return providers.StatusFailed, "message sending failed at SMSAPI gateway", true
+	case "407", "REJECTED":
+		return providers.StatusFailed, "message rejected by carrier or invalid recipient number", true
+	case "408", "UNKNOWN":
+		return providers.StatusFailed, "no delivery report available from carrier (undeliverable)", true
+	case "412", "STOP":
+		return providers.StatusFailed, "message delivery stopped", true
 
-	// Failures
-	"401":         {status: providers.StatusFailed, errMsg: "message not found or report expired in SMSAPI"},
-	"NOT_FOUND":   {status: providers.StatusFailed, errMsg: "message not found or report expired in SMSAPI"},
-	"402":         {status: providers.StatusFailed, errMsg: "delivery timed out, message expired before reaching handset"},
-	"EXPIRED":     {status: providers.StatusFailed, errMsg: "delivery timed out, message expired before reaching handset"},
-	"405":         {status: providers.StatusFailed, errMsg: "message could not be delivered to the handset"},
-	"UNDELIVERED": {status: providers.StatusFailed, errMsg: "message could not be delivered to the handset"},
-	"406":         {status: providers.StatusFailed, errMsg: "message sending failed at SMSAPI gateway"},
-	"FAILED":      {status: providers.StatusFailed, errMsg: "message sending failed at SMSAPI gateway"},
-	"407":         {status: providers.StatusFailed, errMsg: "message rejected by carrier or invalid recipient number"},
-	"REJECTED":    {status: providers.StatusFailed, errMsg: "message rejected by carrier or invalid recipient number"},
-	"408":         {status: providers.StatusFailed, errMsg: "no delivery report available from carrier (undeliverable)"},
-	"UNKNOWN":     {status: providers.StatusFailed, errMsg: "no delivery report available from carrier (undeliverable)"},
-	"412":         {status: providers.StatusFailed, errMsg: "message delivery stopped"},
-	"STOP":        {status: providers.StatusFailed, errMsg: "message delivery stopped"},
+	default:
+		return "", "", false
+	}
 }
 
 // ParseSMSAPIDLR parses parameters from an SMSAPI delivery report callback.
@@ -125,7 +102,7 @@ func ParseSMSAPIDLR(values url.Values) ([]providers.DeliveryReport, error) {
 		}
 
 		rawStatus := statuses[i]
-		mapping, ok := smsapiStatusCodeMap[strings.ToUpper(rawStatus)]
+		st, errMsg, ok := mapSMSAPIStatus(rawStatus)
 		if !ok {
 			return nil, fmt.Errorf("%w: unrecognized SMSAPI status %q for MsgId %s",
 				providers.ErrMalformedReport, rawStatus, id)
@@ -140,10 +117,10 @@ func ParseSMSAPIDLR(values url.Values) ([]providers.DeliveryReport, error) {
 
 		reports[i] = providers.DeliveryReport{
 			ProviderMessageID: id,
-			Channel:           providers.ChannelSMS,
-			Status:            mapping.status,
-			ErrorMessage:      mapping.errMsg,
-			Timestamp:         ts,
+			Channel: providers.ChannelSMS,
+			Status: st,
+			ErrorMessage: errMsg,
+			Timestamp: ts,
 		}
 	}
 
