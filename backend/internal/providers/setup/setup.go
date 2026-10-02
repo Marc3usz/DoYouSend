@@ -40,6 +40,10 @@ type Config struct {
 	SMTPPassword string
 	EmailFrom    string
 
+	// SendGrid settings (used when EmailProvider == "sendgrid").
+	SendGridAPIKey  string
+	SendGridSandbox bool
+
 	// SMSProvider selects the SMS adapter: "fake" (default).
 	SMSProvider string
 
@@ -58,9 +62,11 @@ func ConfigFromEnv() Config {
 		SMTPPort:      envOr("SMTP_PORT", "1025"),
 		SMTPUsername:  envOr("SMTP_USERNAME", ""),
 		SMTPPassword:  envOr("SMTP_PASSWORD", ""),
-		EmailFrom:     envOr("EMAIL_FROM", "DoYouSend <no-reply@example.test>"),
-		SMSProvider:   envOr("SMS_PROVIDER", "fake"),
-		DryRun:        envOr("DRY_RUN", "true") == "true",
+		EmailFrom:       envOr("EMAIL_FROM", "DoYouSend <no-reply@example.test>"),
+		SendGridAPIKey:  envOr("SENDGRID_API_KEY", ""),
+		SendGridSandbox: envOr("SENDGRID_SANDBOX", "false") == "true",
+		SMSProvider:     envOr("SMS_PROVIDER", "fake"),
+		DryRun:          envOr("DRY_RUN", "true") == "true",
 	}
 }
 
@@ -118,6 +124,13 @@ func newEmailProvider(cfg Config, logger *slog.Logger) (providers.Provider, erro
 			Username: cfg.SMTPUsername,
 			Password: cfg.SMTPPassword,
 			DryRun:   cfg.DryRun,
+		}, logger), nil
+
+	case "sendgrid":
+		return email.NewSendGrid(email.SendGridConfig{
+			APIKey:  cfg.SendGridAPIKey,
+			From:    cfg.EmailFrom,
+			Sandbox: cfg.SendGridSandbox,
 		}, logger), nil
 
 	default:
