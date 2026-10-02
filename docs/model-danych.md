@@ -1,6 +1,6 @@
 # Model danych
 
-Źródło prawdy: `backend/migrations/0001_init.sql`. Ten dokument tłumaczy, dlaczego tak.
+Źródło prawdy: `backend/migrations/` (rdzeń w `0001_init.sql`). Ten dokument tłumaczy, dlaczego tak.
 
 | Tabela | Rola |
 |---|---|
@@ -21,6 +21,15 @@
 - `batch_recipients.rendered_body` — historia pokazuje dokładnie to, co poszło do danej osoby;
   ta sama kolumna zasila oba kanały, więc treści nie da się rozjechać.
 - `is_partial` — wysyłka tylko jednym kanałem jest jawnie oznaczona.
+- `groups_name_lower_key` (0002) — nazwa grupy unikalna bez względu na wielkość liter.
+
+## Grupy systemowe
+
+„Wszyscy rodzice” i „Wszyscy uczniowie” mają stałe UUID i wiersze w `groups` z `is_system = true`
+(migracja `0002_system_groups.sql`). Ich członkostwo **nie** jest zapisane w `group_members`:
+wylicza je kod (`backend/internal/groups/system.go`) z `recipients.type`, więc nie trzeba go
+synchronizować po imporcie (ADR-0007). Magazyn grup w Postgresie (`groups.PGStore`) w ogóle
+nie widzi tych wierszy — nie da się ich zmienić ani dodać do nich osób.
 
 ## Zmiany schematu
 

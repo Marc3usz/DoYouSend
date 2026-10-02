@@ -58,6 +58,7 @@ widoczne w historii wysyłek.
 ```bash
 make check     # lintery i typy (to samo co CI)
 make test      # testy backendu i frontendu
+make test-integration  # testy na Postgresie (TEST_DATABASE_URL, patrz .env.example)
 make fmt       # formatowanie
 make down      # zatrzymanie kontenerów
 ```

@@ -38,5 +38,6 @@ Go 1.24 API + delivery worker. Read the root `CLAUDE.md` first; this file adds t
 ```bash
 go run ./cmd/api          # API on :8080
 go test ./...             # unit tests
+TEST_DATABASE_URL=... go test -tags integration ./...   # Postgres stores (dbtest gives each test its own schema)
 go vet ./... && gofmt -l . && golangci-lint run
 ```
