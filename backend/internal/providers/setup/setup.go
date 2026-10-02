@@ -57,11 +57,11 @@ type Config struct {
 // that keep the system inert (DRY_RUN=true, fake SMS, local Mailpit).
 func ConfigFromEnv() Config {
 	return Config{
-		EmailProvider: envOr("EMAIL_PROVIDER", "mailpit"),
-		SMTPHost:      envOr("SMTP_HOST", "localhost"),
-		SMTPPort:      envOr("SMTP_PORT", "1025"),
-		SMTPUsername:  envOr("SMTP_USERNAME", ""),
-		SMTPPassword:  envOr("SMTP_PASSWORD", ""),
+		EmailProvider:   envOr("EMAIL_PROVIDER", "mailpit"),
+		SMTPHost:        envOr("SMTP_HOST", "localhost"),
+		SMTPPort:        envOr("SMTP_PORT", "1025"),
+		SMTPUsername:    envOr("SMTP_USERNAME", ""),
+		SMTPPassword:    envOr("SMTP_PASSWORD", ""),
 		EmailFrom:       envOr("EMAIL_FROM", "DoYouSend <no-reply@example.test>"),
 		SendGridAPIKey:  envOr("SENDGRID_API_KEY", ""),
 		SendGridSandbox: envOr("SENDGRID_SANDBOX", "false") == "true",
