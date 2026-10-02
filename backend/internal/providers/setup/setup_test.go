@@ -24,6 +24,7 @@ func TestConfigFromEnv_Defaults(t *testing.T) {
 		{"SMTPPort", cfg.SMTPPort, "1025"},
 		{"SMTPUsername", cfg.SMTPUsername, ""},
 		{"SMTPPassword", cfg.SMTPPassword, ""},
+		{"SendGridAPIKey", cfg.SendGridAPIKey, ""},
 		{"SMSProvider", cfg.SMSProvider, "fake"},
 	}
 
@@ -33,6 +34,9 @@ func TestConfigFromEnv_Defaults(t *testing.T) {
 		}
 	}
 
+	if cfg.SendGridSandbox {
+		t.Error("SendGridSandbox should default to false")
+	}
 	if !cfg.DryRun {
 		t.Error("DryRun should default to true")
 	}
@@ -44,6 +48,8 @@ func TestConfigFromEnv_OverridesFromEnv(t *testing.T) {
 	t.Setenv("SMTP_HOST", "smtp.example.test")
 	t.Setenv("SMTP_PORT", "587")
 	t.Setenv("SMS_PROVIDER", "smsapi")
+	t.Setenv("SENDGRID_API_KEY", "test-sg-key")
+	t.Setenv("SENDGRID_SANDBOX", "true")
 	t.Setenv("DRY_RUN", "false")
 
 	cfg := ConfigFromEnv()
@@ -59,6 +65,12 @@ func TestConfigFromEnv_OverridesFromEnv(t *testing.T) {
 	}
 	if cfg.SMSProvider != "smsapi" {
 		t.Errorf("SMSProvider = %q, want %q", cfg.SMSProvider, "smsapi")
+	}
+	if cfg.SendGridAPIKey != "test-sg-key" {
+		t.Errorf("SendGridAPIKey = %q, want %q", cfg.SendGridAPIKey, "test-sg-key")
+	}
+	if !cfg.SendGridSandbox {
+		t.Error("SendGridSandbox should be true when SENDGRID_SANDBOX=true")
 	}
 	if cfg.DryRun {
 		t.Error("DryRun should be false when DRY_RUN=false")
@@ -108,10 +120,34 @@ func TestNew_DefaultConfig(t *testing.T) {
 	}
 }
 
+func TestNew_SendGridEmailProvider(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		EmailProvider:  "sendgrid",
+		SendGridAPIKey: "test-api-key",
+		EmailFrom:      "test@example.test",
+		SMSProvider:    "fake",
+		DryRun:         false,
+	}
+
+	p, err := New(cfg, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if p.Email == nil {
+		t.Fatal("Email provider is nil")
+	}
+	if p.Email.Channel() != providers.ChannelEmail {
+		t.Errorf("Email.Channel() = %v, want %v", p.Email.Channel(), providers.ChannelEmail)
+	}
+}
+
 func TestNew_UnsupportedEmailProvider(t *testing.T) {
 	t.Parallel()
 
-	_, err := New(Config{EmailProvider: "sendgrid", SMSProvider: "fake"}, nil)
+	_, err := New(Config{EmailProvider: "nonexistent", SMSProvider: "fake"}, nil)
 	if err == nil {
 		t.Fatal("expected error for unsupported email provider")
 	}
