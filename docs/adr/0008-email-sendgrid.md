@@ -1,6 +1,6 @@
 # ADR-0008: Wysyłka e-maili przez SendGrid
 
-- **Status:** propozycja — czeka na akceptację MichalK252 (DEV C, właściciel `providers`)
+- **Status:** przyjęta (2026-10-02, MichalK252)
 - **Data:** 2026-09-30
 - **Uczestnicy:** Marc3usz (DEV A) proponuje, MichalK252 (DEV C) decyduje i implementuje
 - **Zmienia:** część „E-mail” w ADR-0003. Część „SMS” (SMSAPI) zostaje bez zmian.
