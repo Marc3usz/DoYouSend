@@ -29,29 +29,88 @@ paths:
   /recipients:
     get:
       tags: [recipients]
-      summary: Lista odbiorcow
+      summary: Lista odbiorcow (stronicowana)
+      description: |
+        Posortowana po nazwisku, imieniu i ID. Wymaga roli administratora (gdy dojdzie iam).
       parameters:
-        - { in: query, name: q,    schema: { type: string } }
+        - in: query
+          name: q
+          description: Fragment imienia, nazwiska, e-maila lub numeru (bez wzgledu na wielkosc liter)
+          schema: { type: string, maxLength: 100 }
         - { in: query, name: type, schema: { $ref: "#/components/schemas/RecipientType" } }
+        - in: query
+          name: issue
+          description: Tylko odbiorcy z problemem danych kontaktowych w danym kanale
+          schema: { $ref: "#/components/schemas/Channel" }
+        - { in: query, name: limit,  schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { in: query, name: offset, schema: { type: integer, minimum: 0, default: 0 } }
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/Recipient" }
+              schema: { $ref: "#/components/schemas/RecipientPage" }
+        "400": { $ref: "#/components/responses/Error" }
     post:
       tags: [recipients]
       summary: Dodaje odbiorce
+      description: Telefon jest normalizowany do E.164 (np. "500 100 101" -> "+48500100101").
       requestBody:
         required: true
         content:
           application/json:
             schema: { $ref: "#/components/schemas/RecipientInput" }
       responses:
-        "201": { description: Utworzono }
-        "409": { description: Duplikat e-maila lub numeru }
+        "201":
+          description: Utworzono
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Recipient" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /recipients/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [recipients]
+      summary: Jeden odbiorca, z grupami wlasnymi, do ktorych nalezy
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Recipient" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      tags: [recipients]
+      summary: Zmienia dane odbiorcy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecipientInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Recipient" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [recipients]
+      summary: Usuwa odbiorce
+      description: |
+        Odbiorcy, ktory wystepuje w historii wysylek (batch_recipients), nie da sie usunac:
+        409 z kodem recipient_in_use. Historia musi pokazywac, do kogo poszla wiadomosc.
+      responses:
+        "204": { description: Usunieto }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
 
   /recipients/import:
     post:
@@ -104,23 +163,157 @@ paths:
     get:
       tags: [groups]
       summary: Lista grup
+      description: Najpierw grupy systemowe (stala kolejnosc), potem wlasne po nazwie.
       responses:
-        "200": { description: OK }
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Group" }
+    post:
+      tags: [groups]
+      summary: Tworzy grupe wlasna
+      description: Nazwy porownywane bez wzgledu na wielkosc liter i spacje; nazwy grup systemowych sa zarezerwowane.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GroupInput" }
+      responses:
+        "201":
+          description: Utworzono
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Group" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /groups/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [groups]
+      summary: Jedna grupa (systemowa albo wlasna)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Group" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      tags: [groups]
+      summary: Zmienia nazwe lub opis grupy wlasnej
+      description: Grupa systemowa -> 409 z kodem system_group.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GroupInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Group" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [groups]
+      summary: Usuwa grupe wlasna
+      description: Czlonkowie zostaja w bazie odbiorcow, znika tylko przynaleznosc.
+      responses:
+        "204": { description: Usunieto }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /groups/{id}/members:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [groups]
+      summary: Czlonkowie grupy, po nazwisku i imieniu
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Recipient" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [groups]
+      summary: Dodaje odbiorcow do grupy wlasnej
+      description: |
+        Wszystko albo nic: jesli ktores ID nie istnieje, nic nie jest dodane, a odpowiedz
+        422 (unknown_recipient) wymienia je w polu ids. Osoby juz nalezace do grupy
+        licza sie jako unchanged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MemberIds" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MembershipChange" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /groups/{id}/members/remove:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [groups]
+      summary: Usuwa odbiorcow z grupy wlasnej
+      description: POST zamiast DELETE z body, bo czesc klientow i proxy gubi body DELETE-a.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MemberIds" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MembershipChange" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
 
   /groups/resolve:
     post:
       tags: [groups]
       summary: Rozwija wybor grup i osob do finalnej listy odbiorcow
       description: |
-        Wynik jest zdeduplikowany: osoba wybrana przez kilka grup wystepuje raz.
-        Odbiorcy bez kompletu danych sa oznaczeni w polu missing.
+        Ksztalt wg ADR-0007 (status: propozycja). Wynik jest zdeduplikowany: osoba wybrana
+        przez kilka grup wystepuje raz. Braki danych kontaktowych sa raportowane w issues,
+        nie filtrowane - decyzje (poprawic, wykluczyc, wyslac czesciowo) podejmuje wysylajacy.
+        Nieistniejace ID nie sa bledem, tylko trafiaja do unknownGroupIds / unknownRecipientIds.
       requestBody:
         required: true
         content:
           application/json:
             schema: { $ref: "#/components/schemas/RecipientSelection" }
       responses:
-        "200": { description: Lista odbiorcow z oznaczeniem brakow }
+        "200":
+          description: Finalna lista odbiorcow z oznaczeniem brakow
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Resolution" }
+        "400": { $ref: "#/components/responses/Error" }
 
   /messages/preview:
     post:
@@ -186,7 +379,7 @@ components:
 
     Recipient:
       type: object
-      required: [id, firstName, lastName, type]
+      required: [id, firstName, lastName, type, issues, createdAt, updatedAt]
       properties:
         id:        { type: string, format: uuid }
         firstName: { type: string }
@@ -196,20 +389,175 @@ components:
         type:      { $ref: "#/components/schemas/RecipientType" }
         groupIds:
           type: array
+          description: Grupy wlasne odbiorcy. Tylko w GET /recipients/{id}; systemowe wynikaja z type.
           items: { type: string, format: uuid }
+        issues:
+          type: array
+          description: Kanaly, ktorymi nie da sie dotrzec do odbiorcy (pusta = oba kanaly OK)
+          items: { $ref: "#/components/schemas/ContactIssue" }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
 
     RecipientInput:
-      allOf:
-        - $ref: "#/components/schemas/Recipient"
+      type: object
+      required: [firstName, lastName, type]
+      description: Co najmniej jedno z email / phone musi byc podane. Pusty string = brak.
+      properties:
+        firstName: { type: string }
+        lastName:  { type: string }
+        email:     { type: string, nullable: true }
+        phone:     { type: string, nullable: true, description: "Dowolny zapis, normalizowany do E.164" }
+        type:      { $ref: "#/components/schemas/RecipientType" }
+
+    RecipientPage:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Recipient" }
+        total: { type: integer, description: "Liczba wszystkich pasujacych, nie tylko na tej stronie" }
+
+    Channel:
+      type: string
+      enum: [email, sms]
+
+    ContactIssue:
+      type: object
+      required: [channel, reason]
+      properties:
+        channel: { $ref: "#/components/schemas/Channel" }
+        reason:
+          type: string
+          enum: [missing, invalid]
+          description: missing = brak wartosci, invalid = zapisana wartosc nie przechodzi walidacji
+
+    Group:
+      type: object
+      required: [id, name, description, kind, memberCount]
+      properties:
+        id:          { type: string, format: uuid }
+        name:        { type: string }
+        description: { type: string }
+        kind:
+          type: string
+          enum: [system, custom]
+          description: system = wyliczana z danych odbiorcow, tylko do odczytu
+        memberCount: { type: integer }
+        createdAt:   { type: string, format: date-time, nullable: true, description: "null dla grup systemowych" }
+
+    GroupInput:
+      type: object
+      required: [name]
+      properties:
+        name:        { type: string, maxLength: 100 }
+        description: { type: string, maxLength: 500 }
+
+    MemberIds:
+      type: object
+      required: [recipientIds]
+      properties:
+        recipientIds:
+          type: array
+          minItems: 1
+          maxItems: 5000
+          items: { type: string, format: uuid }
+
+    MembershipChange:
+      type: object
+      required: [changed, unchanged]
+      properties:
+        changed:   { type: integer, description: "Ile osob faktycznie dodano / usunieto" }
+        unchanged: { type: integer, description: "Ile juz bylo w grupie (albo juz poza nia)" }
 
     RecipientSelection:
       type: object
+      description: Co najmniej jedno z groupIds / recipientIds musi byc niepuste. Kazda lista najwyzej 5000 ID.
       properties:
         groupIds:
           type: array
           items: { type: string, format: uuid }
         recipientIds:
           type: array
+          items: { type: string, format: uuid }
+        excludedRecipientIds:
+          type: array
+          description: Osoby wykluczone z tej jednej wysylki; maja pierwszenstwo przed grupa i wyborem recznym (ADR-0007)
+          items: { type: string, format: uuid }
+
+    Resolution:
+      type: object
+      required: [recipients, unknownGroupIds, unknownRecipientIds, excludedIds, mergedDuplicates, summary]
+      properties:
+        recipients:
+          type: array
+          description: Kazda osoba raz, po nazwisku, imieniu i ID
+          items: { $ref: "#/components/schemas/ResolvedRecipient" }
+        unknownGroupIds:
+          type: array
+          items: { type: string, format: uuid }
+        unknownRecipientIds:
+          type: array
+          items: { type: string, format: uuid }
+        excludedIds:
+          type: array
+          description: Wykluczeni, ktorzy faktycznie byli w wyborze
+          items: { type: string, format: uuid }
+        mergedDuplicates: { type: integer, description: "Ile powtorzen scalono (osoba w 2 grupach + recznie = 2)" }
+        summary:
+          type: object
+          required: [total, complete, partial, unreachable]
+          properties:
+            total:       { type: integer }
+            complete:    { type: integer, description: "Osiagalni oboma kanalami" }
+            partial:     { type: integer, description: "Dokladnie jednym kanalem - wysylka czesciowa" }
+            unreachable: { type: integer, description: "Zadnym kanalem" }
+
+    ResolvedRecipient:
+      type: object
+      required: [recipient, viaGroupIds, direct, channels]
+      properties:
+        recipient:   { $ref: "#/components/schemas/Recipient" }
+        viaGroupIds:
+          type: array
+          description: Wybrane grupy, przez ktore osoba trafila na liste, w kolejnosci wyboru
+          items: { type: string, format: uuid }
+        direct:      { type: boolean, description: "Wybrana takze recznie" }
+        channels:
+          type: array
+          description: Kanaly, ktorymi faktycznie zostanie wyslana (delivery tworzy wiersze tylko dla nich)
+          items: { $ref: "#/components/schemas/Channel" }
+
+    ErrorBody:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Stabilny klucz dla UI
+          enum:
+            - invalid_request      # nieczytelny JSON / zly parametr
+            - invalid_input        # walidacja pol, szczegoly w fields
+            - empty_selection      # resolve bez grup i osob
+            - not_found
+            - duplicate_contact    # e-mail lub telefon uzywany przez innego odbiorce, szczegoly w fields i ids
+            - recipient_in_use     # odbiorca jest w historii wysylek
+            - name_taken           # nazwa grupy zajeta
+            - system_group         # proba zmiany grupy systemowej
+            - unknown_recipient    # nieistniejace ID w ids
+            - internal
+        message: { type: string, description: "Szczegol diagnostyczny po angielsku, nie do wyswietlania wprost" }
+        fields:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field:   { type: string, description: "Te same klucze co ImportFieldError (first_name, last_name, type, email, phone, contact) oraz name, description, recipientIds[2] ..." }
+              message: { type: string }
+        ids:
+          type: array
+          description: ID, ktorych dotyczy blad (duplicate_contact -> istniejacy odbiorca, unknown_recipient -> brakujace)
           items: { type: string, format: uuid }
 
     MessageDraft:
@@ -310,6 +658,12 @@ components:
         message: { type: string, description: "Szczegol diagnostyczny po angielsku, np. lista brakujacych kolumn" }
 
   responses:
+    Error:
+      description: Blad z kodem z ErrorBody.code
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorBody" }
+
     ImportFileError:
       description: |
         Pliku nie da sie uzyc jako calosci (pojedyncze zle wiersze trafiaja do raportu, nie tutaj).
