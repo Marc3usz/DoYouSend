@@ -2,7 +2,7 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := help
 COMPOSE := docker compose
 
-.PHONY: help doctor up down logs migrate seed dev-api dev-web build test check fmt lint-go lint-web
+.PHONY: help doctor up down logs migrate seed dev-api dev-web build test test-integration check fmt lint-go lint-web
 
 help: ## Lista dostepnych komend
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -39,6 +39,9 @@ build: ## Buduje backend i frontend
 test: ## Testy backendu i frontendu
 	cd backend && go test ./...
 	cd frontend && npm run test
+
+test-integration: ## Testy backendu na prawdziwym Postgresie (wymaga TEST_DATABASE_URL, make up)
+	cd backend && go test -tags integration -count=1 ./...
 
 check: lint-go lint-web ## Wszystkie kontrole (to samo co CI)
 
