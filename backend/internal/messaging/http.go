@@ -2,7 +2,6 @@ package messaging
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -11,18 +10,13 @@ import (
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/httpx"
 )
 
-// maxPreviewBody caps a preview request: three selection lists of up to
-// groups.MaxSelectionIDs UUIDs each, plus a long body, fit well below it.
-const maxPreviewBody = 1 << 20
-
 // HandlePreview serves POST /api/messages/preview (docs/api/openapi.yaml): the
 // SendEstimate the composer shows while the sender types. The body is never logged.
 func HandlePreview(p *Previewer, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, maxPreviewBody)
 		var draft draftJSON
-		if err := json.NewDecoder(r.Body).Decode(&draft); err != nil {
-			writeError(w, http.StatusBadRequest, errorJSON{Code: "invalid_request", Message: "expected a JSON message draft"})
+		if err := httpx.DecodeJSON(w, r, &draft); err != nil {
+			httpx.Error(w, http.StatusBadRequest, httpx.ErrorBody{Code: "invalid_request", Message: "expected a JSON message draft"})
 			return
 		}
 
@@ -32,22 +26,18 @@ func HandlePreview(p *Previewer, logger *slog.Logger) http.HandlerFunc {
 		case err == nil:
 			httpx.JSON(w, http.StatusOK, toEstimateJSON(est))
 		case errors.As(err, &invalid):
-			out := errorJSON{Code: "invalid_input", Message: "invalid recipient selection"}
+			out := httpx.ErrorBody{Code: "invalid_input", Message: "invalid recipient selection"}
 			for _, f := range invalid.Fields {
-				out.Fields = append(out.Fields, fieldErrorJSON{Field: f.Field, Message: f.Message})
+				out.Fields = append(out.Fields, httpx.FieldError{Field: f.Field, Message: f.Message})
 			}
-			writeError(w, http.StatusBadRequest, out)
+			httpx.Error(w, http.StatusBadRequest, out)
 		case errors.Is(err, context.Canceled):
 			// The composer aborts a stale preview on every keystroke; nobody reads the answer.
 		default:
 			logger.Error("messages preview", "err", err)
-			writeError(w, http.StatusInternalServerError, errorJSON{Code: "internal", Message: "preview failed"})
+			httpx.Error(w, http.StatusInternalServerError, httpx.ErrorBody{Code: "internal", Message: "preview failed"})
 		}
 	}
-}
-
-func writeError(w http.ResponseWriter, status int, body errorJSON) {
-	httpx.JSON(w, status, body)
 }
 
 // JSON shapes from docs/api/openapi.yaml, kept apart from the domain types so the wire
@@ -83,15 +73,6 @@ type (
 		TotalSMSParts        int           `json:"totalSmsParts"`
 		CostMilli            int64         `json:"costMilli"`
 		RenderFailedIDs      []string      `json:"renderFailedIds"`
-	}
-	errorJSON struct {
-		Code    string           `json:"code"`
-		Message string           `json:"message"`
-		Fields  []fieldErrorJSON `json:"fields,omitempty"`
-	}
-	fieldErrorJSON struct {
-		Field   string `json:"field"`
-		Message string `json:"message"`
 	}
 )
 

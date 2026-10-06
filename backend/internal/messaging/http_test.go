@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/groups"
+	"github.com/Marc3usz/DoYouSend/backend/internal/platform/httpx"
 	"github.com/Marc3usz/DoYouSend/backend/internal/recipients"
 )
 
@@ -83,8 +84,17 @@ func TestHandlePreview(t *testing.T) {
 	}
 }
 
+func TestHandlePreviewRejectsTrailingData(t *testing.T) {
+	rec := httptest.NewRecorder()
+	h := HandlePreview(NewPreviewer(&fakeResolver{}, 0), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h(rec, httptest.NewRequest(http.MethodPost, "/api/messages/preview", strings.NewReader(`{"body":"x"} {}`)))
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
 func TestHandlePreviewRejectsOversizedRequest(t *testing.T) {
-	big := `{"body":"` + strings.Repeat("a", maxPreviewBody) + `"}`
+	big := `{"body":"` + strings.Repeat("a", httpx.MaxJSONBody) + `"}`
 	rec := httptest.NewRecorder()
 	h := HandlePreview(NewPreviewer(&fakeResolver{}, 0), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	h(rec, httptest.NewRequest(http.MethodPost, "/api/messages/preview", strings.NewReader(big)))
