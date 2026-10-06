@@ -5,6 +5,7 @@ import type {
 	ImportDuplicate,
 	ImportFieldError,
 	ImportFileError,
+	ImportReport,
 	RecipientType
 } from '$lib/api/recipients';
 
@@ -47,6 +48,25 @@ export function fileErrorText(error: ImportFileError | undefined): FileErrorText
 		return { text: 'Nie udało się sprawdzić pliku. Spróbuj ponownie za chwilę.' };
 	}
 	return { text: fileErrorTexts[error.code], detail: error.message };
+}
+
+/** Text for a failed save; undefined means the save itself failed (nothing was stored). */
+export function saveErrorText(error: ImportFileError | undefined): FileErrorText {
+	if (!error) {
+		return {
+			text: 'Nie udało się zapisać odbiorców. Nic nie zostało zapisane — spróbuj ponownie za chwilę.'
+		};
+	}
+	return fileErrorText(error);
+}
+
+/** The summary after a save; valid rows are the ones actually stored. */
+export function savedSummary(report: ImportReport): string {
+	const skipped = report.invalid.length + report.duplicates.length;
+	const saved = `Zapisano odbiorców: ${report.valid.length}.`;
+	return skipped > 0
+		? `${saved} Pominięto wierszy: ${skipped} (błędne i duplikaty, lista niżej).`
+		: saved;
 }
 
 export function duplicateText(duplicate: ImportDuplicate): string {

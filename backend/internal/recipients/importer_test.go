@@ -138,3 +138,46 @@ func TestImporterLooksUpEachContactOnce(t *testing.T) {
 		t.Errorf("looked up phones %v, want %v", store.lookedUpPhones, want)
 	}
 }
+
+// racingStore stores a contact "concurrently": the first save collides on
+// the unique index, and only the next lookup sees the other recipient.
+type racingStore struct {
+	fakeStore
+	afterRace ExistingContacts
+}
+
+func (s *racingStore) CreateRecipients(ctx context.Context, rs []Recipient) error {
+	if s.saveCalls == 0 {
+		s.saveCalls++
+		s.existing = s.afterRace
+		return &DuplicateContactError{Field: "phone"}
+	}
+	return s.fakeStore.CreateRecipients(ctx, rs)
+}
+
+func TestImporterImportRetriesAfterConcurrentInsert(t *testing.T) {
+	store := &racingStore{afterRace: ExistingContacts{Phones: map[string]string{"+48500100102": "id-other"}}}
+
+	report, err := NewImporter(store).Import(context.Background(), strings.NewReader(importerFile))
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	if store.saveCalls != 2 || len(store.created) != 1 || store.created[0].LastName != "Kowalski" {
+		t.Errorf("saves = %d, created %+v; want a second save with Jan only", store.saveCalls, store.created)
+	}
+	want := []DuplicateRow{{Row: 3, Field: "phone", ExistingID: "id-other"}}
+	if !reflect.DeepEqual(report.Duplicates, want) || len(report.Valid) != 1 {
+		t.Errorf("report = %+v, want Maria as a duplicate of the stored recipient", report)
+	}
+}
+
+func TestImporterImportGivesUpAfterSecondCollision(t *testing.T) {
+	store := &fakeStore{saveErr: &DuplicateContactError{Field: "email"}}
+
+	if _, err := NewImporter(store).Import(context.Background(), strings.NewReader(importerFile)); !errors.Is(err, ErrDuplicateContact) {
+		t.Fatalf("Import() error = %v, want ErrDuplicateContact", err)
+	}
+	if store.saveCalls != 2 {
+		t.Errorf("saves = %d, want one retry", store.saveCalls)
+	}
+}
