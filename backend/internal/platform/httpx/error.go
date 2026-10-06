@@ -31,8 +31,9 @@ func Error(w http.ResponseWriter, status int, body ErrorBody) {
 }
 
 // MaxJSONBody caps a JSON request body. Requests of this API are small forms
-// and ID lists (at most 5000 UUIDs fit comfortably).
-const MaxJSONBody = 256 << 10
+// and ID lists; the largest is POST /groups/resolve with three lists of up to
+// 5000 UUIDs each (about 600 KB).
+const MaxJSONBody = 1 << 20
 
 // ErrInvalidJSON is returned by DecodeJSON for a body that is not one JSON
 // value of the expected shape, or is larger than MaxJSONBody.

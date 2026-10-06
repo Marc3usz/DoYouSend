@@ -27,6 +27,8 @@ func TestConfigFromEnv_Defaults(t *testing.T) {
 		{"SendGridAPIKey", cfg.SendGridAPIKey, ""},
 		{"SendGridWebhookPublicKey", cfg.SendGridWebhookPublicKey, ""},
 		{"SMSProvider", cfg.SMSProvider, "fake"},
+		{"SMSAPIKey", cfg.SMSAPIKey, ""},
+		{"SMSSenderName", cfg.SMSSenderName, "SZKOLA-TEST"},
 	}
 
 	for _, c := range checks {
@@ -37,6 +39,9 @@ func TestConfigFromEnv_Defaults(t *testing.T) {
 
 	if cfg.SendGridSandbox {
 		t.Error("SendGridSandbox should default to false")
+	}
+	if cfg.SMSAPITestMode {
+		t.Error("SMSAPITestMode should default to false")
 	}
 	if !cfg.DryRun {
 		t.Error("DryRun should default to true")
@@ -52,6 +57,9 @@ func TestConfigFromEnv_OverridesFromEnv(t *testing.T) {
 	t.Setenv("SENDGRID_API_KEY", "test-sg-key")
 	t.Setenv("SENDGRID_SANDBOX", "true")
 	t.Setenv("SENDGRID_WEBHOOK_PUBLIC_KEY", "test-webhook-key")
+	t.Setenv("SMS_API_KEY", "test-smsapi-token")
+	t.Setenv("SMS_SENDER_NAME", "MOJA-SZKOLA")
+	t.Setenv("SMS_TEST_MODE", "true")
 	t.Setenv("DRY_RUN", "false")
 
 	cfg := ConfigFromEnv()
@@ -76,6 +84,15 @@ func TestConfigFromEnv_OverridesFromEnv(t *testing.T) {
 	}
 	if !cfg.SendGridSandbox {
 		t.Error("SendGridSandbox should be true when SENDGRID_SANDBOX=true")
+	}
+	if cfg.SMSAPIKey != "test-smsapi-token" {
+		t.Errorf("SMSAPIKey = %q, want %q", cfg.SMSAPIKey, "test-smsapi-token")
+	}
+	if cfg.SMSSenderName != "MOJA-SZKOLA" {
+		t.Errorf("SMSSenderName = %q, want %q", cfg.SMSSenderName, "MOJA-SZKOLA")
+	}
+	if !cfg.SMSAPITestMode {
+		t.Error("SMSAPITestMode should be true when SMS_TEST_MODE=true")
 	}
 	if cfg.DryRun {
 		t.Error("DryRun should be false when DRY_RUN=false")
@@ -204,6 +221,51 @@ func TestNew_UnsupportedSMSProvider(t *testing.T) {
 	}
 	if !errors.Is(err, ErrUnsupportedProvider) {
 		t.Errorf("expected ErrUnsupportedProvider, got: %v", err)
+	}
+}
+
+func TestNew_SMSAPIProvider(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		EmailProvider: "mailpit",
+		SMTPHost:      "localhost",
+		SMTPPort:      "1025",
+		EmailFrom:     "test@example.test",
+		SMSProvider:   "smsapi",
+		SMSAPIKey:     "test-token",
+		SMSSenderName: "SZKOLA",
+		DryRun:        false,
+	}
+
+	p, err := New(cfg, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if p.SMS == nil {
+		t.Fatal("SMS provider is nil")
+	}
+	if p.SMS.Channel() != providers.ChannelSMS {
+		t.Errorf("SMS.Channel() = %v, want %v", p.SMS.Channel(), providers.ChannelSMS)
+	}
+}
+
+func TestNew_SMSAPIMissingKey(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		EmailProvider: "mailpit",
+		SMTPHost:      "localhost",
+		SMTPPort:      "1025",
+		EmailFrom:     "test@example.test",
+		SMSProvider:   "smsapi",
+		SMSAPIKey:     "",
+	}
+
+	_, err := New(cfg, nil)
+	if err == nil {
+		t.Fatal("expected error when SMS_API_KEY is empty, got nil")
 	}
 }
 
