@@ -68,3 +68,81 @@ export function importFileError(err: unknown): ImportFileError | undefined {
 	}
 	return { code: code as ImportFileError['code'], message };
 }
+
+export type Channel = 'email' | 'sms';
+
+export type ContactIssue = { channel: Channel; reason: 'missing' | 'invalid' };
+
+export type Recipient = {
+	id: string;
+	firstName: string;
+	lastName: string;
+	email: string | null;
+	phone: string | null;
+	type: RecipientType;
+	/** Custom groups; only in getRecipient. */
+	groupIds?: string[];
+	/** Channels the recipient cannot be reached on; empty when both work. */
+	issues: ContactIssue[];
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type RecipientInput = {
+	firstName: string;
+	lastName: string;
+	email: string | null;
+	phone: string | null;
+	/** '' lets the backend report a missing type together with the other field errors. */
+	type: RecipientType | '';
+};
+
+export type RecipientPage = { items: Recipient[]; total: number };
+
+export type RecipientListQuery = {
+	q?: string;
+	type?: RecipientType;
+	issue?: Channel;
+	limit?: number;
+	offset?: number;
+};
+
+/** GET /recipients: one page, sorted by last name and first name. */
+export function listRecipients(
+	query: RecipientListQuery,
+	fetch?: typeof globalThis.fetch
+): Promise<RecipientPage> {
+	const params = new URLSearchParams();
+	for (const [key, value] of Object.entries(query)) {
+		if (value !== undefined && value !== '') params.set(key, String(value));
+	}
+	const search = params.size > 0 ? `?${params}` : '';
+	return api<RecipientPage>(`/recipients${search}`, { fetch });
+}
+
+export function getRecipient(id: string, fetch?: typeof globalThis.fetch): Promise<Recipient> {
+	return api<Recipient>(`/recipients/${encodeURIComponent(id)}`, { fetch });
+}
+
+export function createRecipient(
+	input: RecipientInput,
+	fetch?: typeof globalThis.fetch
+): Promise<Recipient> {
+	return api<Recipient>('/recipients', { method: 'POST', body: input, fetch });
+}
+
+export function updateRecipient(
+	id: string,
+	input: RecipientInput,
+	fetch?: typeof globalThis.fetch
+): Promise<Recipient> {
+	return api<Recipient>(`/recipients/${encodeURIComponent(id)}`, {
+		method: 'PUT',
+		body: input,
+		fetch
+	});
+}
+
+export function deleteRecipient(id: string, fetch?: typeof globalThis.fetch): Promise<void> {
+	return api<void>(`/recipients/${encodeURIComponent(id)}`, { method: 'DELETE', fetch });
+}
