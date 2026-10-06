@@ -10,32 +10,20 @@ import (
 	"github.com/Marc3usz/DoYouSend/backend/internal/recipients"
 )
 
-// Channel is a delivery channel, named as in the channel enum of the schema.
-type Channel string
-
-const (
-	ChannelEmail Channel = "email"
-	ChannelSMS   Channel = "sms"
+// Contact issue types come from package recipients, which owns the contact
+// data rules; the aliases keep this package's API (ADR-0007) unchanged.
+type (
+	Channel      = recipients.Channel
+	IssueReason  = recipients.IssueReason
+	ContactIssue = recipients.ContactIssue
 )
 
-// IssueReason says why a channel cannot be used for a recipient.
-type IssueReason string
-
 const (
-	// IssueMissing: the recipient has no e-mail address or no phone number.
-	IssueMissing IssueReason = "missing"
-	// IssueInvalid: the stored value would be rejected by recipients validation,
-	// e.g. a phone number saved before normalization existed.
-	IssueInvalid IssueReason = "invalid"
+	ChannelEmail = recipients.ChannelEmail
+	ChannelSMS   = recipients.ChannelSMS
+	IssueMissing = recipients.IssueMissing
+	IssueInvalid = recipients.IssueInvalid
 )
-
-// ContactIssue is one channel a recipient cannot be reached on, and why.
-// description.md requires showing these before sending, so the sender can fix
-// the data, exclude the person, or send on the remaining channel only.
-type ContactIssue struct {
-	Channel Channel
-	Reason  IssueReason
-}
 
 // Resolved is one recipient of the final list.
 type Resolved struct {
@@ -352,7 +340,7 @@ func (b *listBuilder) entry(r recipients.Recipient) *Resolved {
 		b.merged++
 		return e
 	}
-	e := &Resolved{Recipient: r, Issues: contactIssues(r)}
+	e := &Resolved{Recipient: r, Issues: r.ContactIssues()}
 	b.byID[id] = e
 	b.order = append(b.order, id)
 	return e
@@ -403,25 +391,4 @@ func compareResolved(a, b Resolved) int {
 		strings.Compare(strings.ToLower(a.Recipient.FirstName), strings.ToLower(b.Recipient.FirstName)),
 		strings.Compare(canonicalID(a.Recipient.ID), canonicalID(b.Recipient.ID)),
 	)
-}
-
-// contactIssues checks the stored contact data with the same rules the
-// recipients package applies on input. Stored values are expected to be
-// normalized already, so a phone number not in E.164 is reported as invalid
-// rather than silently fixed: delivery would send exactly what is stored.
-func contactIssues(r recipients.Recipient) []ContactIssue {
-	var issues []ContactIssue
-	switch {
-	case strings.TrimSpace(r.Email) == "":
-		issues = append(issues, ContactIssue{Channel: ChannelEmail, Reason: IssueMissing})
-	case recipients.ValidateEmail(r.Email) != nil:
-		issues = append(issues, ContactIssue{Channel: ChannelEmail, Reason: IssueInvalid})
-	}
-	switch {
-	case strings.TrimSpace(r.Phone) == "":
-		issues = append(issues, ContactIssue{Channel: ChannelSMS, Reason: IssueMissing})
-	case recipients.ValidatePhone(r.Phone) != nil:
-		issues = append(issues, ContactIssue{Channel: ChannelSMS, Reason: IssueInvalid})
-	}
-	return issues
 }
