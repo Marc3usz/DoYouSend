@@ -87,6 +87,26 @@ func (s *Service) Get(ctx context.Context, id string) (Group, error) {
 	return s.custom(ctx, id)
 }
 
+// Info returns one group with its current number of members.
+func (s *Service) Info(ctx context.Context, id string) (GroupInfo, error) {
+	g, err := s.Get(ctx, id)
+	if err != nil {
+		return GroupInfo{}, err
+	}
+	if g.IsSystem() {
+		rs, err := s.dir.RecipientsByType(ctx, g.Rule.Type)
+		if err != nil {
+			return GroupInfo{}, fmt.Errorf("count members of group %s: %w", g.ID, err)
+		}
+		return GroupInfo{Group: g, MemberCount: countMatching(rs, *g.Rule)}, nil
+	}
+	members, err := s.store.Members(ctx, []string{g.ID})
+	if err != nil {
+		return GroupInfo{}, fmt.Errorf("count members of group %s: %w", g.ID, err)
+	}
+	return GroupInfo{Group: g, MemberCount: len(members[g.ID])}, nil
+}
+
 // Create stores a new custom group.
 func (s *Service) Create(ctx context.Context, in GroupInput) (Group, error) {
 	in, err := s.checkInput(in)
