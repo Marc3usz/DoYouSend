@@ -2,7 +2,6 @@ package sms
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
