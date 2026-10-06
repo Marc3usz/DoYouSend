@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
@@ -41,12 +42,16 @@ func TestSendGrid_SendSuccess(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	sg := NewSendGrid(SendGridConfig{
+	// Use RFC 5322 display name to test proper parsing into Email and Name fields.
+	sg, err := NewSendGrid(SendGridConfig{
 		APIKey:     "test-key-abc",
-		From:       "sender@example.test",
+		From:       "Szkola Testowa <no-reply@example.test>",
 		BaseURL:    srv.URL,
 		HTTPClient: srv.Client(),
 	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected NewSendGrid error: %v", err)
+	}
 
 	msg := providers.Message{
 		RecipientID: "rec-001",
@@ -76,8 +81,11 @@ func TestSendGrid_SendSuccess(t *testing.T) {
 	if gotTo := receivedReq.Personalizations[0].To[0].Email; gotTo != "recipient@example.test" {
 		t.Errorf("To = %q, want %q", gotTo, "recipient@example.test")
 	}
-	if receivedReq.From.Email != "sender@example.test" {
-		t.Errorf("From = %q, want %q", receivedReq.From.Email, "sender@example.test")
+	if receivedReq.From.Email != "no-reply@example.test" {
+		t.Errorf("From.Email = %q, want %q", receivedReq.From.Email, "no-reply@example.test")
+	}
+	if receivedReq.From.Name != "Szkola Testowa" {
+		t.Errorf("From.Name = %q, want %q", receivedReq.From.Name, "Szkola Testowa")
 	}
 	if receivedReq.Subject != "Wazne ogloszenie" {
 		t.Errorf("Subject = %q, want %q", receivedReq.Subject, "Wazne ogloszenie")
@@ -114,23 +122,26 @@ func TestSendGrid_SandboxMode(t *testing.T) {
 
 	var receivedReq sgMailSend
 
+	// SendGrid returns 200 OK without X-Message-Id header in sandbox mode.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(body, &receivedReq)
-		w.Header().Set("X-Message-Id", "sg-sandbox-msg")
-		w.WriteHeader(http.StatusAccepted)
+		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
-	sg := NewSendGrid(SendGridConfig{
+	sg, err := NewSendGrid(SendGridConfig{
 		APIKey:     "test-key",
 		From:       "sender@example.test",
 		Sandbox:    true,
 		BaseURL:    srv.URL,
 		HTTPClient: srv.Client(),
 	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected NewSendGrid error: %v", err)
+	}
 
-	_, err := sg.Send(context.Background(), providers.Message{
+	res, err := sg.Send(context.Background(), providers.Message{
 		RecipientID: "rec-002",
 		To:          "sandbox@example.test",
 		Subject:     "Test",
@@ -143,12 +154,49 @@ func TestSendGrid_SandboxMode(t *testing.T) {
 	if receivedReq.MailSettings == nil || !receivedReq.MailSettings.SandboxMode.Enable {
 		t.Error("mail_settings.sandbox_mode.enable should be true")
 	}
+
+	// Verify synthetic message ID was generated so Result has non-empty ID.
+	if res.ProviderMessageID == "" {
+		t.Error("expected non-empty synthetic ProviderMessageID in sandbox mode")
+	}
+	if !strings.HasPrefix(res.ProviderMessageID, "sandbox-") {
+		t.Errorf("ProviderMessageID = %q, expected prefix 'sandbox-'", res.ProviderMessageID)
+	}
+}
+
+func TestSendGrid_NewSendGrid_InvalidFrom(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		from string
+	}{
+		{"empty From", ""},
+		{"malformed From", "no-at-sign"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := NewSendGrid(SendGridConfig{
+				APIKey: "test-key",
+				From:   tc.from,
+			}, nil)
+			if err == nil {
+				t.Fatalf("expected error for invalid From %q, got nil", tc.from)
+			}
+		})
+	}
 }
 
 func TestSendGrid_InvalidRecipient(t *testing.T) {
 	t.Parallel()
 
-	sg := NewSendGrid(SendGridConfig{APIKey: "key"}, nil)
+	sg, err := NewSendGrid(SendGridConfig{APIKey: "key", From: "test@example.test"}, nil)
+	if err != nil {
+		t.Fatalf("unexpected NewSendGrid error: %v", err)
+	}
 
 	cases := []struct {
 		name string
@@ -183,11 +231,13 @@ func TestSendGrid_ErrorClassification(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name          string
-		statusCode    int
-		responseBody  string
-		wantPermanent bool
-		wantTransient bool
+		name           string
+		statusCode     int
+		responseHeader http.Header
+		responseBody   string
+		wantPermanent  bool
+		wantTransient  bool
+		wantSubstring  string
 	}{
 		{
 			name:          "400 Bad Request is permanent",
@@ -208,16 +258,36 @@ func TestSendGrid_ErrorClassification(t *testing.T) {
 			wantPermanent: true,
 		},
 		{
+			name:          "404 Not Found is permanent",
+			statusCode:    http.StatusNotFound,
+			responseBody:  `{"errors":[{"message":"Endpoint not found"}]}`,
+			wantPermanent: true,
+		},
+		{
+			name:          "405 Method Not Allowed is permanent",
+			statusCode:    http.StatusMethodNotAllowed,
+			responseBody:  `{"errors":[{"message":"Method not allowed"}]}`,
+			wantPermanent: true,
+		},
+		{
 			name:          "413 Request Entity Too Large is permanent",
 			statusCode:    http.StatusRequestEntityTooLarge,
 			responseBody:  `{"errors":[{"message":"Payload too large"}]}`,
 			wantPermanent: true,
 		},
 		{
-			name:          "429 Too Many Requests is transient",
-			statusCode:    http.StatusTooManyRequests,
-			responseBody:  `{"errors":[{"message":"Rate limit exceeded"}]}`,
-			wantTransient: true,
+			name:          "422 Unprocessable Entity is permanent",
+			statusCode:    http.StatusUnprocessableEntity,
+			responseBody:  `{"errors":[{"message":"Unprocessable entity"}]}`,
+			wantPermanent: true,
+		},
+		{
+			name:           "429 Too Many Requests with Retry-After is transient",
+			statusCode:     http.StatusTooManyRequests,
+			responseHeader: http.Header{"Retry-After": []string{"60"}},
+			responseBody:   `{"errors":[{"message":"Rate limit exceeded"}]}`,
+			wantTransient:  true,
+			wantSubstring:  "Retry-After: 60",
 		},
 		{
 			name:          "500 Internal Server Error is transient",
@@ -231,6 +301,12 @@ func TestSendGrid_ErrorClassification(t *testing.T) {
 			responseBody:  `{"errors":[{"message":"Service unavailable"}]}`,
 			wantTransient: true,
 		},
+		{
+			name:          "301 Moved Permanently is permanent",
+			statusCode:    http.StatusMovedPermanently,
+			responseBody:  `Moved`,
+			wantPermanent: true,
+		},
 	}
 
 	for _, tc := range cases {
@@ -238,33 +314,44 @@ func TestSendGrid_ErrorClassification(t *testing.T) {
 			t.Parallel()
 
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				for k, vs := range tc.responseHeader {
+					for _, v := range vs {
+						w.Header().Add(k, v)
+					}
+				}
 				w.WriteHeader(tc.statusCode)
 				_, _ = w.Write([]byte(tc.responseBody))
 			}))
 			defer srv.Close()
 
-			sg := NewSendGrid(SendGridConfig{
+			sg, err := NewSendGrid(SendGridConfig{
 				APIKey:     "test-key",
 				From:       "sender@example.test",
 				BaseURL:    srv.URL,
 				HTTPClient: srv.Client(),
 			}, nil)
+			if err != nil {
+				t.Fatalf("unexpected NewSendGrid error: %v", err)
+			}
 
-			_, err := sg.Send(context.Background(), providers.Message{
+			_, sendErr := sg.Send(context.Background(), providers.Message{
 				RecipientID: "rec-err",
 				To:          "user@example.test",
 				Subject:     "Subject",
 				Body:        "Body",
 			})
-			if err == nil {
+			if sendErr == nil {
 				t.Fatalf("expected error for HTTP %d, got nil", tc.statusCode)
 			}
 
-			if tc.wantPermanent && !providers.IsPermanent(err) {
-				t.Errorf("HTTP %d: error = %v, want permanent", tc.statusCode, err)
+			if tc.wantPermanent && !providers.IsPermanent(sendErr) {
+				t.Errorf("HTTP %d: error = %v, want permanent", tc.statusCode, sendErr)
 			}
-			if tc.wantTransient && !providers.IsTransient(err) {
-				t.Errorf("HTTP %d: error = %v, want transient", tc.statusCode, err)
+			if tc.wantTransient && !providers.IsTransient(sendErr) {
+				t.Errorf("HTTP %d: error = %v, want transient", tc.statusCode, sendErr)
+			}
+			if tc.wantSubstring != "" && !strings.Contains(sendErr.Error(), tc.wantSubstring) {
+				t.Errorf("HTTP %d: error = %v, want substring %q", tc.statusCode, sendErr, tc.wantSubstring)
 			}
 		})
 	}
@@ -273,12 +360,15 @@ func TestSendGrid_ErrorClassification(t *testing.T) {
 func TestSendGrid_ContextCancelled(t *testing.T) {
 	t.Parallel()
 
-	sg := NewSendGrid(SendGridConfig{APIKey: "key"}, nil)
+	sg, err := NewSendGrid(SendGridConfig{APIKey: "key", From: "sender@example.test"}, nil)
+	if err != nil {
+		t.Fatalf("unexpected NewSendGrid error: %v", err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancelled immediately
 
-	_, err := sg.Send(ctx, providers.Message{
+	_, err = sg.Send(ctx, providers.Message{
 		RecipientID: "rec-cancel",
 		To:          "user@example.test",
 	})
@@ -293,7 +383,10 @@ func TestSendGrid_ContextCancelled(t *testing.T) {
 func TestSendGrid_Channel(t *testing.T) {
 	t.Parallel()
 
-	sg := NewSendGrid(SendGridConfig{APIKey: "key"}, nil)
+	sg, err := NewSendGrid(SendGridConfig{APIKey: "key", From: "sender@example.test"}, nil)
+	if err != nil {
+		t.Fatalf("unexpected NewSendGrid error: %v", err)
+	}
 	if sg.Channel() != providers.ChannelEmail {
 		t.Errorf("Channel() = %v, want %v", sg.Channel(), providers.ChannelEmail)
 	}
