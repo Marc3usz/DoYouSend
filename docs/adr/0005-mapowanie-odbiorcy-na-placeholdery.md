@@ -1,6 +1,6 @@
 # ADR-0005: Mapowanie Recipient → placeholdery w messaging.Render
 
-- **Status:** propozycja — decyzja jeszcze nie podjęta, czeka na wspólną sesję A + B
+- **Status:** propozycja DEV B (2026-10-06) — czeka na akceptację DEV A
 - **Data:** 2026-09-25
 - **Uczestnicy:** Marc3usz (DEV A), S1D0R-10 (DEV B)
 
@@ -25,7 +25,22 @@ zacznie spinać `recipients`/`groups` z `messaging`/`delivery` (M3 z `docs/podzi
 
 ## Decyzja
 
-Jeszcze nie podjęta. Do ustalenia na wspólnej sesji A + B przed startem M3.
+Propozycja DEV B, wdrożona w `POST /api/messages/preview` (`messaging/placeholders.go`):
+
+- **Mapowanie po stronie `messaging`.** `messaging.RecipientFields(firstName, lastName)`
+  zwraca `map[string]string` dla `Render`. Nazwy placeholderów są częścią treści wiadomości,
+  więc zostają w domenie B. `messaging` i tak zależy już od `groups` (wynik `Resolve`), a
+  `groups` od `recipients`.
+- **Kanoniczne nazwy:** `imie`, `nazwisko`. Wielkość liter ma znaczenie, spacje wewnątrz
+  `{{ imie }}` są ignorowane. Innych nazw (np. `first_name`) nie przyjmujemy, żeby jedna
+  treść nie miała dwóch zapisów.
+- **Nieznana nazwa** (`{{klasa}}`) jest zgłaszana w podglądzie (`unknownPlaceholders`)
+  jeszcze przed wysyłką. Treść z taką nazwą nie zostanie wysłana nikomu.
+- **Pusta wartość u odbiorcy** oznacza błąd tylko tego odbiorcy (`renderFailedIds`). Reszta
+  wsadu idzie dalej. Nie podstawiamy pustego tekstu, bo e-mail i SMS muszą być identyczne
+  i kompletne.
+
+Jeśli DEV A woli inną nazwę albo miejsce mapowania, wystarczy zmienić jeden plik.
 
 ## Rozważane alternatywy
 
