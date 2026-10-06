@@ -45,8 +45,13 @@ type Config struct {
 	SendGridSandbox          bool
 	SendGridWebhookPublicKey string
 
-	// SMSProvider selects the SMS adapter: "fake" (default).
+	// SMSProvider selects the SMS adapter: "fake" (default) or "smsapi".
 	SMSProvider string
+
+	// SMSAPI settings (used when SMSProvider == "smsapi").
+	SMSAPIKey      string
+	SMSSenderName  string
+	SMSAPITestMode bool
 
 	// DryRun prevents any real outbound delivery when true.
 	// Enforced by wrapping every provider with providers.WrapDryRun.
@@ -68,6 +73,9 @@ func ConfigFromEnv() Config {
 		SendGridSandbox:          envOr("SENDGRID_SANDBOX", "false") == "true",
 		SendGridWebhookPublicKey: envOr("SENDGRID_WEBHOOK_PUBLIC_KEY", ""),
 		SMSProvider:              envOr("SMS_PROVIDER", "fake"),
+		SMSAPIKey:                envOr("SMS_API_KEY", ""),
+		SMSSenderName:            envOr("SMS_SENDER_NAME", "SZKOLA-TEST"),
+		SMSAPITestMode:           envOr("SMS_TEST_MODE", "false") == "true",
 		DryRun:                   envOr("DRY_RUN", "true") == "true",
 	}
 }
@@ -148,6 +156,16 @@ func newSMSProvider(cfg Config, logger *slog.Logger) (providers.Provider, error)
 	switch cfg.SMSProvider {
 	case "fake":
 		return sms.NewFake(logger), nil
+
+	case "smsapi":
+		if cfg.SMSAPIKey == "" {
+			return nil, fmt.Errorf("SMS_API_KEY is required when SMS_PROVIDER=smsapi")
+		}
+		return sms.NewSMSAPI(sms.SMSAPIConfig{
+			APIKey:     cfg.SMSAPIKey,
+			SenderName: cfg.SMSSenderName,
+			TestMode:   cfg.SMSAPITestMode,
+		}, logger)
 
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrUnsupportedProvider, cfg.SMSProvider)
