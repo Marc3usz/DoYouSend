@@ -22,6 +22,7 @@
 <p class="actions">
 	<a href="/odbiorcy/nowy">Dodaj odbiorcę</a>
 	<a href="/odbiorcy/import">Import z pliku</a>
+	<a href="/grupy">Grupy</a>
 </p>
 
 {#if deleted}
