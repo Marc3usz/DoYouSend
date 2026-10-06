@@ -117,9 +117,10 @@ paths:
       tags: [recipients]
       summary: Import z pliku CSV lub XLSX
       description: |
-        Zapisuje wiersze poprawne (wszystkie albo zaden) i zwraca raport per wiersz.
-        Wymaga roli administratora. Jeszcze niezaimplementowany: czeka na baze
-        (platform/database) i middleware rol (iam).
+        Zapisuje wiersze poprawne (wszystkie albo zaden) i zwraca raport per wiersz;
+        valid to wiersze faktycznie zapisane. Bledne wiersze i duplikaty (w pliku i wzgledem
+        zapisanych odbiorcow) sa pomijane. Kontakt zapisany rownolegle przez kogos innego
+        trafia do duplicates zamiast przerywac import. Wymaga roli administratora (gdy dojdzie iam).
       requestBody:
         required: true
         content:
@@ -134,6 +135,7 @@ paths:
         "400": { $ref: "#/components/responses/ImportFileError" }
         "413": { $ref: "#/components/responses/ImportFileError" }
         "422": { $ref: "#/components/responses/ImportFileError" }
+        "500": { $ref: "#/components/responses/ImportFileError" }
 
   /recipients/import/check:
     post:
@@ -654,7 +656,7 @@ components:
       properties:
         code:
           type: string
-          enum: [invalid_request, missing_file, empty_file, missing_columns, invalid_header, unsupported_format, file_too_large, too_many_rows, unclosed_quote]
+          enum: [invalid_request, missing_file, empty_file, missing_columns, invalid_header, unsupported_format, file_too_large, too_many_rows, unclosed_quote, internal]
         message: { type: string, description: "Szczegol diagnostyczny po angielsku, np. lista brakujacych kolumn" }
 
   responses:
@@ -668,7 +670,7 @@ components:
       description: |
         Pliku nie da sie uzyc jako calosci (pojedyncze zle wiersze trafiaja do raportu, nie tutaj).
         400 = invalid_request (to nie multipart) albo missing_file (brak pola file),
-        413 = file_too_large, 422 = pozostale kody.
+        413 = file_too_large, 500 = internal (blad bazy; nic nie zapisano), 422 = pozostale kody.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ImportFileErrorBody" }
