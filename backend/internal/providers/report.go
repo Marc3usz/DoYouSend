@@ -22,10 +22,14 @@ const (
 // notification received from an external provider (e.g. an SMSAPI webhook
 // or an SMTP DSN). The delivery worker uses it to update
 // deliveries.status and deliveries.error.
+// Provider-specific parsers (e.g. sms.ParseSMSAPIDLR, email.ParseSendGridEvents)
+// convert the raw payload into this struct so that the delivery package never
+// depends on a vendor format directly (backend/CLAUDE.md: interfaces, not SDKs).
 //
-// Provider-specific parsers (e.g. sms.ParseSMSAPIDLR) convert the raw
-// payload into this struct so that the delivery package never depends on
-// a vendor format directly (backend/CLAUDE.md: interfaces, not SDKs).
+// Contract note for consumers (delivery worker):
+// Status updates must be applied forward-only (pending -> sending -> sent -> delivered / failed).
+// Out-of-order webhook events (e.g. late "deferred" after "delivered") must not
+// downgrade terminal delivery statuses.
 type DeliveryReport struct {
 	// ProviderMessageID is the external identifier assigned when the
 	// message was sent (Result.ProviderMessageID). It is the join key
