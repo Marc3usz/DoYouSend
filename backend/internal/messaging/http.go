@@ -1,6 +1,7 @@
 package messaging
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -36,6 +37,8 @@ func HandlePreview(p *Previewer, logger *slog.Logger) http.HandlerFunc {
 				out.Fields = append(out.Fields, fieldErrorJSON{Field: f.Field, Message: f.Message})
 			}
 			writeError(w, http.StatusBadRequest, out)
+		case errors.Is(err, context.Canceled):
+			// The composer aborts a stale preview on every keystroke; nobody reads the answer.
 		default:
 			logger.Error("messages preview", "err", err)
 			writeError(w, http.StatusInternalServerError, errorJSON{Code: "internal", Message: "preview failed"})

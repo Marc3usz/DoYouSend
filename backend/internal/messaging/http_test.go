@@ -2,6 +2,7 @@ package messaging
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -99,6 +100,16 @@ func TestHandlePreviewNeverLogsTheBody(t *testing.T) {
 	h(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/messages/preview", strings.NewReader(body)))
 	if strings.Contains(logs.String(), "Tajna") {
 		t.Errorf("log contains the message body: %s", logs.String())
+	}
+}
+
+func TestHandlePreviewDoesNotLogCancelledRequests(t *testing.T) {
+	var logs bytes.Buffer
+	h := HandlePreview(NewPreviewer(&fakeResolver{err: context.Canceled}, 0), slog.New(slog.NewTextHandler(&logs, nil)))
+	body := `{"body":"x","selection":{"groupIds":["` + idGroup + `"]}}`
+	h(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/messages/preview", strings.NewReader(body)))
+	if logs.Len() > 0 {
+		t.Errorf("cancelled request was logged: %s", logs.String())
 	}
 }
 
