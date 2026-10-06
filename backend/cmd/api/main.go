@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Marc3usz/DoYouSend/backend/internal/groups"
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/config"
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/database"
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/httpx"
@@ -33,7 +34,6 @@ func main() {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		httpx.JSON(w, http.StatusOK, map[string]any{"status": "ok", "dryRun": cfg.DryRun})
 	})
-	mux.Handle("POST /api/recipients/import/check", recipients.HandleCheckImport(logger))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -44,6 +44,7 @@ func main() {
 	switch {
 	case errors.Is(err, database.ErrNoURL):
 		logger.Warn("DATABASE_URL is not set: recipient and group endpoints are disabled")
+		mux.Handle("POST /api/recipients/import/check", recipients.HandleCheckImport(logger))
 	case err != nil:
 		logger.Error("connect to database", "err", err)
 		os.Exit(1)
@@ -51,6 +52,15 @@ func main() {
 		defer pool.Close()
 		recipientStore := recipients.NewPGStore(pool)
 		recipients.NewHandler(recipients.NewService(recipientStore), logger).Register(mux)
+		groupStore := groups.NewPGStore(pool)
+		groups.NewHandler(
+			groups.NewService(groupStore, recipientStore),
+			groups.NewResolver(groupStore, recipientStore),
+			logger,
+		).Register(mux)
+		importer := recipients.NewImporter(recipientStore)
+		mux.Handle("POST /api/recipients/import/check", recipients.HandleImportFile(importer.Check, logger))
+		mux.Handle("POST /api/recipients/import", recipients.HandleImportFile(importer.Import, logger))
 	}
 
 	srv := &http.Server{

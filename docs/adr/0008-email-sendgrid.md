@@ -75,7 +75,7 @@ Nowe zmienne środowiskowe (dopisać do `.env.example` z placeholderami w PR z a
   zmianę propozycji. Wracamy do nich, jeśli warunki SendGrid (niżej) okażą się nie do
   przyjęcia.
 
-## Do sprawdzenia przed akceptacją
+## Warunki przed włączeniem SendGrid w produkcji
 
 1. **Plan i koszt.** Aktualne warunki darmowego lub testowego planu SendGrid i limit
    dzienny. Masowa wysyłka do całej szkoły to kilka tysięcy e-maili naraz.

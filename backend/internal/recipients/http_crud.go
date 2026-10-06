@@ -53,7 +53,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, err)
 		return
 	}
-	out := pageJSON{Items: make([]recipientJSON, len(page.Items)), Total: page.Total}
+	out := pageJSON{Items: make([]RecipientJSON, len(page.Items)), Total: page.Total}
 	for i, rec := range page.Items {
 		out.Items[i] = toRecipientJSON(rec, nil)
 	}
@@ -174,7 +174,9 @@ func intParam(raw, field string, errs []FieldError) (int, []FieldError) {
 // JSON shapes of docs/api/openapi.yaml (Recipient, RecipientInput,
 // RecipientPage), kept apart from the domain types.
 type (
-	recipientJSON struct {
+	// RecipientJSON is the Recipient schema. Package groups returns it too
+	// (group members, resolved recipients), so both stay one shape.
+	RecipientJSON struct {
 		ID        string      `json:"id"`
 		FirstName string      `json:"firstName"`
 		LastName  string      `json:"lastName"`
@@ -191,7 +193,7 @@ type (
 		Reason  IssueReason `json:"reason"`
 	}
 	pageJSON struct {
-		Items []recipientJSON `json:"items"`
+		Items []RecipientJSON `json:"items"`
 		Total int             `json:"total"`
 	}
 	inputJSON struct {
@@ -203,9 +205,14 @@ type (
 	}
 )
 
-func toRecipientJSON(r Recipient, groupIDs *[]string) recipientJSON {
+// NewRecipientJSON returns r in the Recipient schema, without groupIds.
+func NewRecipientJSON(r Recipient) RecipientJSON {
+	return toRecipientJSON(r, nil)
+}
+
+func toRecipientJSON(r Recipient, groupIDs *[]string) RecipientJSON {
 	issues := r.ContactIssues()
-	out := recipientJSON{
+	out := RecipientJSON{
 		ID:        r.ID,
 		FirstName: r.FirstName,
 		LastName:  r.LastName,

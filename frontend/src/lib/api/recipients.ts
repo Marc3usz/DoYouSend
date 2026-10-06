@@ -56,6 +56,17 @@ export function checkImportFile(
 	return api<ImportReport>('/recipients/import/check', { method: 'POST', body, fetch });
 }
 
+/**
+ * Imports a file: POST /recipients/import. Stores the valid rows (all or
+ * none) and returns the same report as the check, where valid are the rows
+ * actually stored.
+ */
+export function importFile(file: File, fetch?: typeof globalThis.fetch): Promise<ImportReport> {
+	const body = new FormData();
+	body.append('file', file);
+	return api<ImportReport>('/recipients/import', { method: 'POST', body, fetch });
+}
+
 /** Returns the whole-file error the backend reported, if err carries one. */
 export function importFileError(err: unknown): ImportFileError | undefined {
 	if (!(err instanceof ApiError) || typeof err.body !== 'object' || err.body === null) {
