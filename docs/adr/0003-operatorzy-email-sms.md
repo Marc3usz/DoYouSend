@@ -41,9 +41,10 @@ Wybieramy **SMSAPI** (https://www.smsapi.pl/) z następujących powodów:
    w `.env.example`.
 5. **API:** Proste REST API z kluczem Bearer, bez konieczności instalowania zewnętrznych SDK.
 
-Adapter SMSAPI docelowo znajdzie się w `internal/providers/sms/smsapi.go`, a parser callbacków
-DLR w `internal/providers/sms/smsapi_dlr.go`. Lokalnie i z `DRY_RUN=true` nadal domyślnie
-używamy providera `fake`.
+Adapter SMSAPI znajduje się w `internal/providers/sms/smsapi.go` (za wspólnym interfejsem
+`providers.Provider`), a parser callbacków DLR w `internal/providers/sms/smsapi_dlr.go`.
+Lokalnie i z `DRY_RUN=true` nadal domyślnie używamy providera `fake`. Wybór adaptera produkcyjnego
+sterowany jest przez `SMS_PROVIDER=smsapi`.
 
 ## Konsekwencje
 
