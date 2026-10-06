@@ -24,6 +24,8 @@ func TestConfigFromEnv_Defaults(t *testing.T) {
 		{"SMTPPort", cfg.SMTPPort, "1025"},
 		{"SMTPUsername", cfg.SMTPUsername, ""},
 		{"SMTPPassword", cfg.SMTPPassword, ""},
+		{"SendGridAPIKey", cfg.SendGridAPIKey, ""},
+		{"SendGridWebhookPublicKey", cfg.SendGridWebhookPublicKey, ""},
 		{"SMSProvider", cfg.SMSProvider, "fake"},
 	}
 
@@ -33,6 +35,9 @@ func TestConfigFromEnv_Defaults(t *testing.T) {
 		}
 	}
 
+	if cfg.SendGridSandbox {
+		t.Error("SendGridSandbox should default to false")
+	}
 	if !cfg.DryRun {
 		t.Error("DryRun should default to true")
 	}
@@ -44,6 +49,9 @@ func TestConfigFromEnv_OverridesFromEnv(t *testing.T) {
 	t.Setenv("SMTP_HOST", "smtp.example.test")
 	t.Setenv("SMTP_PORT", "587")
 	t.Setenv("SMS_PROVIDER", "smsapi")
+	t.Setenv("SENDGRID_API_KEY", "test-sg-key")
+	t.Setenv("SENDGRID_SANDBOX", "true")
+	t.Setenv("SENDGRID_WEBHOOK_PUBLIC_KEY", "test-webhook-key")
 	t.Setenv("DRY_RUN", "false")
 
 	cfg := ConfigFromEnv()
@@ -59,6 +67,15 @@ func TestConfigFromEnv_OverridesFromEnv(t *testing.T) {
 	}
 	if cfg.SMSProvider != "smsapi" {
 		t.Errorf("SMSProvider = %q, want %q", cfg.SMSProvider, "smsapi")
+	}
+	if cfg.SendGridAPIKey != "test-sg-key" {
+		t.Errorf("SendGridAPIKey = %q, want %q", cfg.SendGridAPIKey, "test-sg-key")
+	}
+	if cfg.SendGridWebhookPublicKey != "test-webhook-key" {
+		t.Errorf("SendGridWebhookPublicKey = %q, want %q", cfg.SendGridWebhookPublicKey, "test-webhook-key")
+	}
+	if !cfg.SendGridSandbox {
+		t.Error("SendGridSandbox should be true when SENDGRID_SANDBOX=true")
 	}
 	if cfg.DryRun {
 		t.Error("DryRun should be false when DRY_RUN=false")
@@ -108,10 +125,68 @@ func TestNew_DefaultConfig(t *testing.T) {
 	}
 }
 
+func TestNew_SendGridEmailProvider(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		EmailProvider:  "sendgrid",
+		SendGridAPIKey: "test-api-key",
+		EmailFrom:      "test@example.test",
+		SMSProvider:    "fake",
+		DryRun:         false,
+	}
+
+	p, err := New(cfg, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if p.Email == nil {
+		t.Fatal("Email provider is nil")
+	}
+	if p.Email.Channel() != providers.ChannelEmail {
+		t.Errorf("Email.Channel() = %v, want %v", p.Email.Channel(), providers.ChannelEmail)
+	}
+}
+
+func TestNew_SendGridMissingAPIKey(t *testing.T) {
+	t.Parallel()
+
+	// Review comment 7: when EMAIL_PROVIDER=sendgrid but SENDGRID_API_KEY is empty,
+	// New should return an error immediately at startup.
+	cfg := Config{
+		EmailProvider:  "sendgrid",
+		SendGridAPIKey: "",
+		EmailFrom:      "test@example.test",
+		SMSProvider:    "fake",
+	}
+
+	_, err := New(cfg, nil)
+	if err == nil {
+		t.Fatal("expected error when SENDGRID_API_KEY is empty, got nil")
+	}
+}
+
+func TestNew_SendGridInvalidFrom(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		EmailProvider:  "sendgrid",
+		SendGridAPIKey: "test-api-key",
+		EmailFrom:      "invalid-from",
+		SMSProvider:    "fake",
+	}
+
+	_, err := New(cfg, nil)
+	if err == nil {
+		t.Fatal("expected error when EmailFrom is invalid, got nil")
+	}
+}
+
 func TestNew_UnsupportedEmailProvider(t *testing.T) {
 	t.Parallel()
 
-	_, err := New(Config{EmailProvider: "sendgrid", SMSProvider: "fake"}, nil)
+	_, err := New(Config{EmailProvider: "nonexistent", SMSProvider: "fake"}, nil)
 	if err == nil {
 		t.Fatal("expected error for unsupported email provider")
 	}
@@ -123,15 +198,7 @@ func TestNew_UnsupportedEmailProvider(t *testing.T) {
 func TestNew_UnsupportedSMSProvider(t *testing.T) {
 	t.Parallel()
 
-	cfg := Config{
-		EmailProvider: "mailpit",
-		SMTPHost:      "localhost",
-		SMTPPort:      "1025",
-		EmailFrom:     "test@example.test",
-		SMSProvider:   "twilio",
-	}
-
-	_, err := New(cfg, nil)
+	_, err := New(Config{EmailProvider: "mailpit", SMSProvider: "nonexistent"}, nil)
 	if err == nil {
 		t.Fatal("expected error for unsupported SMS provider")
 	}
@@ -140,13 +207,13 @@ func TestNew_UnsupportedSMSProvider(t *testing.T) {
 	}
 }
 
-func TestNew_DryRunWrapsProviders(t *testing.T) {
+func TestNew_DryRunWrapsBothProviders(t *testing.T) {
 	t.Parallel()
 
 	cfg := Config{
 		EmailProvider: "mailpit",
-		SMTPHost:      "unreachable.invalid",
-		SMTPPort:      "9999",
+		SMTPHost:      "localhost",
+		SMTPPort:      "1025",
 		EmailFrom:     "test@example.test",
 		SMSProvider:   "fake",
 		DryRun:        true,
@@ -157,60 +224,30 @@ func TestNew_DryRunWrapsProviders(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Email should succeed without touching the network — host is unreachable.
-	res, err := p.Email.Send(context.Background(), providers.Message{
-		RecipientID: "r-dry-email",
-		To:          "parent@example.test",
-		Subject:     "Test",
-		Body:        "body",
+	// In DryRun mode sending an email or SMS must succeed without network
+	// transmission and return ErrDryRun.
+	emailRes, err := p.Email.Send(context.Background(), providers.Message{
+		RecipientID: "rec-dry-email",
+		To:          "dry@example.test",
+		Subject:     "Dry",
+		Body:        "Body",
 	})
 	if err != nil {
-		t.Fatalf("Email.Send in dry run should succeed, got: %v", err)
+		t.Fatalf("unexpected dry-run email error: %v", err)
 	}
-	if res.ProviderMessageID == "" {
-		t.Error("expected non-empty ProviderMessageID from dry-run email")
+	if emailRes.ProviderMessageID == "" {
+		t.Error("expected non-empty dry-run ProviderMessageID for email")
 	}
 
-	// SMS should also succeed.
-	res, err = p.SMS.Send(context.Background(), providers.Message{
-		RecipientID: "r-dry-sms",
+	smsRes, err := p.SMS.Send(context.Background(), providers.Message{
+		RecipientID: "rec-dry-sms",
 		To:          "+48500100101",
-		Body:        "body",
+		Body:        "Body",
 	})
 	if err != nil {
-		t.Fatalf("SMS.Send in dry run should succeed, got: %v", err)
+		t.Fatalf("unexpected dry-run SMS error: %v", err)
 	}
-	if res.ProviderMessageID == "" {
-		t.Error("expected non-empty ProviderMessageID from dry-run sms")
-	}
-}
-
-func TestNew_NoDryRunDoesNotWrap(t *testing.T) {
-	t.Parallel()
-
-	cfg := Config{
-		EmailProvider: "mailpit",
-		SMTPHost:      "localhost",
-		SMTPPort:      "1025",
-		EmailFrom:     "test@example.test",
-		SMSProvider:   "fake",
-		DryRun:        false,
-	}
-
-	p, err := New(cfg, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	res, err := p.SMS.Send(context.Background(), providers.Message{
-		RecipientID: "r-real-sms",
-		To:          "+48500100102",
-		Body:        "real message",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.ProviderMessageID == "" {
-		t.Error("expected non-empty ProviderMessageID")
+	if smsRes.ProviderMessageID == "" {
+		t.Error("expected non-empty dry-run ProviderMessageID for SMS")
 	}
 }

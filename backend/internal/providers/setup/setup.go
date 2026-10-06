@@ -40,6 +40,11 @@ type Config struct {
 	SMTPPassword string
 	EmailFrom    string
 
+	// SendGrid settings (used when EmailProvider == "sendgrid").
+	SendGridAPIKey           string
+	SendGridSandbox          bool
+	SendGridWebhookPublicKey string
+
 	// SMSProvider selects the SMS adapter: "fake" (default).
 	SMSProvider string
 
@@ -53,14 +58,17 @@ type Config struct {
 // that keep the system inert (DRY_RUN=true, fake SMS, local Mailpit).
 func ConfigFromEnv() Config {
 	return Config{
-		EmailProvider: envOr("EMAIL_PROVIDER", "mailpit"),
-		SMTPHost:      envOr("SMTP_HOST", "localhost"),
-		SMTPPort:      envOr("SMTP_PORT", "1025"),
-		SMTPUsername:  envOr("SMTP_USERNAME", ""),
-		SMTPPassword:  envOr("SMTP_PASSWORD", ""),
-		EmailFrom:     envOr("EMAIL_FROM", "DoYouSend <no-reply@example.test>"),
-		SMSProvider:   envOr("SMS_PROVIDER", "fake"),
-		DryRun:        envOr("DRY_RUN", "true") == "true",
+		EmailProvider:            envOr("EMAIL_PROVIDER", "mailpit"),
+		SMTPHost:                 envOr("SMTP_HOST", "localhost"),
+		SMTPPort:                 envOr("SMTP_PORT", "1025"),
+		SMTPUsername:             envOr("SMTP_USERNAME", ""),
+		SMTPPassword:             envOr("SMTP_PASSWORD", ""),
+		EmailFrom:                envOr("EMAIL_FROM", "DoYouSend <no-reply@example.test>"),
+		SendGridAPIKey:           envOr("SENDGRID_API_KEY", ""),
+		SendGridSandbox:          envOr("SENDGRID_SANDBOX", "false") == "true",
+		SendGridWebhookPublicKey: envOr("SENDGRID_WEBHOOK_PUBLIC_KEY", ""),
+		SMSProvider:              envOr("SMS_PROVIDER", "fake"),
+		DryRun:                   envOr("DRY_RUN", "true") == "true",
 	}
 }
 
@@ -119,6 +127,16 @@ func newEmailProvider(cfg Config, logger *slog.Logger) (providers.Provider, erro
 			Password: cfg.SMTPPassword,
 			DryRun:   cfg.DryRun,
 		}, logger), nil
+
+	case "sendgrid":
+		if cfg.SendGridAPIKey == "" {
+			return nil, fmt.Errorf("SENDGRID_API_KEY is required when EMAIL_PROVIDER=sendgrid")
+		}
+		return email.NewSendGrid(email.SendGridConfig{
+			APIKey:  cfg.SendGridAPIKey,
+			From:    cfg.EmailFrom,
+			Sandbox: cfg.SendGridSandbox,
+		}, logger)
 
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrUnsupportedProvider, cfg.EmailProvider)
