@@ -29,21 +29,26 @@ E-maile wysyłamy przez **SendGrid (Twilio), Web API v3** (`POST /v3/mail/send`)
   danych innych osób). Każdy wiersz `deliveries` ma wtedy własny wynik i własne ponowienie
   (`CLAUDE.md`, zasada 5). Nie używamy `personalizations` dla wielu odbiorców naraz.
 - **ID wiadomości.** Nagłówek `X-Message-Id` z odpowiedzi `202 Accepted` trafia do
-  `deliveries.provider_message_id`. Dodatkowo w `custom_args` przekazujemy nasze
-  `deliveries.id`, żeby raport dało się połączyć z wierszem nawet bez ID operatora.
+  `deliveries.provider_message_id`. W trybie sandbox (`200 OK`) SendGrid nie zwraca tego
+  nagłówka, więc adapter generuje syntetyczny identyfikator (`sandbox-...`). W `custom_args`
+  przekazujemy `recipient_id`, a gdy model `providers.Message` od DEV B zyska pole `DeliveryID`,
+  także `delivery_id`.
 - **Klasyfikacja błędów w `Send`:**
-  - `400`, `401`, `403`, `413` → błąd trwały (zła treść, zły klucz, brak uprawnień),
-  - `429` i `5xx` → błąd do ponowienia (z `Retry-After`, jeśli jest).
-- **Raporty doręczeń przez Event Webhook**, z weryfikacją podpisu (Signed Event Webhook).
+  - `4xx` (poza `429`) → błąd trwały (zła treść, zły klucz, brak uprawnień),
+  - `429` (z `Retry-After`, jeśli obecny) i `5xx` → błąd do ponowienia.
+- **Raporty doręczeń przez Event Webhook**, z weryfikacją podpisu ECDSA SHA-256
+  (`VerifySendGridWebhookSignature` używa `SENDGRID_WEBHOOK_PUBLIC_KEY` przed parsowaniem).
   Parser zwraca `providers.DeliveryReport`, tak jak `sms.ParseSMSAPIDLR`:
 
   | Zdarzenie SendGrid | `deliveries.status` |
   |---|---|
-  | `processed`, `deferred` | `sent` (wiadomość jest u operatora, nie cofamy statusu) |
+  | `processed`, `deferred` | `sent` (wiadomość jest u operatora; konsument `delivery` aktualizuje status wyłącznie w przód, więc spóźnione zdarzenie nie cofa `delivered`) |
   | `delivered` | `delivered` |
   | `bounce`, `dropped` | `failed` (z powodem w `deliveries.error`) |
   | `open`, `click`, `spamreport`, `unsubscribe` i nieznane | ignorowane, logowane po ID |
 
+  Zdarzenia bez `sg_message_id` są bezpiecznie pomijane z ostrzeżeniem w logu, aby nie odrzucać
+  całej paczki zdarzeń.
 - **Treść bez zmian (`CLAUDE.md`, zasada 4).** Wysyłamy `text/plain` z dokładnie tym samym
   `rendered_body`, które idzie SMS-em. Po stronie SendGrid **wyłączamy click tracking**,
   bo podmienia linki w treści na przekierowania: odbiorca dostałby w e-mailu inny link
