@@ -22,6 +22,9 @@ var ErrDuplicateContact = errors.New("contact is already used by another recipie
 type DuplicateContactError struct {
 	// Field is "email" or "phone".
 	Field string
+	// ExistingID is the recipient already using the contact, when known. A
+	// collision caught only by the unique index (a concurrent write) has none.
+	ExistingID string
 }
 
 func (e *DuplicateContactError) Error() string {
@@ -127,6 +130,129 @@ func (s *PGStore) RecipientsByType(ctx context.Context, t Type) ([]Recipient, er
 	return s.query(ctx, `SELECT `+recipientColumns+` FROM recipients WHERE type = $1::recipient_type ORDER BY lower(last_name), lower(first_name), id`, string(t))
 }
 
+// ListRecipients implements RecipientStore. Query is matched against the
+// first and last name (in both orders), the e-mail and the phone number, the
+// latter also with spaces and dashes removed ("500 100" finds +48500100101).
+func (s *PGStore) ListRecipients(ctx context.Context, f Filter) ([]Recipient, error) {
+	pattern, phonePattern := "", ""
+	if q := strings.TrimSpace(f.Query); q != "" {
+		pattern = "%" + escapeLike(q) + "%"
+		// A query of only dashes and spaces leaves nothing to look for in
+		// phone numbers; "%%" would match every one of them.
+		if digits := strings.NewReplacer(" ", "", "-", "").Replace(q); digits != "" {
+			phonePattern = "%" + escapeLike(digits) + "%"
+		}
+	}
+	return s.query(ctx, `SELECT `+recipientColumns+` FROM recipients
+		WHERE ($1 = '' OR type::text = $1)
+		  AND ($2 = '' OR first_name ILIKE $2 OR last_name ILIKE $2
+		       OR first_name || ' ' || last_name ILIKE $2 OR last_name || ' ' || first_name ILIKE $2
+		       OR email ILIKE $2 OR ($3 <> '' AND phone LIKE $3))
+		ORDER BY lower(last_name), lower(first_name), id`,
+		string(f.Type), pattern, phonePattern)
+}
+
+// GetRecipient implements RecipientStore.
+func (s *PGStore) GetRecipient(ctx context.Context, id string) (Recipient, error) {
+	rs, err := s.RecipientsByIDs(ctx, []string{id})
+	if err != nil {
+		return Recipient{}, err
+	}
+	if len(rs) == 0 {
+		return Recipient{}, ErrNotFound
+	}
+	return rs[0], nil
+}
+
+// RecipientGroupIDs implements RecipientStore. Built-in groups are left out:
+// their membership follows from the recipient type (ADR-0007).
+func (s *PGStore) RecipientGroupIDs(ctx context.Context, id string) ([]string, error) {
+	ids := validIDs([]string{id})
+	if len(ids) == 0 {
+		return []string{}, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT g.id::text FROM group_members m JOIN groups g ON g.id = m.group_id
+		WHERE m.recipient_id = $1 AND NOT g.is_system
+		ORDER BY lower(g.name), g.id`, ids[0])
+	if err != nil {
+		return nil, fmt.Errorf("query groups of recipient: %w", err)
+	}
+	groupIDs, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("read groups of recipient: %w", err)
+	}
+	return groupIDs, nil
+}
+
+// CreateRecipient implements RecipientStore.
+func (s *PGStore) CreateRecipient(ctx context.Context, r Recipient) (Recipient, error) {
+	rows, err := s.pool.Query(ctx, `
+		INSERT INTO recipients (first_name, last_name, email, phone, type)
+		VALUES ($1, $2, $3, $4, $5::recipient_type)
+		RETURNING `+recipientColumns,
+		r.FirstName, r.LastName, nullable(r.Email), nullable(r.Phone), string(r.Type))
+	if err != nil {
+		return Recipient{}, fmt.Errorf("insert recipient: %w", err)
+	}
+	created, err := pgx.CollectExactlyOneRow(rows, scanRecipient)
+	if err != nil {
+		return Recipient{}, fmt.Errorf("insert recipient: %w", contactError(err))
+	}
+	return created, nil
+}
+
+// UpdateRecipient implements RecipientStore.
+func (s *PGStore) UpdateRecipient(ctx context.Context, r Recipient) (Recipient, error) {
+	ids := validIDs([]string{r.ID})
+	if len(ids) == 0 {
+		return Recipient{}, ErrNotFound
+	}
+	rows, err := s.pool.Query(ctx, `
+		UPDATE recipients
+		SET first_name = $2, last_name = $3, email = $4, phone = $5, type = $6::recipient_type, updated_at = now()
+		WHERE id = $1
+		RETURNING `+recipientColumns,
+		ids[0], r.FirstName, r.LastName, nullable(r.Email), nullable(r.Phone), string(r.Type))
+	if err != nil {
+		return Recipient{}, fmt.Errorf("update recipient: %w", err)
+	}
+	updated, err := pgx.CollectExactlyOneRow(rows, scanRecipient)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Recipient{}, ErrNotFound
+	}
+	if err != nil {
+		return Recipient{}, fmt.Errorf("update recipient: %w", contactError(err))
+	}
+	return updated, nil
+}
+
+// DeleteRecipient implements RecipientStore. Group memberships go with the
+// recipient (ON DELETE CASCADE); a batch_recipients row keeps them.
+func (s *PGStore) DeleteRecipient(ctx context.Context, id string) error {
+	ids := validIDs([]string{id})
+	if len(ids) == 0 {
+		return ErrNotFound
+	}
+	tag, err := s.pool.Exec(ctx, `DELETE FROM recipients WHERE id = $1`, ids[0])
+	if _, fk := database.ForeignKeyViolation(err); fk {
+		return ErrRecipientInUse
+	}
+	if err != nil {
+		return fmt.Errorf("delete recipient: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// escapeLike makes s match literally inside a LIKE pattern (backslash is the
+// default escape character).
+func escapeLike(s string) string {
+	return strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(s)
+}
+
 func (s *PGStore) query(ctx context.Context, sql string, args ...any) ([]Recipient, error) {
 	rows, err := s.pool.Query(ctx, sql, args...)
 	if err != nil {
@@ -195,4 +321,7 @@ func nonNil(values []string) []string {
 	return values
 }
 
-var _ Store = (*PGStore)(nil)
+var (
+	_ Store          = (*PGStore)(nil)
+	_ RecipientStore = (*PGStore)(nil)
+)

@@ -171,3 +171,139 @@ func TestImporterWithPGStore(t *testing.T) {
 		}
 	}
 }
+
+func TestPGStoreListRecipients(t *testing.T) {
+	s := newPGStore(t)
+	ctx := context.Background()
+
+	tests := []struct {
+		name   string
+		filter Filter
+		want   []string
+	}{
+		{"all", Filter{}, []string{"Maria Kowalska", "Jan Kowalski", "Lena Nowak"}},
+		{"type", Filter{Type: TypeStudent}, []string{"Lena Nowak"}},
+		{"last name fragment, any case", Filter{Query: "KOWAL"}, []string{"Maria Kowalska", "Jan Kowalski"}},
+		{"first and last name", Filter{Query: "jan kowalski"}, []string{"Jan Kowalski"}},
+		{"last and first name", Filter{Query: "Nowak Lena"}, []string{"Lena Nowak"}},
+		{"e-mail", Filter{Query: "maria.kowalska@"}, []string{"Maria Kowalska"}},
+		{"phone with spaces", Filter{Query: "500 100 103"}, []string{"Lena Nowak"}},
+		{"LIKE wildcards are literal", Filter{Query: "%"}, nil},
+		{"only dashes does not match every phone", Filter{Query: " - - "}, nil},
+		{"query and type", Filter{Query: "kowal", Type: TypeStudent}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := s.ListRecipients(ctx, tt.filter)
+			if err != nil {
+				t.Fatalf("ListRecipients() error = %v", err)
+			}
+			if g := names(got); !reflect.DeepEqual(g, append([]string{}, tt.want...)) {
+				t.Errorf("ListRecipients() = %v, want %v", g, tt.want)
+			}
+		})
+	}
+}
+
+func TestPGStoreRecipientCRUD(t *testing.T) {
+	s := newPGStore(t)
+	ctx := context.Background()
+
+	created, err := s.CreateRecipient(ctx, Recipient{FirstName: "Oskar", LastName: "Adamski", Phone: "+48500100120", Type: TypeStudent})
+	if err != nil || created.ID == "" || created.Email != "" || created.CreatedAt.IsZero() {
+		t.Fatalf("CreateRecipient() = %+v, %v", created, err)
+	}
+	if _, err := s.CreateRecipient(ctx, Recipient{FirstName: "X", LastName: "Y", Phone: "+48500100120", Type: TypeParent}); !errors.Is(err, ErrDuplicateContact) {
+		t.Errorf("CreateRecipient(taken phone) error = %v, want ErrDuplicateContact", err)
+	}
+
+	created.Email, created.Phone, created.LastName = "oskar.adamski@example.test", "", "Adamski-Nowak"
+	updated, err := s.UpdateRecipient(ctx, created)
+	if err != nil {
+		t.Fatalf("UpdateRecipient() error = %v", err)
+	}
+	if updated.Phone != "" || updated.Email != "oskar.adamski@example.test" || !updated.UpdatedAt.After(created.UpdatedAt) {
+		t.Errorf("UpdateRecipient() = %+v, want phone cleared, updated_at bumped", updated)
+	}
+	updated.Email = "JAN.KOWALSKI@example.test"
+	if _, err := s.UpdateRecipient(ctx, updated); !errors.Is(err, ErrDuplicateContact) {
+		t.Errorf("UpdateRecipient(taken e-mail) error = %v, want ErrDuplicateContact", err)
+	}
+	missing := "11111111-1111-4111-8111-0000000000ff"
+	if _, err := s.UpdateRecipient(ctx, Recipient{ID: missing, FirstName: "A", LastName: "B", Phone: "+48500100199", Type: TypeParent}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("UpdateRecipient(unknown) error = %v, want ErrNotFound", err)
+	}
+
+	if got, err := s.GetRecipient(ctx, strings.ToUpper(created.ID)); err != nil || got.LastName != "Adamski-Nowak" {
+		t.Errorf("GetRecipient() = %+v, %v", got, err)
+	}
+	if err := s.DeleteRecipient(ctx, created.ID); err != nil {
+		t.Errorf("DeleteRecipient() error = %v", err)
+	}
+	for name, err := range map[string]error{
+		"GetRecipient":    func() error { _, err := s.GetRecipient(ctx, created.ID); return err }(),
+		"DeleteRecipient": s.DeleteRecipient(ctx, created.ID),
+		"GetRecipient(malformed)": func() error {
+			_, err := s.GetRecipient(ctx, "nope")
+			return err
+		}(),
+	} {
+		if !errors.Is(err, ErrNotFound) {
+			t.Errorf("%s error = %v, want ErrNotFound", name, err)
+		}
+	}
+}
+
+func TestPGStoreDeleteRecipientInBatchHistory(t *testing.T) {
+	pool := dbtest.New(t)
+	s := NewPGStore(pool)
+	ctx := context.Background()
+	jan, err := s.CreateRecipient(ctx, pgFixture()[0])
+	if err != nil {
+		t.Fatalf("CreateRecipient() error = %v", err)
+	}
+	_, err = pool.Exec(ctx, `
+		WITH u AS (INSERT INTO users (email, full_name, role, password_hash)
+		           VALUES ('dyrektor@example.test', 'Anna Testowa', 'sender', 'x') RETURNING id),
+		     b AS (INSERT INTO message_batches (subject, body, created_by) SELECT 'Zebranie', 'Tresc', id FROM u RETURNING id)
+		INSERT INTO batch_recipients (batch_id, recipient_id, rendered_body) SELECT id, $1, 'Tresc' FROM b`, jan.ID)
+	if err != nil {
+		t.Fatalf("insert batch: %v", err)
+	}
+
+	if err := s.DeleteRecipient(ctx, jan.ID); !errors.Is(err, ErrRecipientInUse) {
+		t.Errorf("DeleteRecipient(in history) error = %v, want ErrRecipientInUse", err)
+	}
+	if _, err := s.GetRecipient(ctx, jan.ID); err != nil {
+		t.Errorf("recipient gone after refused delete: %v", err)
+	}
+}
+
+func TestPGStoreRecipientGroupIDs(t *testing.T) {
+	pool := dbtest.New(t)
+	s := NewPGStore(pool)
+	ctx := context.Background()
+	jan, err := s.CreateRecipient(ctx, pgFixture()[0])
+	if err != nil {
+		t.Fatalf("CreateRecipient() error = %v", err)
+	}
+	var zebra, alfa string
+	err = pool.QueryRow(ctx, `
+		WITH z AS (INSERT INTO groups (name) VALUES ('zebra') RETURNING id),
+		     a AS (INSERT INTO groups (name) VALUES ('Alfa') RETURNING id)
+		SELECT (SELECT id::text FROM z), (SELECT id::text FROM a)`).Scan(&zebra, &alfa)
+	if err != nil {
+		t.Fatalf("insert groups: %v", err)
+	}
+	// A stray membership of a built-in group (as old seeds wrote) is ignored.
+	_, err = pool.Exec(ctx, `INSERT INTO group_members (group_id, recipient_id)
+		VALUES ($1, $3), ($2, $3), ('00000000-0000-4000-a000-000000000001', $3)`, zebra, alfa, jan.ID)
+	if err != nil {
+		t.Fatalf("insert members: %v", err)
+	}
+
+	got, err := s.RecipientGroupIDs(ctx, jan.ID)
+	if err != nil || !reflect.DeepEqual(got, []string{alfa, zebra}) {
+		t.Errorf("RecipientGroupIDs() = %v, %v; want [Alfa zebra] by name, custom only", got, err)
+	}
+}
