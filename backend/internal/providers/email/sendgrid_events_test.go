@@ -1,6 +1,12 @@
 package email
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"errors"
 	"strings"
 	"testing"
@@ -139,7 +145,7 @@ func TestParseSendGridEvents_AllEventTypes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			reports, err := ParseSendGridEvents(strings.NewReader(tc.payload))
+			reports, err := ParseSendGridEvents(strings.NewReader(tc.payload), nil)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -186,7 +192,7 @@ func TestParseSendGridEvents_MixedBatch(t *testing.T) {
 		{"event": "deferred", "sg_message_id": "msg-003.filter", "timestamp": 1631525680}
 	]`
 
-	reports, err := ParseSendGridEvents(strings.NewReader(payload))
+	reports, err := ParseSendGridEvents(strings.NewReader(payload), nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -215,6 +221,33 @@ func TestParseSendGridEvents_MixedBatch(t *testing.T) {
 	}
 }
 
+func TestParseSendGridEvents_SkipsMissingMessageID(t *testing.T) {
+	t.Parallel()
+
+	// Review comment 4: one malformed event without sg_message_id should be skipped
+	// without failing the whole batch or discarding valid events.
+	payload := `[
+		{"event": "delivered", "sg_message_id": "", "timestamp": 1631525650},
+		{"event": "bounce", "reason": "No address", "timestamp": 1631525651},
+		{"event": "delivered", "sg_message_id": "msg-valid-001.filter", "timestamp": 1631525652}
+	]`
+
+	reports, err := ParseSendGridEvents(strings.NewReader(payload), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(reports) != 1 {
+		t.Fatalf("got %d reports, want 1 (skipped 2 events without ID)", len(reports))
+	}
+	if reports[0].ProviderMessageID != "msg-valid-001" {
+		t.Errorf("ProviderMessageID = %q, want msg-valid-001", reports[0].ProviderMessageID)
+	}
+	if reports[0].Status != providers.StatusDelivered {
+		t.Errorf("Status = %q, want StatusDelivered", reports[0].Status)
+	}
+}
+
 func TestParseSendGridEvents_Errors(t *testing.T) {
 	t.Parallel()
 
@@ -230,21 +263,13 @@ func TestParseSendGridEvents_Errors(t *testing.T) {
 			name:    "JSON object instead of array",
 			payload: `{"event":"delivered","sg_message_id":"123"}`,
 		},
-		{
-			name:    "missing sg_message_id on actionable delivered event",
-			payload: `[{"event":"delivered","sg_message_id":""}]`,
-		},
-		{
-			name:    "missing sg_message_id on actionable bounce event",
-			payload: `[{"event":"bounce"}]`,
-		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := ParseSendGridEvents(strings.NewReader(tc.payload))
+			_, err := ParseSendGridEvents(strings.NewReader(tc.payload), nil)
 			if err == nil {
 				t.Fatal("expected error, got nil")
 			}
@@ -258,11 +283,84 @@ func TestParseSendGridEvents_Errors(t *testing.T) {
 func TestParseSendGridEvents_EmptyArray(t *testing.T) {
 	t.Parallel()
 
-	reports, err := ParseSendGridEvents(strings.NewReader("[]"))
+	reports, err := ParseSendGridEvents(strings.NewReader("[]"), nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(reports) != 0 {
 		t.Errorf("got %d reports, want 0", len(reports))
 	}
+}
+
+func TestVerifySendGridWebhookSignature(t *testing.T) {
+	t.Parallel()
+
+	// Generate ECDSA P-256 key pair
+	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+
+	derKey, err := x509.MarshalPKIXPublicKey(&privKey.PublicKey)
+	if err != nil {
+		t.Fatalf("marshal public key: %v", err)
+	}
+	pubKeyBase64 := base64.StdEncoding.EncodeToString(derKey)
+
+	payload := []byte(`[{"event":"delivered","sg_message_id":"msg-001"}]`)
+	timestamp := "1631525650"
+
+	// Compute digest = SHA256(timestamp + payload)
+	h := sha256.New()
+	h.Write([]byte(timestamp))
+	h.Write(payload)
+	digest := h.Sum(nil)
+
+	sigBytes, err := ecdsa.SignASN1(rand.Reader, privKey, digest)
+	if err != nil {
+		t.Fatalf("sign digest: %v", err)
+	}
+	sigBase64 := base64.StdEncoding.EncodeToString(sigBytes)
+
+	// Valid signature
+	t.Run("valid signature", func(t *testing.T) {
+		err := VerifySendGridWebhookSignature(pubKeyBase64, payload, sigBase64, timestamp)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	// Tampered payload
+	t.Run("tampered payload", func(t *testing.T) {
+		tampered := []byte(`[{"event":"delivered","sg_message_id":"msg-999"}]`)
+		err := VerifySendGridWebhookSignature(pubKeyBase64, tampered, sigBase64, timestamp)
+		if !errors.Is(err, ErrInvalidWebhookSignature) {
+			t.Errorf("got %v, want ErrInvalidWebhookSignature", err)
+		}
+	})
+
+	// Tampered timestamp
+	t.Run("tampered timestamp", func(t *testing.T) {
+		err := VerifySendGridWebhookSignature(pubKeyBase64, payload, sigBase64, "1631525999")
+		if !errors.Is(err, ErrInvalidWebhookSignature) {
+			t.Errorf("got %v, want ErrInvalidWebhookSignature", err)
+		}
+	})
+
+	// Bad signature
+	t.Run("bad signature", func(t *testing.T) {
+		badSig := base64.StdEncoding.EncodeToString([]byte("invalid-asn1-signature-bytes"))
+		err := VerifySendGridWebhookSignature(pubKeyBase64, payload, badSig, timestamp)
+		if !errors.Is(err, ErrInvalidWebhookSignature) {
+			t.Errorf("got %v, want ErrInvalidWebhookSignature", err)
+		}
+	})
+
+	// Empty public key
+	t.Run("empty public key", func(t *testing.T) {
+		err := VerifySendGridWebhookSignature("", payload, sigBase64, timestamp)
+		if err == nil {
+			t.Fatal("expected error for empty public key, got nil")
+		}
+	})
 }
