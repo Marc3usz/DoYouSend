@@ -617,7 +617,7 @@ components:
           items: { type: string }
         unknownPlaceholders:
           type: array
-          description: Uzyte nazwy spoza obslugiwanych (imie, nazwisko). Gdy niepuste, nic nie jest renderowane, a liczniki SMS i koszt sa zerowe.
+          description: Uzyte nazwy spoza obslugiwanych (imie, nazwisko). Gdy niepuste albo tresc jest pusta, nic nie jest renderowane - wszystkie liczniki poza recipientCount i koszt sa zerowe.
           items: { type: string }
         recipientCount:   { type: integer, description: "Odbiorcy po deduplikacji i wykluczeniach" }
         emailCount:       { type: integer, description: "Odbiorcy, ktorzy dostana e-mail" }
