@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,6 +34,10 @@ type SMSAPIConfig struct {
 	// TestMode simulates sending without charging or dispatching to GSM network
 	// (SMSAPI parameter test=1). Useful for integration tests and sandbox.
 	TestMode bool
+
+	// MaxParts limits the maximum number of SMS parts (SMSAPI parameter max_parts).
+	// If 0, uses SMSAPI account default.
+	MaxParts int
 
 	// BaseURL overrides the default endpoint (https://api.smsapi.pl).
 	// Useful for unit tests with httptest.Server or fallback endpoint.
@@ -92,11 +97,12 @@ func (s *SMSAPI) Channel() providers.Channel {
 
 // Send delivers a single SMS to a single recipient via SMSAPI POST /sms.do.
 //
-// Error classification (ADR-0003):
-//   - Permanent errors: invalid recipient, authentication failure (11, 12),
-//     invalid sender name (14), empty/bad message (18, 26), 4xx HTTP statuses.
-//   - Transient errors: gateway rate limit (105, 429), insufficient credits (103),
-//     internal server errors (201, 202, 5xx), timeouts, network errors.
+// Error classification (ADR-0003, SMSAPI docs section 19):
+//   - Transient errors: system errors (8, 201, 999), gateway rate limit (202, 429),
+//     insufficient credits (103), 5xx HTTP statuses, timeouts, network errors.
+//   - Permanent errors: validation (11, 12, 18, 26), invalid recipient/blacklisted (13),
+//     invalid sender name (14), auth failure (101, 102), IP filter whitelist (105),
+//     unknown error codes, and 4xx HTTP statuses.
 func (s *SMSAPI) Send(ctx context.Context, msg providers.Message) (providers.Result, error) {
 	if ctx.Err() != nil {
 		return providers.Result{}, providers.TransientError(
@@ -124,13 +130,17 @@ func (s *SMSAPI) Send(ctx context.Context, msg providers.Message) (providers.Res
 	form.Set("message", msg.Body)
 	form.Set("format", "json")
 	form.Set("encoding", "utf-8")
-	form.Set("details", "1")
+	// Note: We deliberately do not send details=1 to prevent SMSAPI from echoing
+	// the phone number and message body back in the response (backend/CLAUDE.md).
 
 	if s.cfg.SenderName != "" {
 		form.Set("from", s.cfg.SenderName)
 	}
 	if s.cfg.TestMode {
 		form.Set("test", "1")
+	}
+	if s.cfg.MaxParts > 0 {
+		form.Set("max_parts", strconv.Itoa(s.cfg.MaxParts))
 	}
 	if msg.RecipientID != "" {
 		form.Set("param1", msg.RecipientID)
@@ -164,14 +174,14 @@ func (s *SMSAPI) Send(ctx context.Context, msg providers.Message) (providers.Res
 	var apiResp smsapiResponse
 	jsonErr := json.Unmarshal(respBody, &apiResp)
 
-	// If SMSAPI returned an error object in JSON
+	// If SMSAPI returned an error object in JSON (can occur with HTTP 200 or 4xx)
 	if jsonErr == nil && apiResp.Error != 0 {
-		return providers.Result{}, classifySMSAPIError(msg.RecipientID, apiResp.Error, apiResp.Message, resp.StatusCode)
+		return providers.Result{}, classifySMSAPIError(msg.RecipientID, apiResp.Error, apiResp.Message)
 	}
 
 	// Non-2xx HTTP status without a parsed JSON error
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return providers.Result{}, classifyHTTPStatus(msg.RecipientID, resp.StatusCode, string(respBody), resp.Header)
+		return providers.Result{}, classifyHTTPStatus(msg.RecipientID, resp.StatusCode, resp.Header)
 	}
 
 	// Successful response
@@ -200,48 +210,57 @@ func (s *SMSAPI) Send(ctx context.Context, msg providers.Message) (providers.Res
 	}
 
 	return providers.Result{}, providers.TransientError(
-		fmt.Errorf("send sms to recipient %s: empty or unexpected response from smsapi: %s", msg.RecipientID, string(respBody)),
+		fmt.Errorf("send sms to recipient %s: empty or unexpected response from smsapi (HTTP %d)", msg.RecipientID, resp.StatusCode),
 	)
 }
 
 // classifySMSAPIError maps numerical SMSAPI error codes to permanent or transient errors.
-// Reference: https://www.smsapi.pl/docs/#17-kody-bledow
-func classifySMSAPIError(recipientID string, code int, message string, httpStatus int) error {
+// Reference: https://www.smsapi.pl/docs (section 19. Kody błędów).
+//
+// By design, only an explicit list of codes representing temporary system/gateway
+// conditions or replenishable credits are transient. All other codes (validation,
+// recipient issues, auth, IP whitelist filtering, or unknown codes) are permanent
+// to prevent endless retries.
+func classifySMSAPIError(recipientID string, code int, message string) error {
 	err := fmt.Errorf("send sms to recipient %s: smsapi error %d: %s", recipientID, code, message)
 
 	switch code {
-	// Permanent errors:
-	// 11: Invalid login or token
-	// 12: Account disabled
-	// 13: Invalid recipient phone number
-	// 14: Invalid sender name
-	// 18: Empty or invalid message
-	// 26: Message body too long
-	// 30: Invalid UDH
-	// 101: Invalid parameter or option
-	// 104: Test account restriction / recipient not allowed
-	case 11, 12, 13, 14, 18, 26, 30, 101, 104:
-		return providers.PermanentError(err)
-
 	// Transient errors:
-	// 103: Insufficient points/credits (prepaid exhausted - retryable once topped up)
-	// 105: Rate limit exceeded
-	// 201: Internal SMSAPI system error
-	// 202: SMSAPI gateway unavailable
-	case 103, 105, 201, 202:
+	// 8: Internal system reference error (błąd w odwołaniu - do zgłoszenia do wsparcia)
+	// 103: Insufficient credits (brak środków na koncie - retryable once topped up)
+	// 201: Internal system error (wewnętrzny błąd systemu)
+	// 202: Too many simultaneous requests (zbyt wiele jednoczesnych zapytań / rate limit)
+	// 999: Internal system error (wewnętrzny błąd systemu)
+	case 8, 103, 201, 202, 999:
 		return providers.TransientError(err)
 
+	// Permanent errors (all other codes, including unknown codes):
+	// 7: Short links disabled on account (skrócone linki wyłączone na koncie)
+	// 11: Message too long, empty or invalid characters with nounicode (zbyt długa lub brak treści wiadomości)
+	// 12: Exceeded maximum message parts / max_parts (przekroczona liczba części wiadomości)
+	// 13: Invalid recipient phone number, landline or blacklisted (brak prawidłowych numerów)
+	// 14: Invalid sender name (nieprawidłowe pole nadawcy)
+	// 17: FLASH message with special characters not allowed (błędna wiadomość FLASH)
+	// 18: Invalid number of parameters (nieprawidłowa liczba parametrów)
+	// 25: normalize and datacoding parameters cannot be combined
+	// 26: Subject too long - max 30 characters (za długi temat wiadomości)
+	// 30: Invalid UDH (niepoprawny UDH)
+	// 40: Group not found (brak grupy o podanej nazwie)
+	// 53: Duplicate message index (wiadomość z danym idx już wysłana w ciągu 24h)
+	// 101: Invalid authorization info / OAuth token (niepoprawny token autoryzacyjny)
+	// 102: Invalid login or password (niepoprawny login lub hasło)
+	// 104: Template not found / test account restriction (brak szablonu)
+	// 105: IP address filtered out by whitelist (adres IP odfiltrowany)
+	// 110: Action not allowed for account (akcja niedozwolona)
 	default:
-		if httpStatus >= 400 && httpStatus < 500 && httpStatus != http.StatusTooManyRequests {
-			return providers.PermanentError(err)
-		}
-		return providers.TransientError(err)
+		return providers.PermanentError(err)
 	}
 }
 
-// classifyHTTPStatus maps HTTP status codes to permanent or transient errors.
-func classifyHTTPStatus(recipientID string, status int, body string, header http.Header) error {
-	err := fmt.Errorf("send sms to recipient %s: smsapi returned HTTP %d: %s", recipientID, status, body)
+// classifyHTTPStatus maps HTTP status codes (when no JSON error code was returned)
+// to permanent or transient errors.
+func classifyHTTPStatus(recipientID string, status int, header http.Header) error {
+	err := fmt.Errorf("send sms to recipient %s: smsapi returned HTTP %d", recipientID, status)
 
 	switch {
 	case status == http.StatusTooManyRequests:
