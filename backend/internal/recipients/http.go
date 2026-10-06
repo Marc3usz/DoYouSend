@@ -1,6 +1,7 @@
 package recipients
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -13,12 +14,30 @@ import (
 // part headers and boundaries. ParseFile enforces the file limit itself.
 const maxImportBody = MaxImportFileSize + 64<<10
 
-// HandleCheckImport serves POST /api/recipients/import/check
-// (docs/api/openapi.yaml): the per-row report of the uploaded file, without
-// storing anything. It needs no authentication while it only uses ParseFile,
-// because the response holds nothing but the uploaded data; once it checks
-// stored recipients it must move behind the admin role.
+// ImportFunc turns one uploaded file into its per-row report.
+type ImportFunc func(ctx context.Context, r io.Reader) (ImportReport, error)
+
+// ParseOnly is the ImportFunc of the file check without a database: duplicates
+// are found only inside the file.
+func ParseOnly(_ context.Context, r io.Reader) (ImportReport, error) {
+	return ParseFile(r)
+}
+
+// HandleCheckImport serves POST /api/recipients/import/check without a
+// database (ParseOnly). It needs no authentication then, because the response
+// holds nothing but the uploaded data.
 func HandleCheckImport(logger *slog.Logger) http.HandlerFunc {
+	return HandleImportFile(ParseOnly, logger)
+}
+
+// HandleImportFile serves the import endpoints of docs/api/openapi.yaml:
+// POST /api/recipients/import/check with Importer.Check and
+// POST /api/recipients/import with Importer.Import. Both answer the same
+// per-row report.
+//
+// TODO(iam): with a database both endpoints read or write the recipient base
+// and must require the admin role once the iam middleware lands (DEV D).
+func HandleImportFile(process ImportFunc, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxImportBody)
 		mr, err := r.MultipartReader()
@@ -41,7 +60,7 @@ func HandleCheckImport(logger *slog.Logger) http.HandlerFunc {
 				continue // NextPart skips the unread rest of this part
 			}
 
-			report, err := ParseFile(part)
+			report, err := process(r.Context(), part)
 			if err != nil {
 				writeImportError(w, logger, err)
 				return
@@ -70,10 +89,15 @@ func writeImportError(w http.ResponseWriter, logger *slog.Logger, err error) {
 		writeFileError(w, http.StatusUnprocessableEntity, "too_many_rows", err.Error())
 	case errors.Is(err, ErrUnclosedQuote):
 		writeFileError(w, http.StatusUnprocessableEntity, "unclosed_quote", err.Error())
+	case errors.Is(err, ErrStorage):
+		// Nothing was stored (Import is all-or-nothing); the file can be
+		// uploaded again. The error carries no contact data.
+		logger.Error("recipients import: storage", "err", err)
+		writeFileError(w, http.StatusInternalServerError, "internal", "internal error")
 	default:
 		// Reading the request failed (e.g. the client went away mid-upload).
 		// The error never carries file contents, so it is safe to log.
-		logger.Warn("recipients import check: read upload", "err", err)
+		logger.Warn("recipients import: read upload", "err", err)
 		writeFileError(w, http.StatusBadRequest, "invalid_request", "the upload could not be read")
 	}
 }

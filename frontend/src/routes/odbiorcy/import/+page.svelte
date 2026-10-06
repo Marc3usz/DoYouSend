@@ -1,10 +1,17 @@
 <script lang="ts">
-	import { checkImportFile, importFileError, type ImportReport } from '$lib/api/recipients';
+	import {
+		checkImportFile,
+		importFile,
+		importFileError,
+		type ImportReport
+	} from '$lib/api/recipients';
 	import {
 		duplicateText,
 		fieldErrorText,
 		fileErrorText,
 		recipientTypeLabel,
+		saveErrorText,
+		savedSummary,
 		type FileErrorText
 	} from './messages';
 
@@ -13,6 +20,9 @@
 	let report = $state<ImportReport | null>(null);
 	let reportFileName = $state('');
 	let failure = $state<FileErrorText | null>(null);
+	let saving = $state(false);
+	// True once report is the answer of a save, not of a check.
+	let saved = $state(false);
 
 	// A result on screen always belongs to the currently selected file, so
 	// choosing another file (or cancelling the picker) clears it.
@@ -20,6 +30,7 @@
 		file = next;
 		report = null;
 		failure = null;
+		saved = false;
 	}
 
 	// The check is triggered by the user, so it runs in the browser (through
@@ -29,6 +40,7 @@
 		const checked = file;
 		report = null;
 		failure = null;
+		saved = false;
 		if (!checked) {
 			failure = fileErrorText({ code: 'missing_file', message: '' });
 			return;
@@ -49,6 +61,28 @@
 			checking = false;
 		}
 	}
+
+	// Saving sends the same file again: the backend checks it once more
+	// against the stored recipients and stores the valid rows, all or none.
+	async function save() {
+		const toSave = file;
+		if (!toSave || !report) return;
+		failure = null;
+		saving = true;
+		try {
+			const result = await importFile(toSave);
+			if (file === toSave) {
+				report = result;
+				saved = true;
+			}
+		} catch (err) {
+			if (file === toSave) {
+				failure = saveErrorText(importFileError(err));
+			}
+		} finally {
+			saving = false;
+		}
+	}
 </script>
 
 <svelte:head>
@@ -64,8 +98,8 @@
 	mieć e-mail lub telefon.
 </p>
 <p class="note">
-	To jest sprawdzenie pliku — nic nie zostaje zapisane. Zapisywanie odbiorców z pliku pojawi się w
-	kolejnej wersji.
+	Najpierw sprawdź plik — sprawdzenie niczego nie zapisuje. Potem zapisz poprawne wiersze: błędne i
+	duplikaty (także osoby, które już są w bazie) zostaną pominięte.
 </p>
 
 <form onsubmit={check}>
@@ -75,7 +109,9 @@
 		accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 		onchange={(e) => selectFile(e.currentTarget.files?.[0] ?? null)}
 	/>
-	<button type="submit" disabled={checking}>{checking ? 'Sprawdzam…' : 'Sprawdź plik'}</button>
+	<button type="submit" disabled={checking || saving}
+		>{checking ? 'Sprawdzam…' : 'Sprawdź plik'}</button
+	>
 </form>
 
 {#if failure}
@@ -87,13 +123,27 @@
 	</div>
 {/if}
 
-{#if report}
+{#if report && saved}
+	<div class="notice" role="status">
+		<p>{savedSummary(report)}</p>
+		<p><a href="/odbiorcy">Przejdź do listy odbiorców</a></p>
+	</div>
+{:else if report}
 	<p class="summary" aria-live="polite">
 		Plik <strong>{reportFileName}</strong> — poprawne: <strong>{report.valid.length}</strong>,
 		błędne: <strong>{report.invalid.length}</strong>, duplikaty:
 		<strong>{report.duplicates.length}</strong>
 	</p>
+	{#if report.valid.length > 0}
+		<p>
+			<button type="button" onclick={save} disabled={saving}>
+				{saving ? 'Zapisuję…' : `Zapisz poprawne wiersze (${report.valid.length})`}
+			</button>
+		</p>
+	{/if}
+{/if}
 
+{#if report}
 	{#if report.invalid.length > 0}
 		<h2>Błędne wiersze</h2>
 		<table>
@@ -121,14 +171,22 @@
 			<thead><tr><th>Wiersz</th><th>Problem</th></tr></thead>
 			<tbody>
 				{#each report.duplicates as row (row.row)}
-					<tr><td>{row.row}</td><td>{duplicateText(row)}</td></tr>
+					<tr>
+						<td>{row.row}</td>
+						<td>
+							{duplicateText(row)}
+							{#if row.existingRecipientId}
+								— <a href="/odbiorcy/{row.existingRecipientId}">zobacz</a>
+							{/if}
+						</td>
+					</tr>
 				{/each}
 			</tbody>
 		</table>
 	{/if}
 
 	{#if report.valid.length > 0}
-		<h2>Poprawne wiersze</h2>
+		<h2>{saved ? 'Zapisane wiersze' : 'Poprawne wiersze'}</h2>
 		<table>
 			<thead>
 				<tr
@@ -166,6 +224,11 @@
 		align-items: center;
 		flex-wrap: wrap;
 		margin: 1rem 0;
+	}
+	.notice {
+		border: 1px solid #2a7;
+		background: #f2fbf6;
+		padding: 0.5rem 1rem;
 	}
 	.error {
 		border: 1px solid #c00;

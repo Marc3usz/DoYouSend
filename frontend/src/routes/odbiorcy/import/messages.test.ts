@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '$lib/api/client';
 import { importFileError, importFileErrorCodes } from '$lib/api/recipients';
-import { duplicateText, fieldErrorText, fileErrorText, recipientTypeLabel } from './messages';
+import {
+	duplicateText,
+	fieldErrorText,
+	fileErrorText,
+	recipientTypeLabel,
+	saveErrorText,
+	savedSummary
+} from './messages';
 
 describe('fieldErrorText', () => {
 	it('uses the stable field key, not the English message', () => {
@@ -58,5 +65,43 @@ describe('importFileError', () => {
 		expect(importFileError(new ApiError(422, 'x', { code: 'nope', message: 'x' }))).toBeUndefined();
 		expect(importFileError(new ApiError(500, 'x'))).toBeUndefined();
 		expect(importFileError(new Error('network'))).toBeUndefined();
+	});
+});
+
+describe('saveErrorText', () => {
+	it('says nothing was stored when the save itself failed', () => {
+		expect(saveErrorText(undefined).text).toContain('Nic nie zostało zapisane');
+	});
+
+	it('uses the file error texts for a whole-file error', () => {
+		expect(saveErrorText({ code: 'empty_file', message: 'x' })).toEqual(
+			fileErrorText({ code: 'empty_file', message: 'x' })
+		);
+	});
+});
+
+describe('savedSummary', () => {
+	const recipient = {
+		firstName: 'Jan',
+		lastName: 'Kowalski',
+		email: 'jan.kowalski@example.test',
+		phone: null,
+		type: 'parent' as const
+	};
+
+	it('counts stored and skipped rows', () => {
+		expect(
+			savedSummary({
+				valid: [{ row: 2, recipient }],
+				invalid: [{ row: 3, errors: [] }],
+				duplicates: [{ row: 4, field: 'email', duplicateOfRow: 2 }]
+			})
+		).toBe('Zapisano odbiorców: 1. Pominięto wierszy: 2 (błędne i duplikaty, lista niżej).');
+	});
+
+	it('leaves out the skipped part when nothing was skipped', () => {
+		expect(savedSummary({ valid: [{ row: 2, recipient }], invalid: [], duplicates: [] })).toBe(
+			'Zapisano odbiorców: 1.'
+		);
 	});
 });

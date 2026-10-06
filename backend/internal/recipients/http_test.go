@@ -3,6 +3,7 @@ package recipients
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -141,5 +142,57 @@ func assertJSONEqual(t *testing.T, got []byte, want string) {
 	wb, _ := json.Marshal(w)
 	if !bytes.Equal(gb, wb) {
 		t.Errorf("response =\n%s\nwant\n%s", gb, wb)
+	}
+}
+
+func postImport(t *testing.T, process ImportFunc, file string) *httptest.ResponseRecorder {
+	t.Helper()
+	body, ct := multipartBody(t, formField{"file", []byte(file)})
+	req := httptest.NewRequest(http.MethodPost, "/api/recipients/import", body)
+	req.Header.Set("Content-Type", ct)
+	rec := httptest.NewRecorder()
+	HandleImportFile(process, slog.New(slog.NewTextHandler(io.Discard, nil)))(rec, req)
+	return rec
+}
+
+func TestHandleImportFileStores(t *testing.T) {
+	store := &fakeStore{existing: ExistingContacts{Emails: map[string]string{"jan.kowalski@example.test": "id-jan"}}}
+
+	rec := postImport(t, NewImporter(store).Import, importerFile)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body)
+	}
+	if len(store.created) != 1 || store.created[0].LastName != "Kowalska" {
+		t.Errorf("created %+v, want Maria only", store.created)
+	}
+	want := `{
+		"valid": [{"row": 3, "recipient": {"firstName": "Maria", "lastName": "Kowalska", "email": "maria.kowalska@example.test", "phone": "+48500100102", "type": "parent"}}],
+		"invalid": [{"row": 4, "errors": [{"field": "last_name", "message": "last name is required"}]}],
+		"duplicates": [{"row": 2, "field": "email", "existingRecipientId": "id-jan"}]
+	}`
+	assertJSONEqual(t, rec.Body.Bytes(), want)
+}
+
+func TestHandleImportFileStorageError(t *testing.T) {
+	store := &fakeStore{saveErr: errors.New("connection refused")}
+
+	rec := postImport(t, NewImporter(store).Import, importerFile)
+
+	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), `"code":"internal"`) {
+		t.Errorf("got %d %s, want 500 internal", rec.Code, rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), "connection refused") {
+		t.Errorf("body leaks the storage error: %s", rec.Body)
+	}
+}
+
+func TestHandleImportFileFileErrorWinsOverStorage(t *testing.T) {
+	store := &fakeStore{findErr: errors.New("connection refused")}
+
+	rec := postImport(t, NewImporter(store).Import, "name,surname\n")
+
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), `"code":"missing_columns"`) {
+		t.Errorf("got %d %s, want 422 missing_columns before any lookup", rec.Code, rec.Body)
 	}
 }
