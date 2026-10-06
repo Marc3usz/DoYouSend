@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Marc3usz/DoYouSend/backend/internal/groups"
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/config"
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/database"
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/httpx"
@@ -51,6 +52,12 @@ func main() {
 		defer pool.Close()
 		recipientStore := recipients.NewPGStore(pool)
 		recipients.NewHandler(recipients.NewService(recipientStore), logger).Register(mux)
+		groupStore := groups.NewPGStore(pool)
+		groups.NewHandler(
+			groups.NewService(groupStore, recipientStore),
+			groups.NewResolver(groupStore, recipientStore),
+			logger,
+		).Register(mux)
 	}
 
 	srv := &http.Server{
