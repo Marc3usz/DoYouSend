@@ -19,7 +19,7 @@ wymaga rejestracji u operatora).
 - **Środowisko produkcyjne:** Wstępnie planowano dowolny serwer SMTP, jednak ze względu na
   wymóg raportów doręczeń per odbiorca (status `delivered`) oraz konieczność wyłączenia
   click trackingu (zasada identyczności treści e-mail/SMS z `CLAUDE.md`), wybór docelowego
-  dostawcy e-mail reguluje propozycja **ADR-0008** (SendGrid Web API v3, PR #13).
+  dostawcy e-mail reguluje **ADR-0008** (SendGrid Web API v3).
 
 ### SMS: SMSAPI.pl
 
