@@ -314,3 +314,31 @@ func TestServiceStorageErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestServiceInfo(t *testing.T) {
+	svc, store, _ := newTestService()
+	rada := mustCreate(t, store, "Rada rodziców", idJan, idMaria)
+
+	tests := []struct {
+		name    string
+		id      string
+		want    int
+		wantErr error
+	}{
+		{name: "custom group", id: rada.ID, want: 2},
+		{name: "built-in group", id: AllStudentsID, want: 2},
+		{name: "unknown group", id: idMissingGroup, wantErr: ErrNotFound},
+		{name: "malformed id", id: "nope", wantErr: ErrInvalidInput},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g, err := svc.Info(context.Background(), tt.id)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Info() error = %v, want %v", err, tt.wantErr)
+			}
+			if err == nil && g.MemberCount != tt.want {
+				t.Errorf("MemberCount = %d, want %d", g.MemberCount, tt.want)
+			}
+		})
+	}
+}
