@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/groups"
+	"github.com/Marc3usz/DoYouSend/backend/internal/messaging"
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/config"
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/database"
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/httpx"
@@ -43,7 +44,7 @@ func main() {
 	pool, err := database.Open(ctx, cfg.DatabaseURL)
 	switch {
 	case errors.Is(err, database.ErrNoURL):
-		logger.Warn("DATABASE_URL is not set: recipient and group endpoints are disabled")
+		logger.Warn("DATABASE_URL is not set: recipient, group and message preview endpoints are disabled")
 		mux.Handle("POST /api/recipients/import/check", recipients.HandleCheckImport(logger))
 	case err != nil:
 		logger.Error("connect to database", "err", err)
@@ -53,11 +54,15 @@ func main() {
 		recipientStore := recipients.NewPGStore(pool)
 		recipients.NewHandler(recipients.NewService(recipientStore), logger).Register(mux)
 		groupStore := groups.NewPGStore(pool)
-		groups.NewHandler(
-			groups.NewService(groupStore, recipientStore),
-			groups.NewResolver(groupStore, recipientStore),
-			logger,
-		).Register(mux)
+		resolver := groups.NewResolver(groupStore, recipientStore)
+		groups.NewHandler(groups.NewService(groupStore, recipientStore), resolver, logger).Register(mux)
+		smsPrice, err := messaging.ParsePrice(os.Getenv("SMS_PRICE_PER_PART_PLN"))
+		if err != nil {
+			logger.Error("invalid SMS_PRICE_PER_PART_PLN (see .env.example)", "err", err)
+			os.Exit(1)
+		}
+		mux.Handle("POST /api/messages/preview",
+			messaging.HandlePreview(messaging.NewPreviewer(resolver, smsPrice), logger))
 		importer := recipients.NewImporter(recipientStore)
 		mux.Handle("POST /api/recipients/import/check", recipients.HandleImportFile(importer.Check, logger))
 		mux.Handle("POST /api/recipients/import", recipients.HandleImportFile(importer.Import, logger))
