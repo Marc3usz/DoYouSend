@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -71,10 +72,24 @@ func main() {
 		mux.Handle("POST /api/recipients/import", recipients.HandleImportFile(importer.Import, logger))
 
 		reportConsumer := providers.NewPGDeliveryReportConsumer(pool)
-		sendgridKey := os.Getenv("SENDGRID_WEBHOOK_PUBLIC_KEY")
-		mux.Handle("GET /providers/sms/dlr", sms.HandleSMSAPIDLR(reportConsumer, logger))
-		mux.Handle("POST /providers/sms/dlr", sms.HandleSMSAPIDLR(reportConsumer, logger))
-		mux.Handle("POST /providers/email/events", email.HandleSendGridEvents(reportConsumer, sendgridKey, logger))
+
+		smsToken := strings.TrimSpace(os.Getenv("SMSAPI_DLR_TOKEN"))
+		if smsToken != "" {
+			dlrHandler := sms.HandleSMSAPIDLR(reportConsumer, smsToken, logger)
+			mux.Handle("GET /providers/sms/dlr", dlrHandler)
+			mux.Handle("POST /providers/sms/dlr", dlrHandler)
+			mux.Handle("GET /providers/sms/dlr/{token}", dlrHandler)
+			mux.Handle("POST /providers/sms/dlr/{token}", dlrHandler)
+		} else {
+			logger.Warn("SMSAPI_DLR_TOKEN is not set: SMSAPI DLR webhook routes are disabled")
+		}
+
+		sendgridKey := strings.TrimSpace(os.Getenv("SENDGRID_WEBHOOK_PUBLIC_KEY"))
+		if sendgridKey != "" {
+			mux.Handle("POST /providers/email/events", email.HandleSendGridEvents(reportConsumer, sendgridKey, logger))
+		} else {
+			logger.Warn("SENDGRID_WEBHOOK_PUBLIC_KEY is not set: SendGrid event webhook route is disabled")
+		}
 	}
 
 	srv := &http.Server{
