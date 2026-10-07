@@ -43,17 +43,25 @@ tylko więcej grup na liście.
    - „Uczniowie klasy 3A” = odbiorcy typu uczeń z klasą 3A;
    - „Rodzice uczniów klasy 3A” = odbiorcy typu rodzic z klasą 3A.
 
-   **ID** to UUIDv5 z jednej stałej przestrzeni nazw i napisu `students:3A` / `parents:3A`
-   (implementacja na `crypto/sha1` ze stdlib, bez nowej zależności). Ta sama klasa daje zawsze
+   **ID** to UUIDv5 (RFC 9562) z przestrzeni nazw
+   **`733b2535-1e27-428a-a23d-c275f4eab3fa`** i napisu `students:3A` / `parents:3A`
+   (znormalizowana nazwa klasy). Implementacja na `crypto/sha1` ze stdlib, bez nowej
+   zależności; stała `groups.ClassNamespace` w `groups/system.go`. **Tej wartości ani formatu
+   napisu nie wolno zmienić po pierwszej wysyłce** — zmieniłyby się ID wszystkich grup klasowych
+   i zapisane wybory przestałyby się rozwijać. Ta sama klasa daje zawsze
    to samo ID, więc zapisany wybór i historia działają jak dla „Wszyscy rodzice”. Nie ma
    wierszy w `groups` ani w `group_members`, więc nie ma czego synchronizować po imporcie.
-4. **Nazwy zarezerwowane.** Grupy własnej nie można nazwać „Uczniowie klasy …” ani „Rodzice
+4. **Kolejność na liście.** `GET /groups` zwraca najpierw „Wszyscy rodzice”, „Wszyscy
+   uczniowie”, potem grupy klasowe posortowane po numerze klasy (liczbowo), następnie po reszcie
+   nazwy (`1A, 1B, 2A, …, 10A`) i w każdej klasie najpierw uczniów, potem rodziców; na końcu
+   grupy własne. Kreator może grupować wizualnie po `className`.
+5. **Nazwy zarezerwowane.** Grupy własnej nie można nazwać „Uczniowie klasy …” ani „Rodzice
    uczniów klasy …” (rozszerzenie `isSystemName`).
-5. **Import.** Nowa **opcjonalna** kolumna `klasa`. Plik bez niej działa jak dziś. Kilka klas
+6. **Import.** Nowa **opcjonalna** kolumna `klasa`. Plik bez niej działa jak dziś. Kilka klas
    rodzica wpisujemy w jednej komórce po przecinku: `3A, 1B` (w CSV z przecinkiem jako
    separatorem komórkę trzeba ująć w cudzysłów — Excel robi to sam). Dla ucznia więcej niż jedna
    klasa to błąd wiersza.
-6. **Kontrakt** (osobny PR do `openapi.yaml`, po akceptacji tego ADR):
+7. **Kontrakt** (osobny PR do `openapi.yaml`, po akceptacji tego ADR):
    - `Recipient.classes: string[]` (zawsze obecne, może być puste), to samo w `RecipientInput`
      i `ImportedRecipient`;
    - `Group.className: string | null` — wypełnione dla grup klasowych, `kind` zostaje `system`.
@@ -85,8 +93,13 @@ tylko więcej grup na liście.
   stabilny. Brak nowej zależności i brak synchronizacji grup.
 - **Złe:**
   - Grupa znika z listy, gdy w klasie nie ma już nikogo. Zapisany w historii wybór wskazuje wtedy
-    nieistniejące ID. Historia musi więc trzymać **nazwę** grupy z chwili wysyłki, nie tylko ID
-    (do uwzględnienia przez DEV B przy `message_batches`).
+    nieistniejące ID. Dlatego **`message_batches.selected_groups` (jsonb) przechowuje migawkę
+    `[{"id": "<uuid>", "name": "Rodzice uczniów klasy 3A"}]`, a nie `string[]`** — historia nie
+    zależy od tego, czy grupa nadal istnieje. Bez nowej migracji (kolumna już jest `jsonb`);
+    zapisuje DEV B w `delivery` (uzgodnione w review #27).
+  - Grupa może zniknąć między podglądem a zatwierdzeniem. `Resolve` zwraca ją w
+    `UnknownGroupIDs`, a zatwierdzenie wsadu z niepustą listą jest odrzucane z komunikatem
+    „grupa już nie istnieje, odśwież wybór” — nie wysyłamy po cichu do mniejszej listy (DEV B).
   - Promocja do następnej klasy (3A → 4A) to zmiana danych odbiorców: ponowny import albo edycja.
     Nie ma operacji „przenieś klasę” — można ją dodać później jako zbiorczą zmianę nazwy.
   - Rodzic przypisany do klasy ręcznie, a nie przez dziecko, może się rozjechać z faktycznymi
