@@ -11,6 +11,7 @@ import (
 // PGDeliveryReportConsumer updates delivery statuses in PostgreSQL.
 // It enforces the forward-only lifecycle: once a delivery is marked as
 // 'delivered' or 'failed', subsequent events cannot overwrite it.
+// Transitions are strictly forward: pending -> sending -> sent -> delivered / failed.
 type PGDeliveryReportConsumer struct {
 	pool *pgxpool.Pool
 }
@@ -22,8 +23,8 @@ func NewPGDeliveryReportConsumer(pool *pgxpool.Pool) *PGDeliveryReportConsumer {
 
 // ConsumeDeliveryReports persists a batch of DeliveryReport updates to the deliveries table.
 // If reports is empty, it returns nil immediately without acquiring a database connection.
-// Status updates are applied forward-only: terminal statuses ('delivered', 'failed')
-// are preserved even if an out-of-order event arrives.
+// Status updates are applied forward-only and scoped to the exact channel:
+// terminal statuses ('delivered', 'failed') are preserved even if an out-of-order event arrives.
 func (c *PGDeliveryReportConsumer) ConsumeDeliveryReports(ctx context.Context, reports []DeliveryReport) error {
 	if len(reports) == 0 {
 		return nil
@@ -42,7 +43,12 @@ func (c *PGDeliveryReportConsumer) ConsumeDeliveryReports(ctx context.Context, r
 		UPDATE deliveries
 		SET status = $1, error = $2, updated_at = now()
 		WHERE provider_message_id = $3
-		  AND status NOT IN ('delivered', 'failed')
+		  AND channel = $4
+		  AND (
+		    (status = 'pending' AND $1 IN ('sending', 'sent', 'delivered', 'failed')) OR
+		    (status = 'sending' AND $1 IN ('sent', 'delivered', 'failed')) OR
+		    (status = 'sent' AND $1 IN ('delivered', 'failed'))
+		  )
 	`
 
 	for _, r := range reports {
@@ -60,7 +66,7 @@ func (c *PGDeliveryReportConsumer) ConsumeDeliveryReports(ctx context.Context, r
 			}
 		}
 
-		if _, err := tx.Exec(ctx, updateQuery, string(r.Status), errText, r.ProviderMessageID); err != nil {
+		if _, err := tx.Exec(ctx, updateQuery, string(r.Status), errText, r.ProviderMessageID, string(r.Channel)); err != nil {
 			return fmt.Errorf("update delivery status for provider_message_id %s: %w", r.ProviderMessageID, err)
 		}
 	}

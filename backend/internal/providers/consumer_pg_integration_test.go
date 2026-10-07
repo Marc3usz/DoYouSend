@@ -35,11 +35,11 @@ func setupDeliveryFixtures(t *testing.T, pool *pgxpool.Pool) {
 
 	// Insert test batch
 	_, err = pool.Exec(ctx, `
-		INSERT INTO batches (id, title, sms_body, email_body, email_subject, status, channels, created_by)
-		VALUES ('33333333-3333-3333-3333-333333333333', 'Test Batch', 'body', 'body', 'subj', 'running', '{sms,email}', '11111111-1111-1111-1111-111111111111')
+		INSERT INTO message_batches (id, subject, body, status, created_by)
+		VALUES ('33333333-3333-3333-3333-333333333333', 'subj', 'body', 'running', '11111111-1111-1111-1111-111111111111')
 	`)
 	if err != nil {
-		t.Fatalf("insert batch fixture: %v", err)
+		t.Fatalf("insert message_batches fixture: %v", err)
 	}
 
 	// Insert batch_recipient
@@ -51,29 +51,29 @@ func setupDeliveryFixtures(t *testing.T, pool *pgxpool.Pool) {
 		t.Fatalf("insert batch_recipient fixture: %v", err)
 	}
 
-	// Insert deliveries
+	// Insert deliveries (with same ID on both channels to verify channel isolation)
 	_, err = pool.Exec(ctx, `
 		INSERT INTO deliveries (id, batch_recipient_id, channel, status, provider_message_id)
 		VALUES 
-			('55555555-5555-5555-5555-555555555551', '44444444-4444-4444-4444-444444444444', 'sms', 'pending', 'sms-msg-1'),
-			('55555555-5555-5555-5555-555555555552', '44444444-4444-4444-4444-444444444444', 'email', 'pending', 'email-msg-2')
+			('55555555-5555-5555-5555-555555555551', '44444444-4444-4444-4444-444444444444', 'sms', 'pending', 'common-msg-id'),
+			('55555555-5555-5555-5555-555555555552', '44444444-4444-4444-4444-444444444444', 'email', 'pending', 'common-msg-id')
 	`)
 	if err != nil {
 		t.Fatalf("insert deliveries fixtures: %v", err)
 	}
 }
 
-func getDeliveryStatusAndError(t *testing.T, pool *pgxpool.Pool, providerMessageID string) (string, *string) {
+func getDeliveryStatusAndError(t *testing.T, pool *pgxpool.Pool, channel string, providerMessageID string) (string, *string) {
 	t.Helper()
 	var status string
 	var errText *string
 	err := pool.QueryRow(context.Background(), `
 		SELECT status, error
 		FROM deliveries
-		WHERE provider_message_id = $1
-	`, providerMessageID).Scan(&status, &errText)
+		WHERE channel = $1 AND provider_message_id = $2
+	`, channel, providerMessageID).Scan(&status, &errText)
 	if err != nil {
-		t.Fatalf("getDeliveryStatusAndError query failed for %s: %v", providerMessageID, err)
+		t.Fatalf("getDeliveryStatusAndError query failed for channel %s, id %s: %v", channel, providerMessageID, err)
 	}
 	return status, errText
 }
@@ -85,81 +85,91 @@ func TestPGDeliveryReportConsumer_ForwardOnlyTransitions(t *testing.T) {
 	consumer := NewPGDeliveryReportConsumer(pool)
 	ctx := context.Background()
 
-	// 1. Update sms-msg-1: pending -> sent
+	// 1. Channel isolation: update SMS common-msg-id to sent. Email must remain pending!
 	reports := []DeliveryReport{
-		{ProviderMessageID: "sms-msg-1", Channel: ChannelSMS, Status: StatusSent},
+		{ProviderMessageID: "common-msg-id", Channel: ChannelSMS, Status: StatusSent},
 	}
 	if err := consumer.ConsumeDeliveryReports(ctx, reports); err != nil {
 		t.Fatalf("consume sent report: %v", err)
 	}
-	st, errMsg := getDeliveryStatusAndError(t, pool, "sms-msg-1")
-	if st != "sent" {
-		t.Errorf("status = %q, want 'sent'", st)
+	smsStatus, _ := getDeliveryStatusAndError(t, pool, "sms", "common-msg-id")
+	if smsStatus != "sent" {
+		t.Errorf("sms status = %q, want 'sent'", smsStatus)
 	}
-	if errMsg != nil {
-		t.Errorf("error = %v, want nil", errMsg)
+	emailStatus, _ := getDeliveryStatusAndError(t, pool, "email", "common-msg-id")
+	if emailStatus != "pending" {
+		t.Errorf("email status = %q, want 'pending' (channel isolation violated)", emailStatus)
 	}
 
-	// 2. Update sms-msg-1: sent -> delivered
+	// 2. Out-of-order intermediate event: pending/sending must NOT downgrade sent!
 	reports = []DeliveryReport{
-		{ProviderMessageID: "sms-msg-1", Channel: ChannelSMS, Status: StatusDelivered},
+		{ProviderMessageID: "common-msg-id", Channel: ChannelSMS, Status: StatusSending},
+	}
+	if err := consumer.ConsumeDeliveryReports(ctx, reports); err != nil {
+		t.Fatalf("consume sending report: %v", err)
+	}
+	smsStatus, _ = getDeliveryStatusAndError(t, pool, "sms", "common-msg-id")
+	if smsStatus != "sent" {
+		t.Errorf("sms status = %q, want 'sent' (downgraded to sending)", smsStatus)
+	}
+
+	// 3. Update SMS: sent -> delivered
+	reports = []DeliveryReport{
+		{ProviderMessageID: "common-msg-id", Channel: ChannelSMS, Status: StatusDelivered},
 	}
 	if err := consumer.ConsumeDeliveryReports(ctx, reports); err != nil {
 		t.Fatalf("consume delivered report: %v", err)
 	}
-	st, errMsg = getDeliveryStatusAndError(t, pool, "sms-msg-1")
-	if st != "delivered" {
-		t.Errorf("status = %q, want 'delivered'", st)
+	smsStatus, _ = getDeliveryStatusAndError(t, pool, "sms", "common-msg-id")
+	if smsStatus != "delivered" {
+		t.Errorf("sms status = %q, want 'delivered'", smsStatus)
 	}
 
-	// 3. Late/out-of-order event for sms-msg-1: sent should NOT downgrade delivered!
+	// 4. Stale event for delivered message: sent must NOT downgrade delivered!
 	reports = []DeliveryReport{
-		{ProviderMessageID: "sms-msg-1", Channel: ChannelSMS, Status: StatusSent},
+		{ProviderMessageID: "common-msg-id", Channel: ChannelSMS, Status: StatusSent},
 	}
 	if err := consumer.ConsumeDeliveryReports(ctx, reports); err != nil {
 		t.Fatalf("consume late sent report: %v", err)
 	}
-	st, errMsg = getDeliveryStatusAndError(t, pool, "sms-msg-1")
-	if st != "delivered" {
-		t.Errorf("status = %q, want 'delivered' (must not downgrade terminal state)", st)
+	smsStatus, _ = getDeliveryStatusAndError(t, pool, "sms", "common-msg-id")
+	if smsStatus != "delivered" {
+		t.Errorf("sms status = %q, want 'delivered' (must not downgrade terminal state)", smsStatus)
 	}
 
-	// 4. Update email-msg-2: pending -> failed with error message
+	// 5. Update email: pending -> failed with error message
 	reports = []DeliveryReport{
 		{
-			ProviderMessageID: "email-msg-2",
+			ProviderMessageID: "common-msg-id",
 			Channel:           ChannelEmail,
 			Status:            StatusFailed,
-			ErrorMessage:      "550 User unknown",
+			ErrorMessage:      "bounce: mailbox rejected the message",
 		},
 	}
 	if err := consumer.ConsumeDeliveryReports(ctx, reports); err != nil {
 		t.Fatalf("consume failed report: %v", err)
 	}
-	st, errMsg = getDeliveryStatusAndError(t, pool, "email-msg-2")
-	if st != "failed" {
-		t.Errorf("status = %q, want 'failed'", st)
+	emailStatus, emailErr := getDeliveryStatusAndError(t, pool, "email", "common-msg-id")
+	if emailStatus != "failed" {
+		t.Errorf("email status = %q, want 'failed'", emailStatus)
 	}
-	if errMsg == nil || *errMsg != "550 User unknown" {
-		t.Errorf("error = %v, want '550 User unknown'", errMsg)
+	if emailErr == nil || *emailErr != "bounce: mailbox rejected the message" {
+		t.Errorf("email error = %v, want 'bounce: mailbox rejected the message'", emailErr)
 	}
 
-	// 5. Late delivered event for email-msg-2: delivered must NOT overwrite terminal failed!
+	// 6. Late delivered event for email: delivered must NOT overwrite terminal failed!
 	reports = []DeliveryReport{
-		{ProviderMessageID: "email-msg-2", Channel: ChannelEmail, Status: StatusDelivered},
+		{ProviderMessageID: "common-msg-id", Channel: ChannelEmail, Status: StatusDelivered},
 	}
 	if err := consumer.ConsumeDeliveryReports(ctx, reports); err != nil {
 		t.Fatalf("consume late delivered report: %v", err)
 	}
-	st, errMsg = getDeliveryStatusAndError(t, pool, "email-msg-2")
-	if st != "failed" {
-		t.Errorf("status = %q, want 'failed' (must not overwrite terminal failed)", st)
-	}
-	if errMsg == nil || *errMsg != "550 User unknown" {
-		t.Errorf("error = %v, want '550 User unknown'", errMsg)
+	emailStatus, _ = getDeliveryStatusAndError(t, pool, "email", "common-msg-id")
+	if emailStatus != "failed" {
+		t.Errorf("email status = %q, want 'failed' (must not overwrite terminal failed)", emailStatus)
 	}
 
-	// 6. Unknown provider message ID should not error
+	// 7. Unknown provider message ID should not error
 	reports = []DeliveryReport{
 		{ProviderMessageID: "unknown-id", Channel: ChannelSMS, Status: StatusDelivered},
 	}
