@@ -1,10 +1,12 @@
 package sms
 
 import (
+	"crypto/subtle"
 	"errors"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
 )
@@ -17,15 +19,22 @@ const maxDLRBodySize = 1 << 20
 // In accordance with SMSAPI documentation, callback requests arrive via HTTP GET
 // or POST (application/x-www-form-urlencoded).
 //
+// Authentication:
+//   - Requires expectedToken to be configured. If empty, returns HTTP 503 Service Unavailable.
+//   - Compares token from path ({token}), query param (?token=), or POST form against expectedToken
+//     using subtle.ConstantTimeCompare.
+//
 // On success:
 //   - Responds with HTTP 200 OK and body "OK" (SMSAPIDLRAckResponse).
 //
 // On error:
 //   - HTTP 405 Method Not Allowed for unsupported HTTP verbs.
+//   - HTTP 503 Service Unavailable if expectedToken is not configured.
+//   - HTTP 401 Unauthorized if the token does not match.
 //   - HTTP 400 Bad Request if parameters are malformed or missing required keys.
 //   - HTTP 500 Internal Server Error if consumers fail to store reports, signaling
 //     SMSAPI to retry delivering the callback later.
-func HandleSMSAPIDLR(consumer providers.DeliveryReportConsumer, logger *slog.Logger) http.HandlerFunc {
+func HandleSMSAPIDLR(consumer providers.DeliveryReportConsumer, expectedToken string, logger *slog.Logger) http.HandlerFunc {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -34,6 +43,18 @@ func HandleSMSAPIDLR(consumer providers.DeliveryReportConsumer, logger *slog.Log
 		if r.Method != http.MethodGet && r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
+		}
+
+		tok := strings.TrimSpace(expectedToken)
+		if tok == "" {
+			logger.Warn("smsapi dlr rejected: SMSAPI_DLR_TOKEN is not configured")
+			http.Error(w, "webhook disabled: token not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		reqToken := r.PathValue("token")
+		if reqToken == "" {
+			reqToken = r.URL.Query().Get("token")
 		}
 
 		var values url.Values
@@ -51,8 +72,17 @@ func HandleSMSAPIDLR(consumer providers.DeliveryReportConsumer, logger *slog.Log
 				return
 			}
 			values = r.Form
+			if reqToken == "" {
+				reqToken = r.Form.Get("token")
+			}
 		} else {
 			values = r.URL.Query()
+		}
+
+		if subtle.ConstantTimeCompare([]byte(reqToken), []byte(tok)) != 1 {
+			logger.Warn("smsapi dlr unauthorized: token mismatch")
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
 		}
 
 		reports, err := ParseSMSAPIDLR(values)

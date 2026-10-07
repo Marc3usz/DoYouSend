@@ -14,6 +14,8 @@ import (
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
 )
 
+const testDLRToken = "valid-dlr-secret-token"
+
 type mockConsumer struct {
 	reports []providers.DeliveryReport
 	err     error
@@ -31,9 +33,9 @@ func TestHandleSMSAPIDLR_SuccessGET(t *testing.T) {
 	t.Parallel()
 
 	consumer := &mockConsumer{}
-	handler := HandleSMSAPIDLR(consumer, slog.Default())
+	handler := HandleSMSAPIDLR(consumer, testDLRToken, slog.Default())
 
-	req := httptest.NewRequest(http.MethodGet, "/providers/sms/dlr?MsgId=msg-001&status=404&donedate=1631525653", nil)
+	req := httptest.NewRequest(http.MethodGet, "/providers/sms/dlr?token="+testDLRToken+"&MsgId=msg-001&status=404&donedate=1631525653", nil)
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
@@ -64,9 +66,9 @@ func TestHandleSMSAPIDLR_SuccessBatchGET(t *testing.T) {
 	t.Parallel()
 
 	consumer := &mockConsumer{}
-	handler := HandleSMSAPIDLR(consumer, slog.Default())
+	handler := HandleSMSAPIDLR(consumer, testDLRToken, slog.Default())
 
-	req := httptest.NewRequest(http.MethodGet, "/providers/sms/dlr?MsgId=id1,id2&status=404,405", nil)
+	req := httptest.NewRequest(http.MethodGet, "/providers/sms/dlr?token="+testDLRToken+"&MsgId=id1,id2&status=404,405", nil)
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
@@ -93,9 +95,10 @@ func TestHandleSMSAPIDLR_SuccessPOST(t *testing.T) {
 	t.Parallel()
 
 	consumer := &mockConsumer{}
-	handler := HandleSMSAPIDLR(consumer, slog.Default())
+	handler := HandleSMSAPIDLR(consumer, testDLRToken, slog.Default())
 
 	form := url.Values{}
+	form.Set("token", testDLRToken)
 	form.Set("MsgId", "post-msg-1")
 	form.Set("status", "404")
 
@@ -117,14 +120,51 @@ func TestHandleSMSAPIDLR_SuccessPOST(t *testing.T) {
 	}
 }
 
+func TestHandleSMSAPIDLR_Unauthorized(t *testing.T) {
+	t.Parallel()
+
+	consumer := &mockConsumer{}
+	handler := HandleSMSAPIDLR(consumer, testDLRToken, slog.Default())
+
+	// Missing token
+	reqNoToken := httptest.NewRequest(http.MethodGet, "/providers/sms/dlr?MsgId=msg-001&status=404", nil)
+	rrNoToken := httptest.NewRecorder()
+	handler.ServeHTTP(rrNoToken, reqNoToken)
+	if rrNoToken.Code != http.StatusUnauthorized {
+		t.Errorf("missing token status = %d, want %d", rrNoToken.Code, http.StatusUnauthorized)
+	}
+
+	// Wrong token
+	reqWrongToken := httptest.NewRequest(http.MethodGet, "/providers/sms/dlr?token=wrong-token&MsgId=msg-001&status=404", nil)
+	rrWrongToken := httptest.NewRecorder()
+	handler.ServeHTTP(rrWrongToken, reqWrongToken)
+	if rrWrongToken.Code != http.StatusUnauthorized {
+		t.Errorf("wrong token status = %d, want %d", rrWrongToken.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestHandleSMSAPIDLR_UnconfiguredToken(t *testing.T) {
+	t.Parallel()
+
+	consumer := &mockConsumer{}
+	handler := HandleSMSAPIDLR(consumer, "", slog.Default())
+
+	req := httptest.NewRequest(http.MethodGet, "/providers/sms/dlr?token=anything&MsgId=msg-001&status=404", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("unconfigured token status = %d, want %d", rr.Code, http.StatusServiceUnavailable)
+	}
+}
+
 func TestHandleSMSAPIDLR_MethodNotAllowed(t *testing.T) {
 	t.Parallel()
 
 	consumer := &mockConsumer{}
-	handler := HandleSMSAPIDLR(consumer, slog.Default())
+	handler := HandleSMSAPIDLR(consumer, testDLRToken, slog.Default())
 
 	for _, method := range []string{http.MethodDelete, http.MethodPut, http.MethodPatch} {
-		req := httptest.NewRequest(method, "/providers/sms/dlr", nil)
+		req := httptest.NewRequest(method, "/providers/sms/dlr?token="+testDLRToken, nil)
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
 
@@ -138,16 +178,16 @@ func TestHandleSMSAPIDLR_MalformedParameters(t *testing.T) {
 	t.Parallel()
 
 	consumer := &mockConsumer{}
-	handler := HandleSMSAPIDLR(consumer, slog.Default())
+	handler := HandleSMSAPIDLR(consumer, testDLRToken, slog.Default())
 
 	cases := []struct {
 		name string
 		url  string
 	}{
-		{"missing MsgId", "/providers/sms/dlr?status=404"},
-		{"missing status", "/providers/sms/dlr?MsgId=msg-1"},
-		{"unrecognized status", "/providers/sms/dlr?MsgId=msg-1&status=9999"},
-		{"mismatched batch counts", "/providers/sms/dlr?MsgId=msg-1,msg-2&status=404"},
+		{"missing MsgId", "/providers/sms/dlr?token=" + testDLRToken + "&status=404"},
+		{"missing status", "/providers/sms/dlr?token=" + testDLRToken + "&MsgId=msg-1"},
+		{"unrecognized status", "/providers/sms/dlr?token=" + testDLRToken + "&MsgId=msg-1&status=9999"},
+		{"mismatched batch counts", "/providers/sms/dlr?token=" + testDLRToken + "&MsgId=msg-1,msg-2&status=404"},
 	}
 
 	for _, tc := range cases {
@@ -167,9 +207,9 @@ func TestHandleSMSAPIDLR_ConsumerError(t *testing.T) {
 	t.Parallel()
 
 	consumer := &mockConsumer{err: errors.New("db connection failure")}
-	handler := HandleSMSAPIDLR(consumer, slog.Default())
+	handler := HandleSMSAPIDLR(consumer, testDLRToken, slog.Default())
 
-	req := httptest.NewRequest(http.MethodGet, "/providers/sms/dlr?MsgId=msg-001&status=404", nil)
+	req := httptest.NewRequest(http.MethodGet, "/providers/sms/dlr?token="+testDLRToken+"&MsgId=msg-001&status=404", nil)
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
@@ -182,9 +222,9 @@ func TestHandleSMSAPIDLR_ConsumerError(t *testing.T) {
 func TestHandleSMSAPIDLR_NilConsumer(t *testing.T) {
 	t.Parallel()
 
-	handler := HandleSMSAPIDLR(nil, slog.Default())
+	handler := HandleSMSAPIDLR(nil, testDLRToken, slog.Default())
 
-	req := httptest.NewRequest(http.MethodGet, "/providers/sms/dlr?MsgId=msg-001&status=404", nil)
+	req := httptest.NewRequest(http.MethodGet, "/providers/sms/dlr?token="+testDLRToken+"&MsgId=msg-001&status=404", nil)
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
@@ -198,7 +238,7 @@ func TestHandleSMSAPIDLR_BodyTooLarge(t *testing.T) {
 	t.Parallel()
 
 	consumer := &mockConsumer{}
-	handler := HandleSMSAPIDLR(consumer, slog.Default())
+	handler := HandleSMSAPIDLR(consumer, testDLRToken, slog.Default())
 
 	// 2 MiB body
 	largeBody := strings.Repeat("a=1&", (2<<20)/4)
@@ -220,9 +260,9 @@ func TestHandleSMSAPIDLR_LogsDoNotLeakData(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
 
 	consumer := &mockConsumer{err: errors.New("storage down")}
-	handler := HandleSMSAPIDLR(consumer, logger)
+	handler := HandleSMSAPIDLR(consumer, testDLRToken, logger)
 
-	req := httptest.NewRequest(http.MethodGet, "/providers/sms/dlr?MsgId=secret-msg-id&status=404", nil)
+	req := httptest.NewRequest(http.MethodGet, "/providers/sms/dlr?token="+testDLRToken+"&MsgId=secret-msg-id&status=404", nil)
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
