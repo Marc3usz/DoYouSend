@@ -29,6 +29,7 @@ type UsageFilter struct {
 type RawUsageCounts struct {
 	TotalMessages     int
 	TotalParts        int
+	BilledParts       int
 	DeliveredMessages int
 	DeliveredParts    int
 	SentMessages      int
@@ -59,10 +60,14 @@ type UsageStats struct {
 
 // CalculateUsageStats combines raw delivery counts with a unit price to produce complete statistics.
 // Planned cost reflects all planned SMS parts.
-// Billed cost reflects parts that were handed over to the network (sent + delivered).
+// Billed cost reflects parts charged by the provider (delivered + sent + failed with provider_message_id).
 func CalculateUsageStats(counts RawUsageCounts, pricePerPartMilli int64) UsageStats {
 	plannedCost := int64(counts.TotalParts) * pricePerPartMilli
-	billedCost := int64(counts.DeliveredParts+counts.SentParts) * pricePerPartMilli
+	billedParts := counts.BilledParts
+	if billedParts == 0 && (counts.DeliveredParts > 0 || counts.SentParts > 0) {
+		billedParts = counts.DeliveredParts + counts.SentParts
+	}
+	billedCost := int64(billedParts) * pricePerPartMilli
 	deliveredCost := int64(counts.DeliveredParts) * pricePerPartMilli
 
 	return UsageStats{
@@ -108,6 +113,7 @@ func (s *PGUsageStore) GetUsage(ctx context.Context, filter UsageFilter) (RawUsa
 		SELECT
 			COUNT(*)::int AS total_messages,
 			COALESCE(SUM(d.parts), 0)::int AS total_parts,
+			COALESCE(SUM(d.parts) FILTER (WHERE d.status IN ('sent', 'delivered') OR (d.status = 'failed' AND d.provider_message_id IS NOT NULL)), 0)::int AS billed_parts,
 			COUNT(*) FILTER (WHERE d.status = 'delivered')::int AS delivered_messages,
 			COALESCE(SUM(d.parts) FILTER (WHERE d.status = 'delivered'), 0)::int AS delivered_parts,
 			COUNT(*) FILTER (WHERE d.status = 'sent')::int AS sent_messages,
@@ -153,6 +159,7 @@ func (s *PGUsageStore) GetUsage(ctx context.Context, filter UsageFilter) (RawUsa
 	err := s.pool.QueryRow(ctx, query, args...).Scan(
 		&counts.TotalMessages,
 		&counts.TotalParts,
+		&counts.BilledParts,
 		&counts.DeliveredMessages,
 		&counts.DeliveredParts,
 		&counts.SentMessages,

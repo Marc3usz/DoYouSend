@@ -750,7 +750,7 @@ components:
       description: |
         Zagregowane statystyki wykorzystania i kosztow SMS.
         plannedCostMilli to koszt zaplanowany (wszystkie czesci SMS).
-        billedCostMilli to koszt faktycznie wykorzystanych SMS-ow (przekazanych do operatora: sent + delivered).
+        billedCostMilli to koszt faktycznie rozliczonych SMS-ow przez bramke (przekazanych do operatora: sent + delivered oraz failed z nadanym provider_message_id; nie obejmuje bledow odrzuconych przed przyjeciem do sieci).
       required:
         - pricePerPartMilli
         - totalMessages
@@ -784,7 +784,7 @@ components:
         billedCostMilli:
           type: integer
           format: int64
-          description: Koszt faktycznie wykorzystanych SMS-ow przekazanych do sieci operatora (sent + delivered) w milli-PLN
+          description: Koszt czesci SMS faktycznie rozliczonych przez bramke (sent + delivered oraz failed z provider_message_id) w milli-PLN
         deliveredMessages:
           type: integer
           description: Liczba doreczonych wiadomosci SMS (status delivered)

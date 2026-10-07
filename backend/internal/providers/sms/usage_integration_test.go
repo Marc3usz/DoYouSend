@@ -58,16 +58,18 @@ func setupUsageFixtures(t *testing.T, pool *pgxpool.Pool) (string, string) {
 	br3 := "44444444-4444-4444-4444-444444444443"
 	br4 := "44444444-4444-4444-4444-444444444444"
 	br5 := "44444444-4444-4444-4444-444444444445"
+	br6 := "44444444-4444-4444-4444-444444444446"
 
 	_, err = pool.Exec(ctx, `
 		INSERT INTO batch_recipients (id, batch_id, recipient_id, rendered_body)
 		VALUES 
-			($1, $6, '22222222-2222-2222-2222-222222222221', 'body1'),
-			($2, $6, '22222222-2222-2222-2222-222222222222', 'body1'),
-			($3, $6, '22222222-2222-2222-2222-222222222223', 'body1'),
-			($4, $6, '22222222-2222-2222-2222-222222222224', 'body1'),
-			($5, $7, '22222222-2222-2222-2222-222222222221', 'body2')
-	`, br1, br2, br3, br4, br5, batch1ID, batch2ID)
+			($1, $7, '22222222-2222-2222-2222-222222222221', 'body1'),
+			($2, $7, '22222222-2222-2222-2222-222222222222', 'body1'),
+			($3, $7, '22222222-2222-2222-2222-222222222223', 'body1'),
+			($4, $7, '22222222-2222-2222-2222-222222222224', 'body1'),
+			($5, $8, '22222222-2222-2222-2222-222222222221', 'body2'),
+			($6, $8, '22222222-2222-2222-2222-222222222222', 'body2')
+	`, br1, br2, br3, br4, br5, br6, batch1ID, batch2ID)
 	if err != nil {
 		t.Fatalf("insert batch_recipients fixtures: %v", err)
 	}
@@ -81,8 +83,9 @@ func setupUsageFixtures(t *testing.T, pool *pgxpool.Pool) (string, string) {
 			('55555555-5555-5555-5555-555555555553', $3, 'sms', 'failed', 1, 'sms-3'),
 			('55555555-5555-5555-5555-555555555554', $4, 'sms', 'pending', 1, 'sms-4'),
 			('55555555-5555-5555-5555-555555555555', $4, 'email', 'delivered', 1, 'email-5'),
-			('55555555-5555-5555-5555-555555555556', $5, 'sms', 'delivered', 2, 'sms-6')
-	`, br1, br2, br3, br4, br5)
+			('55555555-5555-5555-5555-555555555556', $5, 'sms', 'delivered', 2, 'sms-6'),
+			('55555555-5555-5555-5555-555555555557', $6, 'sms', 'failed', 1, NULL)
+	`, br1, br2, br3, br4, br5, br6)
 	if err != nil {
 		t.Fatalf("insert deliveries fixtures: %v", err)
 	}
@@ -103,13 +106,18 @@ func TestPGUsageStore_Aggregation(t *testing.T) {
 		t.Fatalf("GetUsage(all): %v", err)
 	}
 
-	// 5 SMS messages total (email is ignored)
-	if counts.TotalMessages != 5 {
-		t.Errorf("TotalMessages = %d, want 5", counts.TotalMessages)
+	// 6 SMS messages total (email is ignored)
+	if counts.TotalMessages != 6 {
+		t.Errorf("TotalMessages = %d, want 6", counts.TotalMessages)
 	}
-	// Parts: 2 (delivered) + 3 (sent) + 1 (failed) + 1 (pending) + 2 (delivered) = 9
-	if counts.TotalParts != 9 {
-		t.Errorf("TotalParts = %d, want 9", counts.TotalParts)
+	// Parts: 2 (delivered) + 3 (sent) + 1 (failed with provider id) + 1 (pending) + 2 (delivered) + 1 (failed w/o provider id) = 10
+	if counts.TotalParts != 10 {
+		t.Errorf("TotalParts = %d, want 10", counts.TotalParts)
+	}
+	// BilledParts: 2 (delivered) + 3 (sent) + 1 (failed with provider_message_id) + 2 (delivered) = 8
+	// (pending and failed without provider_message_id are excluded)
+	if counts.BilledParts != 8 {
+		t.Errorf("BilledParts = %d, want 8", counts.BilledParts)
 	}
 	if counts.DeliveredMessages != 2 {
 		t.Errorf("DeliveredMessages = %d, want 2", counts.DeliveredMessages)
@@ -120,8 +128,8 @@ func TestPGUsageStore_Aggregation(t *testing.T) {
 	if counts.SentMessages != 1 || counts.SentParts != 3 {
 		t.Errorf("Sent = (%d, %d), want (1, 3)", counts.SentMessages, counts.SentParts)
 	}
-	if counts.FailedMessages != 1 || counts.FailedParts != 1 {
-		t.Errorf("Failed = (%d, %d), want (1, 1)", counts.FailedMessages, counts.FailedParts)
+	if counts.FailedMessages != 2 || counts.FailedParts != 2 {
+		t.Errorf("Failed = (%d, %d), want (2, 2)", counts.FailedMessages, counts.FailedParts)
 	}
 	if counts.InFlightMessages != 1 || counts.InFlightParts != 1 {
 		t.Errorf("InFlight = (%d, %d), want (1, 1)", counts.InFlightMessages, counts.InFlightParts)
@@ -138,6 +146,9 @@ func TestPGUsageStore_Aggregation(t *testing.T) {
 	if batchCounts.TotalParts != 7 {
 		t.Errorf("batch1 TotalParts = %d, want 7", batchCounts.TotalParts)
 	}
+	if batchCounts.BilledParts != 6 { // 2 delivered + 3 sent + 1 failed with provider_message_id
+		t.Errorf("batch1 BilledParts = %d, want 6", batchCounts.BilledParts)
+	}
 	if batchCounts.DeliveredMessages != 1 || batchCounts.DeliveredParts != 2 {
 		t.Errorf("batch1 Delivered = (%d, %d), want (1, 2)", batchCounts.DeliveredMessages, batchCounts.DeliveredParts)
 	}
@@ -149,9 +160,12 @@ func TestPGUsageStore_Aggregation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetUsage(range): %v", err)
 	}
-	// Only batch2 falls in this range (1 message, 2 parts)
-	if rangeCounts.TotalMessages != 1 || rangeCounts.TotalParts != 2 {
-		t.Errorf("range counts = %+v, want 1 message and 2 parts", rangeCounts)
+	// Only batch2 falls in this range: 1 delivered (2 parts), 1 failed w/o provider id (1 part) -> 2 messages, 3 parts, 2 billed parts
+	if rangeCounts.TotalMessages != 2 || rangeCounts.TotalParts != 3 {
+		t.Errorf("range counts = %+v, want 2 messages and 3 parts", rangeCounts)
+	}
+	if rangeCounts.BilledParts != 2 {
+		t.Errorf("range BilledParts = %d, want 2", rangeCounts.BilledParts)
 	}
 
 	// 4. Filter by future date range

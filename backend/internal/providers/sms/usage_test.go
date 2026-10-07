@@ -27,15 +27,17 @@ func (m *mockUsageStore) GetUsage(_ context.Context, filter UsageFilter) (RawUsa
 func TestCalculateUsageStats(t *testing.T) {
 	t.Parallel()
 
+	// 1. With explicit BilledParts (including delivered, sent, and carrier-accepted failed)
 	raw := RawUsageCounts{
 		TotalMessages:     10,
 		TotalParts:        25,
+		BilledParts:       23, // 20 delivered + 2 sent + 1 failed with provider_message_id
 		DeliveredMessages: 8,
 		DeliveredParts:    20,
 		SentMessages:      1,
 		SentParts:         2,
 		FailedMessages:    1,
-		FailedParts:       3,
+		FailedParts:       3, // 1 billed by carrier, 2 rejected pre-acceptance
 		InFlightMessages:  0,
 		InFlightParts:     0,
 	}
@@ -53,9 +55,9 @@ func TestCalculateUsageStats(t *testing.T) {
 	if stats.PlannedCostMilli != 2000 {
 		t.Errorf("PlannedCostMilli = %d, want 2000", stats.PlannedCostMilli)
 	}
-	// Billed cost: (20 + 2) * 80 = 1760 milli-PLN (1.76 PLN)
-	if stats.BilledCostMilli != 1760 {
-		t.Errorf("BilledCostMilli = %d, want 1760", stats.BilledCostMilli)
+	// Billed cost: 23 * 80 = 1840 milli-PLN (1.84 PLN)
+	if stats.BilledCostMilli != 1840 {
+		t.Errorf("BilledCostMilli = %d, want 1840", stats.BilledCostMilli)
 	}
 	// Delivered cost: 20 * 80 = 1600 milli-PLN (1.60 PLN)
 	if stats.DeliveredCostMilli != 1600 {
@@ -66,6 +68,17 @@ func TestCalculateUsageStats(t *testing.T) {
 	}
 	if stats.FailedMessages != 1 || stats.FailedParts != 3 {
 		t.Errorf("Failed = (%d, %d), want (1, 3)", stats.FailedMessages, stats.FailedParts)
+	}
+
+	// 2. Fallback when BilledParts is 0 (delivered + sent)
+	rawFallback := RawUsageCounts{
+		TotalParts:     10,
+		DeliveredParts: 8,
+		SentParts:      2,
+	}
+	statsFallback := CalculateUsageStats(rawFallback, priceMilli)
+	if statsFallback.BilledCostMilli != 800 {
+		t.Errorf("fallback BilledCostMilli = %d, want 800", statsFallback.BilledCostMilli)
 	}
 }
 
@@ -159,8 +172,14 @@ func TestHandleUsageStats_DateOnlyTo_HalfOpenInterval(t *testing.T) {
 	if store.lastFilter.From == nil || store.lastFilter.From.Format("2006-01-02") != "2026-10-01" {
 		t.Errorf("lastFilter.From = %v, want 2026-10-01", store.lastFilter.From)
 	}
+	if loc := store.lastFilter.From.Location().String(); loc != "Europe/Warsaw" {
+		t.Errorf("lastFilter.From.Location() = %s, want Europe/Warsaw", loc)
+	}
 	if store.lastFilter.To == nil || store.lastFilter.To.Format("2006-01-02") != "2026-11-01" {
 		t.Errorf("lastFilter.To = %v, want 2026-11-01 (next midnight)", store.lastFilter.To)
+	}
+	if loc := store.lastFilter.To.Location().String(); loc != "Europe/Warsaw" {
+		t.Errorf("lastFilter.To.Location() = %s, want Europe/Warsaw", loc)
 	}
 	if !store.lastFilter.ToExclusive {
 		t.Errorf("lastFilter.ToExclusive = false, want true for date-only parameter")

@@ -7,15 +7,27 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/httpx"
 )
 
-var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+var (
+	uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+	warsawLocation = func() *time.Location {
+		loc, err := time.LoadLocation("Europe/Warsaw")
+		if err != nil {
+			return time.FixedZone("Europe/Warsaw", 2*60*60)
+		}
+		return loc
+	}()
+)
 
 // parseTimeParam attempts to parse a timestamp query parameter.
-// If the string contains only a date (YYYY-MM-DD) and isEnd is true, it advances
-// the timestamp to the next midnight (covering the full day) and returns isExclusive=true.
+// Date-only format (YYYY-MM-DD) is interpreted in the Europe/Warsaw timezone.
+// If isEnd is true for date-only format, it advances the timestamp to the next
+// midnight in Europe/Warsaw (covering the full day) and returns isExclusive=true.
 func parseTimeParam(s string, isEnd bool) (time.Time, bool, error) {
 	trimmed := strings.TrimSpace(s)
 	if t, err := time.Parse(time.RFC3339, trimmed); err == nil {
@@ -24,7 +36,7 @@ func parseTimeParam(s string, isEnd bool) (time.Time, bool, error) {
 	if t, err := time.Parse(time.RFC3339Nano, trimmed); err == nil {
 		return t, false, nil
 	}
-	if t, err := time.Parse("2006-01-02", trimmed); err == nil {
+	if t, err := time.ParseInLocation("2006-01-02", trimmed, warsawLocation); err == nil {
 		if isEnd {
 			return t.AddDate(0, 0, 1), true, nil
 		}
