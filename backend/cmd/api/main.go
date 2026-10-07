@@ -90,6 +90,10 @@ func main() {
 		} else {
 			logger.Warn("SENDGRID_WEBHOOK_PUBLIC_KEY is not set: SendGrid event webhook route is disabled")
 		}
+
+		// TODO(iam): admin only - restrict access once IAM middleware lands.
+		smsUsageStore := sms.NewPGUsageStore(pool)
+		mux.Handle("GET /api/stats/sms", sms.HandleUsageStats(smsUsageStore, smsPrice, logger))
 	}
 
 	srv := &http.Server{
