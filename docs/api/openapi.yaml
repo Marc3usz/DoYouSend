@@ -321,7 +321,16 @@ paths:
     post:
       tags: [messages]
       summary: Podsumowanie przed zatwierdzeniem
-      description: Dlugosc tresci, liczba czesci SMS na odbiorce, liczba odbiorcow, laczna liczba SMS, koszt.
+      description: |
+        Liczy wszystko, co wysylajacy widzi przed zatwierdzeniem: dlugosc i kodowanie tresci,
+        liczbe czesci SMS na odbiorce (po personalizacji moze sie roznic miedzy osobami),
+        liczbe odbiorcow i laczny koszt. Frontend nie liczy czesci SMS sam (frontend/CLAUDE.md).
+
+        Endpoint jest wolany na zywo podczas pisania, dlatego problemy z trescia (pusta tresc,
+        nieznany placeholder, brak wartosci u odbiorcy) NIE sa bledem 400, tylko trafiaja do
+        odpowiedzi. 400 oznacza zle zbudowane zadanie. Pusty wybor odbiorcow jest dozwolony:
+        wtedy liczona jest tylko sama tresc (template), a liczniki odbiorcow sa zerowe.
+        Temat nie wplywa na wynik; sprawdza go dopiero tworzenie wsadu.
       requestBody:
         required: true
         content:
@@ -333,6 +342,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/SendEstimate" }
+        "400": { $ref: "#/components/responses/Error" }
 
   /batches:
     get:
@@ -564,27 +574,68 @@ components:
 
     MessageDraft:
       type: object
-      required: [subject, body, selection]
+      required: [subject, body]
       properties:
         subject: { type: string, description: "Wylacznie temat e-maila" }
-        body:    { type: string, description: "Jedna wspolna tresc dla obu kanalow" }
-        selection: { $ref: "#/components/schemas/RecipientSelection" }
+        body:    { type: string, description: "Jedna wspolna tresc dla obu kanalow, wysylana bajt w bajt (bez przycinania)" }
+        selection:
+          description: Moze byc pominiety albo pusty - wtedy podglad liczy tylko sama tresc
+          allOf: [{ $ref: "#/components/schemas/RecipientSelection" }]
+
+    SmsLength:
+      type: object
+      required: [encoding, units, parts]
+      properties:
+        encoding: { type: string, enum: [GSM7, UCS2], description: "UCS2 juz przy jednym znaku spoza GSM-7, np. polskiej literze" }
+        units:    { type: integer, description: "Dlugosc w septetach (GSM7) albo jednostkach UTF-16 (UCS2)" }
+        parts:    { type: integer, description: "Liczba SMS-ow dla jednego odbiorcy; 0 dla pustej tresci" }
 
     SendEstimate:
       type: object
+      required:
+        - template
+        - placeholders
+        - unknownPlaceholders
+        - recipientCount
+        - emailCount
+        - smsCount
+        - partialCount
+        - unreachableCount
+        - ucs2Count
+        - minPartsPerRecipient
+        - maxPartsPerRecipient
+        - totalSmsParts
+        - costMilli
+        - renderFailedIds
       properties:
-        bodyLength:     { type: integer }
-        encoding:       { type: string, enum: [GSM7, UCS2] }
-        partsPerRecipient: { type: integer }
-        recipientCount: { type: integer }
-        totalSmsParts:  { type: integer }
-        estimatedCost:  { type: number, format: double }
-        missingEmail:
+        template:
+          description: Tresc tak, jak ja wpisano (przed podstawieniem placeholderow)
+          allOf: [{ $ref: "#/components/schemas/SmsLength" }]
+        placeholders:
           type: array
-          items: { $ref: "#/components/schemas/Recipient" }
-        missingPhone:
+          description: Nazwy uzytych placeholderow {{nazwa}}, w kolejnosci pierwszego uzycia
+          items: { type: string }
+        unknownPlaceholders:
           type: array
-          items: { $ref: "#/components/schemas/Recipient" }
+          description: Uzyte nazwy spoza obslugiwanych (imie, nazwisko). Gdy niepuste albo tresc jest pusta, nic nie jest renderowane - wszystkie liczniki poza recipientCount i koszt sa zerowe.
+          items: { type: string }
+        recipientCount:   { type: integer, description: "Odbiorcy po deduplikacji i wykluczeniach" }
+        emailCount:       { type: integer, description: "Odbiorcy, ktorzy dostana e-mail" }
+        smsCount:         { type: integer, description: "Odbiorcy, ktorzy dostana SMS" }
+        partialCount:     { type: integer, description: "Osiagalni dokladnie jednym kanalem (wysylka czesciowa)" }
+        unreachableCount: { type: integer, description: "Osiagalni zadnym kanalem" }
+        ucs2Count:        { type: integer, description: "Odbiorcy SMS, ktorych spersonalizowana tresc wymaga UCS2" }
+        minPartsPerRecipient: { type: integer }
+        maxPartsPerRecipient: { type: integer }
+        totalSmsParts:    { type: integer }
+        costMilli:
+          type: integer
+          format: int64
+          description: Szacowany koszt SMS w tysiecznych PLN (1000 = 1 zl), cena z SMS_PRICE_PER_PART_PLN. E-mail jest darmowy.
+        renderFailedIds:
+          type: array
+          description: Odbiorcy bez wartosci dla uzytego placeholdera (np. puste imie). Nie sa wliczani do licznikow SMS/e-mail.
+          items: { type: string, format: uuid }
 
     ImportFile:
       type: object
