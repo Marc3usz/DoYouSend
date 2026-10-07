@@ -1,0 +1,72 @@
+package providers
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// PGDeliveryReportConsumer updates delivery statuses in PostgreSQL.
+// It enforces the forward-only lifecycle: once a delivery is marked as
+// 'delivered' or 'failed', subsequent events cannot overwrite it.
+type PGDeliveryReportConsumer struct {
+	pool *pgxpool.Pool
+}
+
+// NewPGDeliveryReportConsumer constructs a new consumer backed by PostgreSQL.
+func NewPGDeliveryReportConsumer(pool *pgxpool.Pool) *PGDeliveryReportConsumer {
+	return &PGDeliveryReportConsumer{pool: pool}
+}
+
+// ConsumeDeliveryReports persists a batch of DeliveryReport updates to the deliveries table.
+// If reports is empty, it returns nil immediately without acquiring a database connection.
+// Status updates are applied forward-only: terminal statuses ('delivered', 'failed')
+// are preserved even if an out-of-order event arrives.
+func (c *PGDeliveryReportConsumer) ConsumeDeliveryReports(ctx context.Context, reports []DeliveryReport) error {
+	if c == nil || c.pool == nil {
+		return errors.New("database pool is not configured")
+	}
+	if len(reports) == 0 {
+		return nil
+	}
+
+	tx, err := c.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	const updateQuery = `
+		UPDATE deliveries
+		SET status = $1, error = $2, updated_at = now()
+		WHERE provider_message_id = $3
+		  AND status NOT IN ('delivered', 'failed')
+	`
+
+	for _, r := range reports {
+		if r.ProviderMessageID == "" {
+			continue
+		}
+
+		var errText *string
+		if r.Status == StatusFailed {
+			if r.ErrorMessage != "" {
+				errText = &r.ErrorMessage
+			} else {
+				fallback := "delivery failed"
+				errText = &fallback
+			}
+		}
+
+		if _, err := tx.Exec(ctx, updateQuery, string(r.Status), errText, r.ProviderMessageID); err != nil {
+			return fmt.Errorf("update delivery status for provider_message_id %s: %w", r.ProviderMessageID, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit delivery status updates: %w", err)
+	}
+	return nil
+}
