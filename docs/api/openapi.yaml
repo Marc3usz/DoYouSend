@@ -347,37 +347,85 @@ paths:
   /batches:
     get:
       tags: [batches]
-      summary: Historia wysylek
+      summary: Historia wysylek (stronicowana)
+      description: |
+        Od najnowszej. Kazda pozycja to podsumowanie; szczegoly per odbiorca w GET /batches/{id}.
+        Wysylajacy widzi swoje wsady, administrator wszystkie (gdy dojdzie iam).
+      parameters:
+        - in: query
+          name: status
+          schema: { $ref: "#/components/schemas/BatchStatus" }
+        - { in: query, name: limit,  schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { in: query, name: offset, schema: { type: integer, minimum: 0, default: 0 } }
       responses:
-        "200": { description: OK }
-    post:
-      tags: [batches]
-      summary: Tworzy wsad (draft)
-      responses:
-        "201": { description: Utworzono }
-
-  /batches/{id}/confirm:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BatchPage" }
+        "400": { $ref: "#/components/responses/Error" }
     post:
       tags: [batches]
       summary: Zatwierdza i uruchamia wysylke
-      parameters:
-        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
-      responses:
-        "202": { description: Wysylka uruchomiona }
+      description: |
+        Jedno wywolanie = koncowe potwierdzenie wysylajacego (description.md: "masowa wysylka
+        powinna wymagac koncowego potwierdzenia"; potwierdzenie to okno w kreatorze po podgladzie
+        z POST /messages/preview). Nie ma osobnego szkicu ani /confirm: tresc i wybor sa w zadaniu.
 
-  /batches/{id}/deliveries:
+        Przed zapisem cokolwiek, co sprawiloby, ze wysylka padnie w calosci, jest odrzucane:
+        pusty temat lub tresc i nieznany placeholder -> 400 invalid_input (pola subject, body);
+        wybrana grupa lub osoba juz nie istnieje -> 409 selection_changed (brakujace ID w ids);
+        wybor nie daje nikogo -> 422 no_recipients. Problemy pojedynczych odbiorcow (brak kanalu,
+        brak imienia) nie blokuja wysylki - trafiaja do statusow tego odbiorcy.
+
+        Idempotency-Key chroni przed podwojnym kliknieciem i ponowieniem zadania przez siec:
+        ten sam klucz z ta sama trescia zwraca istniejacy wsad (200) i niczego nie wysyla
+        ponownie; ten sam klucz z inna trescia to 409 idempotency_conflict.
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          description: Nowy UUID na kazde otwarcie okna potwierdzenia (generuje frontend)
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BatchRequest" }
+      responses:
+        "202":
+          description: Wsad zapisany, wysylka uruchomiona. Status wsadu moze byc jeszcze running.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BatchDetail" }
+        "200":
+          description: Powtorzone zadanie z tym samym Idempotency-Key - istniejacy wsad, nic nie wyslano ponownie
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BatchDetail" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /batches/{id}:
     get:
       tags: [batches]
-      summary: Statusy obu kanalow dla kazdego odbiorcy
+      summary: Szczegoly wsadu - status obu kanalow dla kazdego odbiorcy
       parameters:
         - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
       responses:
-        "200": { description: OK }
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BatchDetail" }
+        "404": { $ref: "#/components/responses/Error" }
 
   /batches/{id}/retry:
     post:
       tags: [batches]
       summary: Ponawia nieudane wiadomosci we wsadzie
+      description: Do zdefiniowania osobnym PR-em razem z implementacja ponownej wysylki.
       parameters:
         - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
       responses:
@@ -557,6 +605,9 @@ components:
             - name_taken           # nazwa grupy zajeta
             - system_group         # proba zmiany grupy systemowej
             - unknown_recipient    # nieistniejace ID w ids
+            - selection_changed    # POST /batches: wybrana grupa lub osoba juz nie istnieje, brakujace ID w ids
+            - no_recipients        # POST /batches: wybor nie daje zadnego odbiorcy
+            - idempotency_conflict # POST /batches: Idempotency-Key uzyty z inna trescia
             - internal
         message: { type: string, description: "Szczegol diagnostyczny po angielsku, nie do wyswietlania wprost" }
         fields:
@@ -569,7 +620,7 @@ components:
               message: { type: string }
         ids:
           type: array
-          description: ID, ktorych dotyczy blad (duplicate_contact -> istniejacy odbiorca, unknown_recipient -> brakujace)
+          description: ID, ktorych dotyczy blad (duplicate_contact -> istniejacy odbiorca, unknown_recipient i selection_changed -> brakujace)
           items: { type: string, format: uuid }
 
     MessageDraft:
@@ -636,6 +687,125 @@ components:
           type: array
           description: Odbiorcy bez wartosci dla uzytego placeholdera (np. puste imie). Nie sa wliczani do licznikow SMS/e-mail.
           items: { type: string, format: uuid }
+
+    BatchStatus:
+      type: string
+      enum: [draft, scheduled, running, done, done_with_errors, cancelled]
+      description: |
+        running = sa dostawy pending albo sending; done = wszystko wyslane; done_with_errors = co
+        najmniej jedna dostawa failed albo odbiorca bez zadnego kanalu. draft, scheduled, cancelled
+        sa w schemacie bazy, ale API ich jeszcze nie nadaje.
+
+    DeliveryStatus:
+      type: string
+      enum: [pending, sending, sent, delivered, failed]
+      description: |
+        Zmienia sie tylko do przodu. sending po zakonczeniu wysylki = wynik nieznany (przerwane
+        w trakcie wywolania operatora); rozstrzyga go raport doreczenia, nie ponowna wysylka.
+
+    BatchRequest:
+      type: object
+      required: [subject, body, selection]
+      properties:
+        subject:   { type: string, description: "Wylacznie temat e-maila; niepusty" }
+        body:      { type: string, description: "Jedna wspolna tresc, wysylana bajt w bajt; niepusta" }
+        selection: { $ref: "#/components/schemas/RecipientSelection" }
+
+    GroupRef:
+      type: object
+      description: Grupa tak, jak sie nazywala w chwili wysylki (ADR-0009) - historia nie zalezy od tego, czy grupa nadal istnieje
+      required: [id, name]
+      properties:
+        id:   { type: string, format: uuid }
+        name: { type: string }
+
+    UserRef:
+      type: object
+      required: [id, fullName]
+      properties:
+        id:       { type: string, format: uuid }
+        fullName: { type: string }
+
+    BatchSummary:
+      type: object
+      required: [id, subject, status, createdBy, createdAt, groups, recipientCount, partialCount, failedCount, totalSmsParts, costMilli]
+      properties:
+        id:        { type: string, format: uuid }
+        subject:   { type: string }
+        status:    { $ref: "#/components/schemas/BatchStatus" }
+        createdBy:
+          description: Kto zatwierdzil i uruchomil wysylke
+          allOf: [{ $ref: "#/components/schemas/UserRef" }]
+        createdAt:  { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time, nullable: true, description: "Gdy status pierwszy raz przestal byc running" }
+        groups:
+          type: array
+          items: { $ref: "#/components/schemas/GroupRef" }
+        recipientCount: { type: integer }
+        partialCount:   { type: integer, description: "Odbiorcy osiagalni jednym kanalem" }
+        failedCount:    { type: integer, description: "Odbiorcy z co najmniej jedna dostawa failed albo bez zadnego kanalu" }
+        totalSmsParts:  { type: integer }
+        costMilli:      { type: integer, format: int64, description: "Koszt SMS w tysiecznych PLN, wg ceny z chwili wysylki" }
+
+    BatchPage:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/BatchSummary" }
+        total: { type: integer }
+
+    BatchDetail:
+      allOf:
+        - { $ref: "#/components/schemas/BatchSummary" }
+        - type: object
+          required: [body, recipientIds, recipients]
+          properties:
+            body:
+              type: string
+              description: Tresc przed podstawieniem placeholderow (kopia wsadu startuje od niej)
+            recipientIds:
+              type: array
+              description: Osoby wybrane recznie, poza grupami
+              items: { type: string, format: uuid }
+            recipients:
+              type: array
+              description: Ostateczna lista odbiorcow, po nazwisku i imieniu
+              items: { $ref: "#/components/schemas/BatchRecipient" }
+
+    BatchRecipient:
+      type: object
+      description: Bez adresu i numeru - historia pokazuje kto i z jakim skutkiem, nie dane kontaktowe.
+      required: [recipientId, firstName, lastName, partial, unreachable, deliveries]
+      properties:
+        recipientId: { type: string, format: uuid }
+        firstName:   { type: string }
+        lastName:    { type: string }
+        renderedBody:
+          type: string
+          nullable: true
+          description: Tresc, ktora dostala ta osoba (identyczna w obu kanalach); null, gdy nie dalo sie jej wyrenderowac
+        partial:     { type: boolean }
+        unreachable: { type: boolean }
+        deliveries:
+          type: array
+          description: Jedna pozycja na kanal, ktorym wysylka faktycznie szla (e-mail przed SMS)
+          items: { $ref: "#/components/schemas/Delivery" }
+
+    Delivery:
+      type: object
+      required: [channel, status, parts, attempts]
+      properties:
+        channel:  { $ref: "#/components/schemas/Channel" }
+        status:   { $ref: "#/components/schemas/DeliveryStatus" }
+        parts:    { type: integer, description: "Czesci SMS; 1 dla e-maila" }
+        attempts: { type: integer }
+        error:
+          type: string
+          nullable: true
+          description: 'Krotki sklasyfikowany powod, np. "permanent: invalid recipient"; nigdy surowa odpowiedz operatora'
+        updatedAt: { type: string, format: date-time }
 
     ImportFile:
       type: object
