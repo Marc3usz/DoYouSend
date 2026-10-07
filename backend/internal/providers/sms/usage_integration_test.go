@@ -41,15 +41,15 @@ func setupUsageFixtures(t *testing.T, pool *pgxpool.Pool) (string, string) {
 	batch1ID := "33333333-3333-3333-3333-333333333331"
 	batch2ID := "33333333-3333-3333-3333-333333333332"
 
-	// Insert test batches
+	// Insert test message_batches
 	_, err = pool.Exec(ctx, `
-		INSERT INTO batches (id, title, sms_body, email_body, email_subject, status, channels, created_by)
+		INSERT INTO message_batches (id, subject, body, status, created_by, created_at, confirmed_at)
 		VALUES 
-			($1, 'Batch 1', 'body1', 'body1', 'subj1', 'done', '{sms,email}', '11111111-1111-1111-1111-111111111111'),
-			($2, 'Batch 2', 'body2', 'body2', 'subj2', 'done', '{sms}', '11111111-1111-1111-1111-111111111111')
+			($1, 'Subject 1', 'body1', 'done', '11111111-1111-1111-1111-111111111111', '2026-10-01 10:00:00+00', '2026-10-01 10:05:00+00'),
+			($2, 'Subject 2', 'body2', 'done', '11111111-1111-1111-1111-111111111111', '2026-10-05 12:00:00+00', '2026-10-05 12:01:00+00')
 	`, batch1ID, batch2ID)
 	if err != nil {
-		t.Fatalf("insert batch fixtures: %v", err)
+		t.Fatalf("insert message_batches fixtures: %v", err)
 	}
 
 	// Insert batch_recipients
@@ -142,7 +142,19 @@ func TestPGUsageStore_Aggregation(t *testing.T) {
 		t.Errorf("batch1 Delivered = (%d, %d), want (1, 2)", batchCounts.DeliveredMessages, batchCounts.DeliveredParts)
 	}
 
-	// 3. Filter by future date range
+	// 3. Filter by date range (batch1 was created on 2026-10-01, batch2 on 2026-10-05)
+	from := time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC)
+	rangeCounts, err := store.GetUsage(ctx, UsageFilter{From: &from, To: &to, ToExclusive: true})
+	if err != nil {
+		t.Fatalf("GetUsage(range): %v", err)
+	}
+	// Only batch2 falls in this range (1 message, 2 parts)
+	if rangeCounts.TotalMessages != 1 || rangeCounts.TotalParts != 2 {
+		t.Errorf("range counts = %+v, want 1 message and 2 parts", rangeCounts)
+	}
+
+	// 4. Filter by future date range
 	future := time.Now().Add(24 * time.Hour)
 	futureCounts, err := store.GetUsage(ctx, UsageFilter{From: &future})
 	if err != nil {

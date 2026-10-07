@@ -20,11 +20,8 @@ import (
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/config"
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/database"
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/httpx"
-<<<<<<< HEAD
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers/email"
-=======
->>>>>>> 27e3af6 (feat(providers/sms): add HTTP handler for SMS usage statistics endpoint)
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers/sms"
 	"github.com/Marc3usz/DoYouSend/backend/internal/recipients"
 )
