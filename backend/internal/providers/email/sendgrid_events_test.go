@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -54,7 +55,7 @@ func TestParseSendGridEvents_AllEventTypes(t *testing.T) {
 			wantCount:    1,
 			wantID:       "sg-msg-002",
 			wantStatus:   providers.StatusFailed,
-			wantErrorSub: "User unknown",
+			wantErrorSub: "bounce: mailbox rejected",
 			wantTime:     time.Unix(1631525670, 0).UTC(),
 		},
 		{
@@ -69,7 +70,7 @@ func TestParseSendGridEvents_AllEventTypes(t *testing.T) {
 			wantCount:    1,
 			wantID:       "sg-msg-003",
 			wantStatus:   providers.StatusFailed,
-			wantErrorSub: "Unsubscribed Address",
+			wantErrorSub: "dropped: message dropped",
 			wantTime:     time.Unix(1631525680, 0).UTC(),
 		},
 		{
@@ -211,8 +212,8 @@ func TestParseSendGridEvents_MixedBatch(t *testing.T) {
 	if reports[1].ProviderMessageID != "msg-002" || reports[1].Status != providers.StatusFailed {
 		t.Errorf("report[1] = %+v, want msg-002 failed", reports[1])
 	}
-	if !strings.Contains(reports[1].ErrorMessage, "Mailbox full") {
-		t.Errorf("report[1].ErrorMessage = %q, want 'Mailbox full'", reports[1].ErrorMessage)
+	if !strings.Contains(reports[1].ErrorMessage, "bounce: mailbox rejected") {
+		t.Errorf("report[1].ErrorMessage = %q, want 'bounce: mailbox rejected'", reports[1].ErrorMessage)
 	}
 
 	// 3rd: deferred (sent)
@@ -308,7 +309,7 @@ func TestVerifySendGridWebhookSignature(t *testing.T) {
 	pubKeyBase64 := base64.StdEncoding.EncodeToString(derKey)
 
 	payload := []byte(`[{"event":"delivered","sg_message_id":"msg-001"}]`)
-	timestamp := "1631525650"
+	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 
 	// Compute digest = SHA256(timestamp + payload)
 	h := sha256.New()
@@ -341,7 +342,21 @@ func TestVerifySendGridWebhookSignature(t *testing.T) {
 
 	// Tampered timestamp
 	t.Run("tampered timestamp", func(t *testing.T) {
-		err := VerifySendGridWebhookSignature(pubKeyBase64, payload, sigBase64, "1631525999")
+		differentTs := strconv.FormatInt(time.Now().Add(-1*time.Minute).Unix(), 10)
+		err := VerifySendGridWebhookSignature(pubKeyBase64, payload, sigBase64, differentTs)
+		if !errors.Is(err, ErrInvalidWebhookSignature) {
+			t.Errorf("got %v, want ErrInvalidWebhookSignature", err)
+		}
+	})
+
+	// Expired timestamp (> 5 minutes ago)
+	t.Run("expired timestamp", func(t *testing.T) {
+		oldTs := strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10)
+		oldH := sha256.New()
+		oldH.Write([]byte(oldTs))
+		oldH.Write(payload)
+		oldSig, _ := ecdsa.SignASN1(rand.Reader, privKey, oldH.Sum(nil))
+		err := VerifySendGridWebhookSignature(pubKeyBase64, payload, base64.StdEncoding.EncodeToString(oldSig), oldTs)
 		if !errors.Is(err, ErrInvalidWebhookSignature) {
 			t.Errorf("got %v, want ErrInvalidWebhookSignature", err)
 		}

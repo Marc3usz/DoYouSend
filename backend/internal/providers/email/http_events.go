@@ -23,16 +23,17 @@ const (
 // HandleSendGridEvents returns an HTTP handler for SendGrid Event Webhook callbacks (ADR-0008).
 //
 // Verification:
-//   - If webhookPublicKey is non-empty, verifies the ECDSA SHA-256 signature using the
-//     X-Twilio-Email-Event-Webhook-Signature and X-Twilio-Email-Event-Webhook-Timestamp headers.
-//   - If webhookPublicKey is empty (e.g. in local development or test environments without keys),
-//     signature verification is bypassed.
+//   - Requires webhookPublicKey to be configured. If empty, the endpoint is disabled
+//     and returns HTTP 503 Service Unavailable.
+//   - Verifies the ECDSA SHA-256 signature using the X-Twilio-Email-Event-Webhook-Signature
+//     and X-Twilio-Email-Event-Webhook-Timestamp headers. Requests older than 5 minutes are rejected.
 //
 // On success:
 //   - Responds with HTTP 200 OK and JSON body `{"status":"ok"}`.
 //
 // On error:
 //   - HTTP 405 Method Not Allowed if the request method is not POST.
+//   - HTTP 503 Service Unavailable if webhookPublicKey is not configured.
 //   - HTTP 413 Request Entity Too Large if the body exceeds 2 MiB.
 //   - HTTP 401 Unauthorized if the cryptographic signature is invalid or missing headers.
 //   - HTTP 400 Bad Request if the payload cannot be parsed as a valid SendGrid event batch.
@@ -49,6 +50,13 @@ func HandleSendGridEvents(consumer providers.DeliveryReportConsumer, webhookPubl
 			return
 		}
 
+		pubKey := strings.TrimSpace(webhookPublicKey)
+		if pubKey == "" {
+			logger.Warn("sendgrid webhook rejected: SENDGRID_WEBHOOK_PUBLIC_KEY is not configured")
+			http.Error(w, "webhook disabled: public key not configured", http.StatusServiceUnavailable)
+			return
+		}
+
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxSendGridBodySize))
 		if err != nil {
 			var maxErr *http.MaxBytesError
@@ -62,15 +70,12 @@ func HandleSendGridEvents(consumer providers.DeliveryReportConsumer, webhookPubl
 			return
 		}
 
-		pubKey := strings.TrimSpace(webhookPublicKey)
-		if pubKey != "" {
-			sig := r.Header.Get(headerSendGridSignature)
-			ts := r.Header.Get(headerSendGridTimestamp)
-			if err := VerifySendGridWebhookSignature(pubKey, body, sig, ts); err != nil {
-				logger.Warn("sendgrid webhook signature verification failed", "err", err)
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
+		sig := r.Header.Get(headerSendGridSignature)
+		ts := r.Header.Get(headerSendGridTimestamp)
+		if err := VerifySendGridWebhookSignature(pubKey, body, sig, ts); err != nil {
+			logger.Warn("sendgrid webhook signature verification failed", "err", err)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
 		}
 
 		reports, err := ParseSendGridEvents(bytes.NewReader(body), logger)

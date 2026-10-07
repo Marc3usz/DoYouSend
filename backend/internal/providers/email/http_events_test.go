@@ -13,8 +13,10 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
 )
@@ -61,7 +63,18 @@ func signPayload(t *testing.T, privKey *ecdsa.PrivateKey, timestamp string, payl
 	return base64.StdEncoding.EncodeToString(sigBytes)
 }
 
-func TestHandleSendGridEvents_SuccessWithoutKey(t *testing.T) {
+func newSignedRequest(t *testing.T, privKey *ecdsa.PrivateKey, payload []byte) *http.Request {
+	t.Helper()
+	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+	sig := signPayload(t, privKey, timestamp, payload)
+	req := httptest.NewRequest(http.MethodPost, "/providers/email/events", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(headerSendGridSignature, sig)
+	req.Header.Set(headerSendGridTimestamp, timestamp)
+	return req
+}
+
+func TestHandleSendGridEvents_UnconfiguredKey(t *testing.T) {
 	t.Parallel()
 
 	consumer := &mockConsumer{}
@@ -74,25 +87,8 @@ func TestHandleSendGridEvents_SuccessWithoutKey(t *testing.T) {
 
 	handler.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status code = %d, want %d", rr.Code, http.StatusOK)
-	}
-	if rr.Body.String() != `{"status":"ok"}` {
-		t.Fatalf("body = %q, want %q", rr.Body.String(), `{"status":"ok"}`)
-	}
-
-	if len(consumer.reports) != 1 {
-		t.Fatalf("got %d reports, want 1", len(consumer.reports))
-	}
-	r := consumer.reports[0]
-	if r.ProviderMessageID != "sg-msg-1" {
-		t.Errorf("ProviderMessageID = %q, want 'sg-msg-1'", r.ProviderMessageID)
-	}
-	if r.Status != providers.StatusDelivered {
-		t.Errorf("Status = %q, want %q", r.Status, providers.StatusDelivered)
-	}
-	if r.Channel != providers.ChannelEmail {
-		t.Errorf("Channel = %q, want %q", r.Channel, providers.ChannelEmail)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status code = %d, want %d", rr.Code, http.StatusServiceUnavailable)
 	}
 }
 
@@ -104,13 +100,7 @@ func TestHandleSendGridEvents_SuccessWithSignedKey(t *testing.T) {
 	handler := HandleSendGridEvents(consumer, pubKey, slog.Default())
 
 	payload := []byte(`[{"event":"delivered","sg_message_id":"sg-msg-signed.filter","timestamp":1631525653}]`)
-	timestamp := "1631525653"
-	sig := signPayload(t, privKey, timestamp, payload)
-
-	req := httptest.NewRequest(http.MethodPost, "/providers/email/events", bytes.NewReader(payload))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(headerSendGridSignature, sig)
-	req.Header.Set(headerSendGridTimestamp, timestamp)
+	req := newSignedRequest(t, privKey, payload)
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
@@ -123,6 +113,12 @@ func TestHandleSendGridEvents_SuccessWithSignedKey(t *testing.T) {
 	}
 	if len(consumer.reports) != 1 || consumer.reports[0].ProviderMessageID != "sg-msg-signed" {
 		t.Fatalf("unexpected reports: %+v", consumer.reports)
+	}
+	if consumer.reports[0].Status != providers.StatusDelivered {
+		t.Errorf("Status = %q, want delivered", consumer.reports[0].Status)
+	}
+	if consumer.reports[0].Channel != providers.ChannelEmail {
+		t.Errorf("Channel = %q, want email", consumer.reports[0].Channel)
 	}
 }
 
@@ -137,7 +133,7 @@ func TestHandleSendGridEvents_InvalidSignature(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/providers/email/events", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(headerSendGridSignature, base64.StdEncoding.EncodeToString([]byte("bad-signature")))
-	req.Header.Set(headerSendGridTimestamp, "1631525653")
+	req.Header.Set(headerSendGridTimestamp, strconv.FormatInt(time.Now().Unix(), 10))
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
@@ -166,11 +162,35 @@ func TestHandleSendGridEvents_MissingSignatureHeaders(t *testing.T) {
 	}
 }
 
+func TestHandleSendGridEvents_ExpiredTimestamp(t *testing.T) {
+	t.Parallel()
+
+	privKey, pubKey := generateECDSAKeyPair(t)
+	consumer := &mockConsumer{}
+	handler := HandleSendGridEvents(consumer, pubKey, slog.Default())
+
+	payload := []byte(`[{"event":"delivered","sg_message_id":"msg-1"}]`)
+	oldTs := strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10)
+	sig := signPayload(t, privKey, oldTs, payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/providers/email/events", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(headerSendGridSignature, sig)
+	req.Header.Set(headerSendGridTimestamp, oldTs)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status code = %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+}
+
 func TestHandleSendGridEvents_MethodNotAllowed(t *testing.T) {
 	t.Parallel()
 
 	consumer := &mockConsumer{}
-	handler := HandleSendGridEvents(consumer, "", slog.Default())
+	handler := HandleSendGridEvents(consumer, "dummy-key", slog.Default())
 
 	for _, method := range []string{http.MethodGet, http.MethodDelete, http.MethodPut, http.MethodPatch} {
 		req := httptest.NewRequest(method, "/providers/email/events", nil)
@@ -186,8 +206,9 @@ func TestHandleSendGridEvents_MethodNotAllowed(t *testing.T) {
 func TestHandleSendGridEvents_PayloadTooLarge(t *testing.T) {
 	t.Parallel()
 
+	_, pubKey := generateECDSAKeyPair(t)
 	consumer := &mockConsumer{}
-	handler := HandleSendGridEvents(consumer, "", slog.Default())
+	handler := HandleSendGridEvents(consumer, pubKey, slog.Default())
 
 	// > 2 MiB payload
 	largePayload := make([]byte, (2<<20)+1024)
@@ -204,27 +225,30 @@ func TestHandleSendGridEvents_PayloadTooLarge(t *testing.T) {
 func TestHandleSendGridEvents_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
+	privKey, pubKey := generateECDSAKeyPair(t)
 	consumer := &mockConsumer{}
-	handler := HandleSendGridEvents(consumer, "", slog.Default())
+	handler := HandleSendGridEvents(consumer, pubKey, slog.Default())
 
-	req := httptest.NewRequest(http.MethodPost, "/providers/email/events", strings.NewReader("not-json"))
+	payload := []byte("not-json")
+	req := newSignedRequest(t, privKey, payload)
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("got status %d, want %d", rr.Code, http.StatusBadRequest)
+		t.Fatalf("status code = %d, want %d", rr.Code, http.StatusBadRequest)
 	}
 }
 
 func TestHandleSendGridEvents_InformationalEventsOnly(t *testing.T) {
 	t.Parallel()
 
+	privKey, pubKey := generateECDSAKeyPair(t)
 	consumer := &mockConsumer{}
-	handler := HandleSendGridEvents(consumer, "", slog.Default())
+	handler := HandleSendGridEvents(consumer, pubKey, slog.Default())
 
-	payload := `[{"event":"open","sg_message_id":"msg-1"},{"event":"click","sg_message_id":"msg-1"}]`
-	req := httptest.NewRequest(http.MethodPost, "/providers/email/events", strings.NewReader(payload))
+	payload := []byte(`[{"event":"open","sg_message_id":"msg-1"},{"event":"click","sg_message_id":"msg-1"}]`)
+	req := newSignedRequest(t, privKey, payload)
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
@@ -240,11 +264,12 @@ func TestHandleSendGridEvents_InformationalEventsOnly(t *testing.T) {
 func TestHandleSendGridEvents_ConsumerError(t *testing.T) {
 	t.Parallel()
 
+	privKey, pubKey := generateECDSAKeyPair(t)
 	consumer := &mockConsumer{err: errors.New("db failure")}
-	handler := HandleSendGridEvents(consumer, "", slog.Default())
+	handler := HandleSendGridEvents(consumer, pubKey, slog.Default())
 
-	payload := `[{"event":"delivered","sg_message_id":"msg-1"}]`
-	req := httptest.NewRequest(http.MethodPost, "/providers/email/events", strings.NewReader(payload))
+	payload := []byte(`[{"event":"delivered","sg_message_id":"msg-1"}]`)
+	req := newSignedRequest(t, privKey, payload)
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
@@ -257,10 +282,11 @@ func TestHandleSendGridEvents_ConsumerError(t *testing.T) {
 func TestHandleSendGridEvents_NilConsumer(t *testing.T) {
 	t.Parallel()
 
-	handler := HandleSendGridEvents(nil, "", slog.Default())
+	privKey, pubKey := generateECDSAKeyPair(t)
+	handler := HandleSendGridEvents(nil, pubKey, slog.Default())
 
-	payload := `[{"event":"delivered","sg_message_id":"msg-1"}]`
-	req := httptest.NewRequest(http.MethodPost, "/providers/email/events", strings.NewReader(payload))
+	payload := []byte(`[{"event":"delivered","sg_message_id":"msg-1"}]`)
+	req := newSignedRequest(t, privKey, payload)
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
@@ -276,11 +302,12 @@ func TestHandleSendGridEvents_LogsDoNotLeakData(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
 
+	privKey, pubKey := generateECDSAKeyPair(t)
 	consumer := &mockConsumer{err: errors.New("storage error")}
-	handler := HandleSendGridEvents(consumer, "", logger)
+	handler := HandleSendGridEvents(consumer, pubKey, logger)
 
-	payload := `[{"event":"delivered","sg_message_id":"secret-id","email":"secret-user@example.test"}]`
-	req := httptest.NewRequest(http.MethodPost, "/providers/email/events", strings.NewReader(payload))
+	payload := []byte(`[{"event":"delivered","sg_message_id":"secret-id","email":"secret-user@example.test"}]`)
+	req := newSignedRequest(t, privKey, payload)
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
