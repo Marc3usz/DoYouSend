@@ -13,48 +13,48 @@ import (
 // UsageFilter specifies optional criteria for aggregating SMS usage.
 type UsageFilter struct {
 	// BatchID filters deliveries belonging to a specific batch UUID.
-	BatchID	*string
+	BatchID *string
 
 	// From filters deliveries updated at or after this timestamp.
-	From	*time.Time
+	From *time.Time
 
 	// To filters deliveries updated at or before this timestamp.
-	To	*time.Time
+	To *time.Time
 }
 
 // RawUsageCounts holds aggregate message and part numbers from storage.
 type RawUsageCounts struct {
-	TotalMessages		int
-	TotalParts		int
-	DeliveredMessages	int
-	DeliveredParts		int
-	SentMessages		int
-	SentParts		int
-	FailedMessages		int
-	FailedParts		int
-	InFlightMessages	int
-	InFlightParts		int
+	TotalMessages     int
+	TotalParts        int
+	DeliveredMessages int
+	DeliveredParts    int
+	SentMessages      int
+	SentParts         int
+	FailedMessages    int
+	FailedParts       int
+	InFlightMessages  int
+	InFlightParts     int
 }
 
 // UsageStats presents human-readable and machine-readable SMS statistics
 // including costs in thousandths of PLN and formatted PLN currency strings.
 type UsageStats struct {
-	PricePerPartMilli	int64	`json:"pricePerPartMilli"`
-	PricePerPartPLN		string	`json:"pricePerPartPln"`
-	TotalMessages		int	`json:"totalMessages"`
-	TotalParts		int	`json:"totalParts"`
-	TotalCostMilli		int64	`json:"totalCostMilli"`
-	TotalCostPLN		string	`json:"totalCostPln"`
-	DeliveredMessages	int	`json:"deliveredMessages"`
-	DeliveredParts		int	`json:"deliveredParts"`
-	DeliveredCostMilli	int64	`json:"deliveredCostMilli"`
-	DeliveredCostPLN	string	`json:"deliveredCostPln"`
-	SentMessages		int	`json:"sentMessages"`
-	SentParts		int	`json:"sentParts"`
-	FailedMessages		int	`json:"failedMessages"`
-	FailedParts		int	`json:"failedParts"`
-	InFlightMessages	int	`json:"inFlightMessages"`
-	InFlightParts		int	`json:"inFlightParts"`
+	PricePerPartMilli  int64  `json:"pricePerPartMilli"`
+	PricePerPartPLN    string `json:"pricePerPartPln"`
+	TotalMessages      int    `json:"totalMessages"`
+	TotalParts         int    `json:"totalParts"`
+	TotalCostMilli     int64  `json:"totalCostMilli"`
+	TotalCostPLN       string `json:"totalCostPln"`
+	DeliveredMessages  int    `json:"deliveredMessages"`
+	DeliveredParts     int    `json:"deliveredParts"`
+	DeliveredCostMilli int64  `json:"deliveredCostMilli"`
+	DeliveredCostPLN   string `json:"deliveredCostPln"`
+	SentMessages       int    `json:"sentMessages"`
+	SentParts          int    `json:"sentParts"`
+	FailedMessages     int    `json:"failedMessages"`
+	FailedParts        int    `json:"failedParts"`
+	InFlightMessages   int    `json:"inFlightMessages"`
+	InFlightParts      int    `json:"inFlightParts"`
 }
 
 // FormatPLN formats a milli-currency value (e.g. 80 -> "0.08", 24000 -> "24.00").
@@ -79,22 +79,22 @@ func CalculateUsageStats(counts RawUsageCounts, pricePerPartMilli int64) UsageSt
 	deliveredCost := int64(counts.DeliveredParts) * pricePerPartMilli
 
 	return UsageStats{
-		PricePerPartMilli:	pricePerPartMilli,
-		PricePerPartPLN:	FormatPLN(pricePerPartMilli),
-		TotalMessages:		counts.TotalMessages,
-		TotalParts:		counts.TotalParts,
-		TotalCostMilli:		totalCost,
-		TotalCostPLN:		FormatPLN(totalCost),
-		DeliveredMessages:	counts.DeliveredMessages,
-		DeliveredParts:		counts.DeliveredParts,
-		DeliveredCostMilli:	deliveredCost,
-		DeliveredCostPLN:	FormatPLN(deliveredCost),
-		SentMessages:		counts.SentMessages,
-		SentParts:		counts.SentParts,
-		FailedMessages:		counts.FailedMessages,
-		FailedParts:		counts.FailedParts,
-		InFlightMessages:	counts.InFlightMessages,
-		InFlightParts:		counts.InFlightParts,
+		PricePerPartMilli:  pricePerPartMilli,
+		PricePerPartPLN:    FormatPLN(pricePerPartMilli),
+		TotalMessages:      counts.TotalMessages,
+		TotalParts:         counts.TotalParts,
+		TotalCostMilli:     totalCost,
+		TotalCostPLN:       FormatPLN(totalCost),
+		DeliveredMessages:  counts.DeliveredMessages,
+		DeliveredParts:     counts.DeliveredParts,
+		DeliveredCostMilli: deliveredCost,
+		DeliveredCostPLN:   FormatPLN(deliveredCost),
+		SentMessages:       counts.SentMessages,
+		SentParts:          counts.SentParts,
+		FailedMessages:     counts.FailedMessages,
+		FailedParts:        counts.FailedParts,
+		InFlightMessages:   counts.InFlightMessages,
+		InFlightParts:      counts.InFlightParts,
 	}
 }
 
