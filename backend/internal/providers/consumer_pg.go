@@ -12,6 +12,8 @@ import (
 // It enforces the forward-only lifecycle: once a delivery is marked as
 // 'delivered' or 'failed', subsequent events cannot overwrite it.
 // Transitions are strictly forward: pending -> sending -> sent -> delivered / failed.
+//
+// The forward-only lifecycle rule mirrors delivery.Advance in internal/delivery/store.go.
 type PGDeliveryReportConsumer struct {
 	pool *pgxpool.Pool
 }
@@ -39,15 +41,16 @@ func (c *PGDeliveryReportConsumer) ConsumeDeliveryReports(ctx context.Context, r
 	}
 	defer tx.Rollback(ctx)
 
+	// Cast $1 to channel_status enum to prevent Postgres from inferring $1 as text due to string literals in IN.
 	const updateQuery = `
 		UPDATE deliveries
-		SET status = $1, error = $2, updated_at = now()
+		SET status = $1::channel_status, error = $2, updated_at = now()
 		WHERE provider_message_id = $3
 		  AND channel = $4
 		  AND (
-		    (status = 'pending' AND $1 IN ('sending', 'sent', 'delivered', 'failed')) OR
-		    (status = 'sending' AND $1 IN ('sent', 'delivered', 'failed')) OR
-		    (status = 'sent' AND $1 IN ('delivered', 'failed'))
+		    (status = 'pending' AND $1::channel_status IN ('sending', 'sent', 'delivered', 'failed')) OR
+		    (status = 'sending' AND $1::channel_status IN ('sent', 'delivered', 'failed')) OR
+		    (status = 'sent'    AND $1::channel_status IN ('delivered', 'failed'))
 		  )
 	`
 
