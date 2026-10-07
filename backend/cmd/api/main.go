@@ -20,8 +20,11 @@ import (
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/config"
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/database"
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/httpx"
+<<<<<<< HEAD
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers/email"
+=======
+>>>>>>> 27e3af6 (feat(providers/sms): add HTTP handler for SMS usage statistics endpoint)
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers/sms"
 	"github.com/Marc3usz/DoYouSend/backend/internal/recipients"
 )
@@ -90,6 +93,10 @@ func main() {
 		} else {
 			logger.Warn("SENDGRID_WEBHOOK_PUBLIC_KEY is not set: SendGrid event webhook route is disabled")
 		}
+
+		// TODO(iam): admin only - restrict access once IAM middleware lands.
+		smsUsageStore := sms.NewPGUsageStore(pool)
+		mux.Handle("GET /api/stats/sms", sms.HandleUsageStats(smsUsageStore, smsPrice, logger))
 	}
 
 	srv := &http.Server{
