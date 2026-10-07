@@ -19,6 +19,9 @@ import (
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/config"
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/database"
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/httpx"
+	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
+	"github.com/Marc3usz/DoYouSend/backend/internal/providers/email"
+	"github.com/Marc3usz/DoYouSend/backend/internal/providers/sms"
 	"github.com/Marc3usz/DoYouSend/backend/internal/recipients"
 )
 
@@ -44,7 +47,7 @@ func main() {
 	pool, err := database.Open(ctx, cfg.DatabaseURL)
 	switch {
 	case errors.Is(err, database.ErrNoURL):
-		logger.Warn("DATABASE_URL is not set: recipient, group and message preview endpoints are disabled")
+		logger.Warn("DATABASE_URL is not set: recipient, group, message preview and webhook endpoints are disabled")
 		mux.Handle("POST /api/recipients/import/check", recipients.HandleCheckImport(logger))
 	case err != nil:
 		logger.Error("connect to database", "err", err)
@@ -66,6 +69,12 @@ func main() {
 		importer := recipients.NewImporter(recipientStore)
 		mux.Handle("POST /api/recipients/import/check", recipients.HandleImportFile(importer.Check, logger))
 		mux.Handle("POST /api/recipients/import", recipients.HandleImportFile(importer.Import, logger))
+
+		reportConsumer := providers.NewPGDeliveryReportConsumer(pool)
+		sendgridKey := os.Getenv("SENDGRID_WEBHOOK_PUBLIC_KEY")
+		mux.Handle("GET /providers/sms/dlr", sms.HandleSMSAPIDLR(reportConsumer, logger))
+		mux.Handle("POST /providers/sms/dlr", sms.HandleSMSAPIDLR(reportConsumer, logger))
+		mux.Handle("POST /providers/email/events", email.HandleSendGridEvents(reportConsumer, sendgridKey, logger))
 	}
 
 	srv := &http.Server{
