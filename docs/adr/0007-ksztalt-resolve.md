@@ -70,13 +70,15 @@ Grup systemowych nie da się edytować ani usunąć, a ich nazwy są zarezerwowa
    klasy ucznia ani powiązania rodzic–uczeń. Potrzebna jest migracja (np. `recipients.class`
    i tabela `guardianships(parent_id, student_id)`) oraz kolumny w imporcie. Do ustalenia
    osobnym ADR-em, bo to zmienia `migrations/` i format pliku importu.
+   **Propozycja:** ADR-0009 (grupy klasowe jako grupy systemowe z wyliczanym członkostwem).
 2. ~~**Wiersze grup systemowych w tabeli `groups`.**~~ **Rozwiązane** migracją
    `0002_system_groups.sql`: wiersze ze stałymi UUID i `is_system = true`, bez wpisów w
    `group_members` (członkostwo nadal wyliczane z `recipients.type`). `groups.PGStore` nie widzi
    tych wierszy, więc nie da się ich zmienić ani dodać do nich osób. Migracja usuwa też stare
    wiersze systemowe z losowym UUID, które wstawiał dawny seed.
-3. **`ExcludedRecipientIDs` w `openapi.yaml`** i kształt odpowiedzi `POST /groups/resolve`.
-   Zmiana kontraktu pójdzie osobnym PR-em po akceptacji tego ADR-u.
+3. ~~**`ExcludedRecipientIDs` w `openapi.yaml`** i kształt odpowiedzi `POST /groups/resolve`.~~
+   **Rozwiązane** w PR #14: `RecipientSelection.excludedRecipientIds` i odpowiedź
+   `POST /groups/resolve` są w kontrakcie.
 
 ## Konsekwencje
 
