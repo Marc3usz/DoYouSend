@@ -23,6 +23,8 @@ const maxDLRBodySize = 1 << 20
 //   - Requires expectedToken to be configured. If empty, returns HTTP 503 Service Unavailable.
 //   - Compares token from path ({token}), query param (?token=), or POST form against expectedToken
 //     using subtle.ConstantTimeCompare.
+//   - Fast-path verification: tokens present in URL path or query string are checked before
+//     reading/parsing the request body to conserve server resources.
 //
 // On success:
 //   - Responds with HTTP 200 OK and body "OK" (SMSAPIDLRAckResponse).
@@ -30,7 +32,7 @@ const maxDLRBodySize = 1 << 20
 // On error:
 //   - HTTP 405 Method Not Allowed for unsupported HTTP verbs.
 //   - HTTP 503 Service Unavailable if expectedToken is not configured.
-//   - HTTP 401 Unauthorized if the token does not match.
+//   - HTTP 401 Unauthorized if the token is missing or does not match.
 //   - HTTP 400 Bad Request if parameters are malformed or missing required keys.
 //   - HTTP 500 Internal Server Error if consumers fail to store reports, signaling
 //     SMSAPI to retry delivering the callback later.
@@ -57,6 +59,19 @@ func HandleSMSAPIDLR(consumer providers.DeliveryReportConsumer, expectedToken st
 			reqToken = r.URL.Query().Get("token")
 		}
 
+		// Fast-path: if token was provided in the URL, verify it immediately before reading the body.
+		if reqToken != "" {
+			if subtle.ConstantTimeCompare([]byte(reqToken), []byte(tok)) != 1 {
+				logger.Warn("smsapi dlr unauthorized: token mismatch")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		} else if r.Method == http.MethodGet {
+			logger.Warn("smsapi dlr unauthorized: missing token in URL")
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
 		var values url.Values
 		if r.Method == http.MethodPost {
 			r.Body = http.MaxBytesReader(w, r.Body, maxDLRBodySize)
@@ -74,15 +89,14 @@ func HandleSMSAPIDLR(consumer providers.DeliveryReportConsumer, expectedToken st
 			values = r.Form
 			if reqToken == "" {
 				reqToken = r.Form.Get("token")
+				if subtle.ConstantTimeCompare([]byte(reqToken), []byte(tok)) != 1 {
+					logger.Warn("smsapi dlr unauthorized: token mismatch in form body")
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
 			}
 		} else {
 			values = r.URL.Query()
-		}
-
-		if subtle.ConstantTimeCompare([]byte(reqToken), []byte(tok)) != 1 {
-			logger.Warn("smsapi dlr unauthorized: token mismatch")
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
 		}
 
 		reports, err := ParseSMSAPIDLR(values)
