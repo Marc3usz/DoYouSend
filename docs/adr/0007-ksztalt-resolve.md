@@ -70,7 +70,7 @@ Grup systemowych nie da się edytować ani usunąć, a ich nazwy są zarezerwowa
    klasy ucznia ani powiązania rodzic–uczeń. Potrzebna jest migracja (np. `recipients.class`
    i tabela `guardianships(parent_id, student_id)`) oraz kolumny w imporcie. Do ustalenia
    osobnym ADR-em, bo to zmienia `migrations/` i format pliku importu.
-   **Propozycja:** ADR-0009 (grupy klasowe jako grupy systemowe z wyliczanym członkostwem).
+   **Rozstrzygnięte** w ADR-0009 (grupy klasowe jako grupy systemowe z wyliczanym członkostwem).
 2. ~~**Wiersze grup systemowych w tabeli `groups`.**~~ **Rozwiązane** migracją
    `0002_system_groups.sql`: wiersze ze stałymi UUID i `is_system = true`, bez wpisów w
    `group_members` (członkostwo nadal wyliczane z `recipients.type`). `groups.PGStore` nie widzi
