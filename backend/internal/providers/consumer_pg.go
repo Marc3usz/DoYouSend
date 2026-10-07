@@ -25,11 +25,11 @@ func NewPGDeliveryReportConsumer(pool *pgxpool.Pool) *PGDeliveryReportConsumer {
 // Status updates are applied forward-only: terminal statuses ('delivered', 'failed')
 // are preserved even if an out-of-order event arrives.
 func (c *PGDeliveryReportConsumer) ConsumeDeliveryReports(ctx context.Context, reports []DeliveryReport) error {
-	if c == nil || c.pool == nil {
-		return errors.New("database pool is not configured")
-	}
 	if len(reports) == 0 {
 		return nil
+	}
+	if c == nil || c.pool == nil {
+		return errors.New("database pool is not configured")
 	}
 
 	tx, err := c.pool.Begin(ctx)
