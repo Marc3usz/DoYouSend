@@ -110,3 +110,24 @@ export function smsUsage(
 	const query = q.size > 0 ? `?${q}` : '';
 	return api<SmsUsage>(`/stats/sms${query}`, { fetch });
 }
+
+/** The EmailUsageStats schema (GET /stats/email). */
+export type EmailUsage = {
+	totalMessages: number;
+	deliveredMessages: number;
+	sentMessages: number;
+	failedMessages: number;
+	inFlightMessages: number;
+};
+
+/** GET /stats/email for batches sent from `from` to `to` (YYYY-MM-DD, both inclusive). */
+export function emailUsage(
+	range: { from?: string; to?: string },
+	fetch?: typeof globalThis.fetch
+): Promise<EmailUsage> {
+	const q = new URLSearchParams();
+	if (range.from) q.set('from', range.from);
+	if (range.to) q.set('to', range.to);
+	const query = q.size > 0 ? `?${q}` : '';
+	return api<EmailUsage>(`/stats/email${query}`, { fetch });
+}

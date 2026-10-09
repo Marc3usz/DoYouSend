@@ -40,6 +40,28 @@
 		{/if}
 	</section>
 
+	<section class="card" aria-labelledby="email-heading">
+		<h2 id="email-heading">E-maile — {data.month.label}</h2>
+		{#if data.emailStats}
+			<p class="big">{data.emailStats.totalMessages}</p>
+			<p class="sub">wysłanych wiadomości e-mail w bieżącym miesiącu</p>
+			<dl>
+				<dt>Wszystkie</dt>
+				<dd>{data.emailStats.totalMessages}</dd>
+				<dt>Doręczone</dt>
+				<dd>{data.emailStats.deliveredMessages}</dd>
+				<dt>Wysłane (w toku)</dt>
+				<dd>{data.emailStats.sentMessages}</dd>
+				<dt>Nieudane</dt>
+				<dd>{data.emailStats.failedMessages}</dd>
+				<dt>W trakcie</dt>
+				<dd>{data.emailStats.inFlightMessages}</dd>
+			</dl>
+		{:else}
+			<p class="error" role="alert">Nie udało się wczytać statystyk e-mail.</p>
+		{/if}
+	</section>
+
 	<section class="card" aria-labelledby="setup-heading">
 		<h2 id="setup-heading">Konfiguracja wysyłki</h2>
 		{#if data.config}
