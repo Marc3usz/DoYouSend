@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/Marc3usz/DoYouSend/backend/internal/delivery"
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
 )
 
@@ -311,5 +312,46 @@ func TestNew_DryRunWrapsBothProviders(t *testing.T) {
 	}
 	if smsRes.ProviderMessageID == "" {
 		t.Error("expected non-empty dry-run ProviderMessageID for SMS")
+	}
+}
+
+func TestProviders_SendersAndDispatcher(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		EmailProvider: "mailpit",
+		SMSProvider:   "fake",
+		DryRun:        true,
+	}
+	p, err := New(cfg, nil)
+	if err != nil {
+		t.Fatalf("unexpected New error: %v", err)
+	}
+
+	senders := p.Senders()
+	if len(senders) != 2 {
+		t.Fatalf("len(Senders) = %d, want 2", len(senders))
+	}
+
+	dispatcher, err := p.Dispatcher(delivery.DefaultRetryPolicy(), nil)
+	if err != nil {
+		t.Fatalf("unexpected Dispatcher error: %v", err)
+	}
+	if dispatcher == nil {
+		t.Fatal("expected non-nil Dispatcher")
+	}
+}
+
+func TestProviders_NilMethods(t *testing.T) {
+	t.Parallel()
+
+	var p *Providers
+	if senders := p.Senders(); senders != nil {
+		t.Errorf("expected nil senders for nil Providers, got %v", senders)
+	}
+
+	_, err := p.Dispatcher(delivery.DefaultRetryPolicy(), nil)
+	if err == nil {
+		t.Error("expected error calling Dispatcher on nil Providers")
 	}
 }
