@@ -160,6 +160,7 @@ func main() {
 	}()
 
 	<-ctx.Done()
+	stop() // a second Ctrl-C now kills the process, even while batches are still being sent
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {

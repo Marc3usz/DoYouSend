@@ -34,6 +34,8 @@ var (
 	// ErrIdempotencyConflict means the idempotency key was already used for a
 	// different message or selection.
 	ErrIdempotencyConflict = errors.New("idempotency key reused with a different request")
+	// ErrShuttingDown means the server is stopping and takes no new batches.
+	ErrShuttingDown = errors.New("server is shutting down")
 )
 
 // SelectionChangedError lists what disappeared since the sender made the selection.
@@ -87,7 +89,10 @@ type Service struct {
 	store             Store
 	pricePerPartMilli int64
 	logger            *slog.Logger
-	// running tracks batches Start dispatches in the background, for Wait.
+	// running tracks Start calls and the dispatches they leave in the background, for
+	// Wait. closing, guarded by mu, stops new ones once Wait has begun.
+	mu      sync.Mutex
+	closing bool
 	running sync.WaitGroup
 }
 
@@ -128,24 +133,43 @@ func (s *Service) Send(ctx context.Context, d Draft) (Batch, error) {
 // answers 202). replayed reports a repeated idempotency key: the batch is the one
 // recorded the first time and nothing is sent again. Wait blocks until every
 // background dispatch has finished.
-func (s *Service) Start(ctx context.Context, d Draft) (batch Batch, replayed bool, err error) {
-	batch, replayed, err = s.record(ctx, d)
+func (s *Service) Start(ctx context.Context, d Draft) (Batch, bool, error) {
+	if !s.enter() {
+		return Batch{}, false, fmt.Errorf("send batch: %w", ErrShuttingDown)
+	}
+	batch, replayed, err := s.record(ctx, d)
 	if err != nil || replayed {
+		s.running.Done()
 		return batch, replayed, err
 	}
-	detached := context.WithoutCancel(ctx)
-	s.running.Add(1)
-	go func() {
+	go func(b Batch) {
 		defer s.running.Done()
-		if _, err := s.dispatch(detached, batch); err != nil {
-			s.logger.Error("batch dispatch", "batch_id", batch.ID, "err", err)
+		if _, err := s.dispatch(context.WithoutCancel(ctx), b); err != nil {
+			s.logger.Error("batch dispatch", "batch_id", b.ID, "err", err)
 		}
-	}()
+	}(batch)
 	return batch, false, nil
 }
 
-// Wait blocks until every batch started with Start has been dispatched and saved.
-func (s *Service) Wait() { s.running.Wait() }
+// enter registers a Start call, unless Wait has begun.
+func (s *Service) enter() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closing {
+		return false
+	}
+	s.running.Add(1)
+	return true
+}
+
+// Wait refuses new Start calls and blocks until every batch already started has been
+// dispatched and saved.
+func (s *Service) Wait() {
+	s.mu.Lock()
+	s.closing = true
+	s.mu.Unlock()
+	s.running.Wait()
+}
 
 // record checks the draft and saves the batch, or finds the one recorded under the
 // same idempotency key.

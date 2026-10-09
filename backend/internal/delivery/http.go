@@ -114,6 +114,10 @@ func (h *Handler) sendError(w http.ResponseWriter, err error) {
 		httpx.Error(w, http.StatusConflict, httpx.ErrorBody{Code: "selection_changed", Message: ErrSelectionChanged.Error(), IDs: ids})
 	case errors.Is(err, ErrNoRecipients):
 		httpx.Error(w, http.StatusUnprocessableEntity, httpx.ErrorBody{Code: "no_recipients", Message: ErrNoRecipients.Error()})
+	case errors.Is(err, ErrInvalidKey):
+		invalidInput(w, "Idempotency-Key", "a new UUID is required for every confirmation")
+	case errors.Is(err, ErrShuttingDown):
+		httpx.Error(w, http.StatusServiceUnavailable, httpx.ErrorBody{Code: "internal", Message: ErrShuttingDown.Error()})
 	case errors.Is(err, ErrIdempotencyConflict):
 		httpx.Error(w, http.StatusConflict, httpx.ErrorBody{Code: "idempotency_conflict", Message: ErrIdempotencyConflict.Error()})
 	default:

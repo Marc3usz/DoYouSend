@@ -62,7 +62,7 @@ func (e httpEnv) do(t *testing.T, method, target, body string, header map[string
 	}
 	rec := httptest.NewRecorder()
 	e.mux.ServeHTTP(rec, req)
-	e.svc.Wait()
+	e.svc.running.Wait() // the background dispatch, without closing the service
 	return rec
 }
 

@@ -155,3 +155,17 @@ func TestPlanCounts(t *testing.T) {
 		t.Errorf("Counts() = %+v, want %+v", got, want)
 	}
 }
+
+func TestServiceStartAfterWaitIsRefused(t *testing.T) {
+	store := NewMemStore()
+	sms := &scriptedSender{channel: providers.ChannelSMS}
+	svc := newTestService(t, twoRecipients(), store, sms)
+	svc.Wait()
+
+	if _, _, err := svc.Start(context.Background(), keyedDraft()); !errors.Is(err, ErrShuttingDown) {
+		t.Errorf("Start() after Wait error = %v; want ErrShuttingDown", err)
+	}
+	if len(store.batches) != 0 || len(sms.sent) != 0 {
+		t.Error("a batch was recorded or sent while shutting down")
+	}
+}
