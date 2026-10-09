@@ -307,3 +307,79 @@ func TestPGStoreRecipientGroupIDs(t *testing.T) {
 		t.Errorf("RecipientGroupIDs() = %v, %v; want [Alfa zebra] by name, custom only", got, err)
 	}
 }
+
+func TestPGStoreRecipientClasses(t *testing.T) {
+	s := newPGStore(t)
+	ctx := context.Background()
+
+	created, err := s.CreateRecipient(ctx, Recipient{FirstName: "Ola", LastName: "Wrona", Phone: "+48500100130", Type: TypeParent, Classes: []string{"10A", "2B"}})
+	if err != nil {
+		t.Fatalf("CreateRecipient() error = %v", err)
+	}
+	if want := []string{"2B", "10A"}; !reflect.DeepEqual(created.Classes, want) {
+		t.Errorf("created.Classes = %q, want %q", created.Classes, want)
+	}
+	got, err := s.GetRecipient(ctx, created.ID)
+	if err != nil || !reflect.DeepEqual(got.Classes, []string{"2B", "10A"}) {
+		t.Errorf("GetRecipient() classes = %q, %v, want [2B 10A] in class order", got.Classes, err)
+	}
+
+	got.Classes = []string{"3A"}
+	updated, err := s.UpdateRecipient(ctx, got)
+	if err != nil || !reflect.DeepEqual(updated.Classes, []string{"3A"}) {
+		t.Fatalf("UpdateRecipient() classes = %q, %v, want [3A]", updated.Classes, err)
+	}
+	if again, _ := s.GetRecipient(ctx, created.ID); !reflect.DeepEqual(again.Classes, []string{"3A"}) {
+		t.Errorf("classes after update = %q, want old ones replaced by [3A]", again.Classes)
+	}
+
+	inClass, err := s.ListRecipients(ctx, Filter{Class: "3A"})
+	if err != nil || !reflect.DeepEqual(names(inClass), []string{"Ola Wrona"}) {
+		t.Errorf("ListRecipients(class 3A) = %v, %v, want Ola only", names(inClass), err)
+	}
+	others, _ := s.RecipientsByType(ctx, TypeStudent)
+	if len(others) == 0 || others[0].Classes != nil {
+		t.Errorf("recipient without a class has Classes = %q, want nil", others[0].Classes)
+	}
+
+	if err := s.DeleteRecipient(ctx, created.ID); err != nil {
+		t.Fatalf("DeleteRecipient() error = %v (classes must go with the recipient)", err)
+	}
+	if left, _ := s.ListRecipients(ctx, Filter{Class: "3A"}); len(left) != 0 {
+		t.Errorf("class 3A after delete = %v, want nobody", names(left))
+	}
+}
+
+func TestPGStoreCreateRecipientsWithClasses(t *testing.T) {
+	s := newPGStore(t)
+	ctx := context.Background()
+
+	err := s.CreateRecipients(ctx, []Recipient{
+		{FirstName: "Ola", LastName: "Wrona", Email: "ola.wrona@example.test", Type: TypeParent, Classes: []string{"1B", "3A"}},
+		{FirstName: "Kacper", LastName: "Wrona", Phone: "+48500100131", Type: TypeStudent, Classes: []string{"3A"}},
+		{FirstName: "Ewa", LastName: "Bez", Email: "ewa.bez@example.test", Type: TypeParent},
+	})
+	if err != nil {
+		t.Fatalf("CreateRecipients() error = %v", err)
+	}
+	for class, want := range map[string][]string{
+		"3A": {"Kacper Wrona", "Ola Wrona"},
+		"1B": {"Ola Wrona"},
+	} {
+		got, err := s.ListRecipients(ctx, Filter{Class: class})
+		if err != nil || !reflect.DeepEqual(names(got), want) {
+			t.Errorf("class %s = %v, %v, want %v", class, names(got), err, want)
+		}
+	}
+}
+
+func TestPGStoreRejectsMalformedClass(t *testing.T) {
+	s := newPGStore(t)
+	_, err := s.CreateRecipient(context.Background(), Recipient{FirstName: "Ola", LastName: "Wrona", Phone: "+48500100130", Type: TypeParent, Classes: []string{"a3"}})
+	if err == nil {
+		t.Fatal("CreateRecipient(class a3) succeeded, want the CHECK constraint to refuse it")
+	}
+	if left, _ := s.ListRecipients(context.Background(), Filter{Query: "Wrona"}); len(left) != 0 {
+		t.Errorf("recipient stored despite the refused class: %v (want rollback)", names(left))
+	}
+}

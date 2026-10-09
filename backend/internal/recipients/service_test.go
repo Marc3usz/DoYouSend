@@ -40,6 +40,9 @@ func (m *memRecipients) ListRecipients(_ context.Context, f Filter) ([]Recipient
 		if f.Type != "" && r.Type != f.Type {
 			continue
 		}
+		if f.Class != "" && !slices.Contains(r.Classes, f.Class) {
+			continue
+		}
 		if q := strings.ToLower(f.Query); q != "" && !strings.Contains(strings.ToLower(r.FirstName+" "+r.LastName+" "+r.Email+" "+r.Phone), q) {
 			continue
 		}
