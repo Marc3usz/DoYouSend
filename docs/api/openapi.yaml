@@ -39,6 +39,10 @@ paths:
           schema: { type: string, maxLength: 100 }
         - { in: query, name: type, schema: { $ref: "#/components/schemas/RecipientType" } }
         - in: query
+          name: class
+          description: Tylko odbiorcy przypisani do tej klasy (normalizowana jak ClassName, np. "3 a" = 3A; ADR-0009)
+          schema: { $ref: "#/components/schemas/ClassName" }
+        - in: query
           name: issue
           description: Tylko odbiorcy z problemem danych kontaktowych w danym kanale
           schema: { $ref: "#/components/schemas/Channel" }
@@ -165,7 +169,11 @@ paths:
     get:
       tags: [groups]
       summary: Lista grup
-      description: Najpierw grupy systemowe (stala kolejnosc), potem wlasne po nazwie.
+      description: |
+        Kolejnosc (ADR-0009): "Wszyscy rodzice", "Wszyscy uczniowie"; potem grupy klasowe
+        posortowane po numerze klasy liczbowo, nastepnie po reszcie nazwy (1A, 1B, 2A, ..., 10A),
+        w kazdej klasie najpierw uczniowie, potem rodzice; na koncu grupy wlasne po nazwie.
+        Grupa klasowa jest na liscie, dopoki w klasie jest co najmniej jeden odbiorca.
       responses:
         "200":
           description: OK
@@ -474,7 +482,7 @@ components:
 
     Recipient:
       type: object
-      required: [id, firstName, lastName, type, issues, createdAt, updatedAt]
+      required: [id, firstName, lastName, type, classes, issues, createdAt, updatedAt]
       properties:
         id:        { type: string, format: uuid }
         firstName: { type: string }
@@ -482,9 +490,15 @@ components:
         email:     { type: string, nullable: true }
         phone:     { type: string, nullable: true, description: "E.164" }
         type:      { $ref: "#/components/schemas/RecipientType" }
+        classes:
+          type: array
+          description: |
+            Klasy odbiorcy (ADR-0009), posortowane jak grupy klasowe. Uczen: najwyzej jedna
+            (jego klasa). Rodzic: dowolnie wiele (klasy dzieci). Pusta tablica = brak klasy.
+          items: { $ref: "#/components/schemas/ClassName" }
         groupIds:
           type: array
-          description: Grupy wlasne odbiorcy. Tylko w GET /recipients/{id}; systemowe wynikaja z type.
+          description: Grupy wlasne odbiorcy. Tylko w GET /recipients/{id}; systemowe i klasowe wynikaja z type i classes.
           items: { type: string, format: uuid }
         issues:
           type: array
@@ -503,6 +517,13 @@ components:
         email:     { type: string, nullable: true }
         phone:     { type: string, nullable: true, description: "Dowolny zapis, normalizowany do E.164" }
         type:      { $ref: "#/components/schemas/RecipientType" }
+        classes:
+          type: array
+          description: |
+            Pominiete = bez zmian przy PUT, brak klasy przy POST. Wartosci normalizowane
+            (przyciecie, usuniecie spacji, wielkie litery) i deduplikowane. Uczen z wiecej niz
+            jedna klasa albo niepoprawna nazwa -> 400 invalid_input, pole "classes".
+          items: { type: string }
 
     RecipientPage:
       type: object
@@ -527,6 +548,13 @@ components:
           enum: [missing, invalid]
           description: missing = brak wartosci, invalid = zapisana wartosc nie przechodzi walidacji
 
+    ClassName:
+      type: string
+      pattern: "^[0-9][0-9A-Z]{0,5}$"
+      description: |
+        Znormalizowana nazwa klasy (ADR-0009): cyfra na poczatku, potem wielkie litery lub cyfry,
+        1-6 znakow, np. 3A, 1TI, 2BG. Wejscie jest normalizowane przed sprawdzeniem.
+
     Group:
       type: object
       required: [id, name, description, kind, memberCount]
@@ -537,7 +565,23 @@ components:
         kind:
           type: string
           enum: [system, custom]
-          description: system = wyliczana z danych odbiorcow, tylko do odczytu
+          description: |
+            system = wyliczana z danych odbiorcow, tylko do odczytu. Obejmuje tez grupy klasowe
+            (className != null) - enum sie nie zmienia, wiec dotychczasowi klienci dzialaja bez zmian.
+        className:
+          type: string
+          nullable: true
+          pattern: "^[0-9][0-9A-Z]{0,5}$"
+          description: |
+            Dla grup klasowych ("Uczniowie klasy 3A", "Rodzice uczniow klasy 3A") nazwa klasy, inaczej
+            null. ID grupy klasowej jest stale: UUIDv5 z przestrzeni nazw ADR-0009 i "students:3A" /
+            "parents:3A", wiec zapisany wybor wskazuje te sama grupe tak dlugo, jak klasa istnieje.
+            Format jak ClassName.
+        audience:
+          type: string
+          nullable: true
+          enum: [students, parents, null]
+          description: Dla grup klasowych - kogo obejmuje; inaczej null. Pozwala UI grupowac liste bez parsowania nazwy.
         memberCount: { type: integer }
         createdAt:   { type: string, format: date-time, nullable: true, description: "null dla grup systemowych" }
 
@@ -849,7 +893,11 @@ components:
         file:
           type: string
           format: binary
-          description: CSV (UTF-8, separator , albo ;) lub XLSX (pierwszy arkusz), najwyzej 5 MB i 5000 wierszy
+          description: |
+            CSV (UTF-8, separator , albo ;) lub XLSX (pierwszy arkusz), najwyzej 5 MB i 5000 wierszy.
+            Kolumny wymagane: imie, nazwisko, e-mail, telefon, typ. Opcjonalna kolumna klasa (ADR-0009):
+            jedna klasa ucznia albo kilka klas rodzica po przecinku, np. "3A, 1B" (w CSV z separatorem
+            przecinkiem komorke trzeba ujac w cudzyslow). Plik bez tej kolumny dziala jak dotad.
 
     ImportReport:
       type: object
@@ -888,13 +936,17 @@ components:
 
     ImportedRecipient:
       type: object
-      required: [firstName, lastName, type]
+      required: [firstName, lastName, type, classes]
       properties:
         firstName: { type: string }
         lastName:  { type: string }
         email:     { type: string, nullable: true }
         phone:     { type: string, nullable: true, description: "E.164" }
         type:      { $ref: "#/components/schemas/RecipientType" }
+        classes:
+          type: array
+          description: Znormalizowane klasy z kolumny klasa; pusta tablica, gdy kolumny brak albo komorka jest pusta
+          items: { $ref: "#/components/schemas/ClassName" }
 
     ImportFieldError:
       type: object
@@ -902,8 +954,10 @@ components:
       properties:
         field:
           type: string
-          enum: [first_name, last_name, type, email, phone, contact, encoding, row]
-          description: Stabilny klucz dla UI (contact = brak e-maila i telefonu, row = wiersza nie da sie odczytac)
+          enum: [first_name, last_name, type, email, phone, classes, contact, encoding, row]
+          description: |
+            Stabilny klucz dla UI (contact = brak e-maila i telefonu, row = wiersza nie da sie odczytac,
+            classes = niepoprawna nazwa klasy albo uczen z wiecej niz jedna klasa)
         message: { type: string, description: "Szczegol diagnostyczny po angielsku, nie do wyswietlania wprost" }
 
     ImportFileErrorBody:
