@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Marc3usz/DoYouSend/backend/internal/delivery"
 	"github.com/Marc3usz/DoYouSend/backend/internal/groups"
 	"github.com/Marc3usz/DoYouSend/backend/internal/iam"
 	"github.com/Marc3usz/DoYouSend/backend/internal/messaging"
@@ -99,18 +100,37 @@ func main() {
 		smsUsageStore := sms.NewPGUsageStore(pool)
 		mux.Handle("GET /api/stats/sms", sms.HandleUsageStats(smsUsageStore, smsPrice, logger))
 
-		providerCfg := setup.ConfigFromEnv()
+		provCfg := setup.ConfigFromEnv()
+		provCfg.DryRun = cfg.DryRun
+		provs, err := setup.New(provCfg, logger)
+		if err != nil {
+			logger.Error("initialize delivery providers", "err", err)
+			os.Exit(1)
+		}
+		logger.Info("delivery providers initialized",
+			"email", provCfg.EmailProvider,
+			"sms", provCfg.SMSProvider,
+			"dryRun", provCfg.DryRun,
+		)
+
+		dispatcher, err := provs.Dispatcher(delivery.DefaultRetryPolicy(), logger)
+		if err != nil {
+			logger.Error("initialize delivery dispatcher", "err", err)
+			os.Exit(1)
+		}
+		_ = dispatcher // ready for delivery.Service when batch HTTP endpoints land (M3)
+
 		sending := iam.SendingConfig{
 			DryRun:               cfg.DryRun,
-			EmailProvider:        providerCfg.EmailProvider,
-			EmailFrom:            providerCfg.EmailFrom,
-			EmailSandbox:         providerCfg.SendGridSandbox,
-			EmailCredentialsSet:  providerCfg.SendGridAPIKey != "" || providerCfg.SMTPPassword != "",
+			EmailProvider:        provCfg.EmailProvider,
+			EmailFrom:            provCfg.EmailFrom,
+			EmailSandbox:         provCfg.SendGridSandbox,
+			EmailCredentialsSet:  provCfg.SendGridAPIKey != "" || provCfg.SMTPPassword != "",
 			EmailEventsWebhook:   sendgridKey != "",
-			SMSProvider:          providerCfg.SMSProvider,
-			SMSSenderName:        providerCfg.SMSSenderName,
-			SMSTestMode:          providerCfg.SMSAPITestMode,
-			SMSCredentialsSet:    providerCfg.SMSAPIKey != "",
+			SMSProvider:          provCfg.SMSProvider,
+			SMSSenderName:        provCfg.SMSSenderName,
+			SMSTestMode:          provCfg.SMSAPITestMode,
+			SMSCredentialsSet:    provCfg.SMSAPIKey != "",
 			SMSReportsWebhook:    smsToken != "",
 			SMSPricePerPartMilli: smsPrice,
 		}

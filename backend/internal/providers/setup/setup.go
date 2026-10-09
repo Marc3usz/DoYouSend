@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/Marc3usz/DoYouSend/backend/internal/delivery"
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers/email"
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers/sms"
@@ -121,6 +122,31 @@ func New(cfg Config, logger *slog.Logger) (*Providers, error) {
 		Email: emailProvider,
 		SMS:   smsProvider,
 	}, nil
+}
+
+// Senders returns the initialized email and SMS providers as a slice of delivery.Sender,
+// ready for delivery.NewDispatcher.
+func (p *Providers) Senders() []delivery.Sender {
+	if p == nil {
+		return nil
+	}
+	var senders []delivery.Sender
+	if p.Email != nil {
+		senders = append(senders, p.Email)
+	}
+	if p.SMS != nil {
+		senders = append(senders, p.SMS)
+	}
+	return senders
+}
+
+// Dispatcher constructs a delivery.Dispatcher preconfigured with the initialized
+// email and SMS providers and the provided retry policy.
+func (p *Providers) Dispatcher(policy delivery.RetryPolicy, logger *slog.Logger) (*delivery.Dispatcher, error) {
+	if p == nil {
+		return nil, errors.New("providers is nil")
+	}
+	return delivery.NewDispatcher(p.Senders(), policy, logger)
 }
 
 // newEmailProvider creates the email provider selected by cfg.EmailProvider.
