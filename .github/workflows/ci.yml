@@ -32,6 +32,43 @@ jobs:
       - run: go build ./...
       - run: go test ./... -race
 
+  # Testy z tagiem `integration` (stores na Postgresie, SQL). Bez bazy dbtest je pomija,
+  # wiec job nie przechodzi, jesli ktorykolwiek test zostal pominiety z braku URL.
+  backend-integration:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: doyousend
+          POSTGRES_PASSWORD: doyousend
+          POSTGRES_DB: doyousend
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U doyousend"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://doyousend:doyousend@localhost:5432/doyousend?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: false
+      - name: go test -tags integration
+        run: |
+          set -o pipefail
+          go test -tags integration -count=1 -race -v ./... | tee "$RUNNER_TEMP/integration.log"
+          if grep -q "TEST_DATABASE_URL is not set" "$RUNNER_TEMP/integration.log"; then
+            echo "::error::Testy integracyjne zostaly pominiete - brak polaczenia z baza"
+            exit 1
+          fi
+
   frontend:
     runs-on: ubuntu-latest
     defaults:
