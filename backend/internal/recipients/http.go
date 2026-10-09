@@ -123,11 +123,12 @@ type (
 		Recipient importedRecipientJSON `json:"recipient"`
 	}
 	importedRecipientJSON struct {
-		FirstName string  `json:"firstName"`
-		LastName  string  `json:"lastName"`
-		Email     *string `json:"email"`
-		Phone     *string `json:"phone"`
-		Type      Type    `json:"type"`
+		FirstName string   `json:"firstName"`
+		LastName  string   `json:"lastName"`
+		Email     *string  `json:"email"`
+		Phone     *string  `json:"phone"`
+		Type      Type     `json:"type"`
+		Classes   []string `json:"classes"`
 	}
 	invalidRowJSON struct {
 		Row    int              `json:"row"`
@@ -159,6 +160,7 @@ func toReportJSON(rep ImportReport) reportJSON {
 			Email:     nullable(v.Recipient.Email),
 			Phone:     nullable(v.Recipient.Phone),
 			Type:      v.Recipient.Type,
+			Classes:   nonNil(v.Recipient.Classes),
 		}})
 	}
 	for _, inv := range rep.Invalid {

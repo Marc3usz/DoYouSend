@@ -47,8 +47,12 @@ func NewPGStore(pool *pgxpool.Pool) *PGStore {
 }
 
 // recipientColumns lists the columns scanRecipient reads, in its order.
-// Missing contacts are NULL in the table and "" in Recipient.
-const recipientColumns = `id::text, first_name, last_name, coalesce(email, ''), coalesce(phone, ''), type::text, created_at, updated_at`
+// Missing contacts are NULL in the table and "" in Recipient. The classes come
+// from recipient_classes; in a RETURNING clause they are the ones stored before
+// the statement, so writers set Recipient.Classes themselves.
+const recipientColumns = `id::text, first_name, last_name, coalesce(email, ''), coalesce(phone, ''), type::text,
+	coalesce((SELECT array_agg(c.class_name) FROM recipient_classes c WHERE c.recipient_id = recipients.id), '{}'),
+	created_at, updated_at`
 
 // FindContacts implements Store.
 func (s *PGStore) FindContacts(ctx context.Context, emails, phones []string) (ExistingContacts, error) {
@@ -100,15 +104,31 @@ func (s *PGStore) CreateRecipients(ctx context.Context, rs []Recipient) error {
 	emails := make([]*string, len(rs))
 	phones := make([]*string, len(rs))
 	types := make([]string, len(rs))
+	classes := make([]string, len(rs))
 	for i, r := range rs {
 		first[i], last[i], types[i] = r.FirstName, r.LastName, string(r.Type)
 		emails[i], phones[i] = nullable(r.Email), nullable(r.Phone)
+		classes[i] = strings.Join(r.Classes, ",")
 	}
-	// One statement is one transaction: all rows are stored or none is.
+	// One statement is one transaction: all rows and their classes are stored
+	// or none is. Inserted rows are matched back to their classes by e-mail and
+	// phone, a pair no two imported rows share (the unique indexes would
+	// refuse them anyway).
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO recipients (first_name, last_name, email, phone, type)
-		SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::recipient_type[])`,
-		first, last, emails, phones, types)
+		WITH input AS (
+			SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::recipient_type[], $6::text[])
+				AS t(first_name, last_name, email, phone, type, classes)
+		), inserted AS (
+			INSERT INTO recipients (first_name, last_name, email, phone, type)
+			SELECT first_name, last_name, email, phone, type FROM input
+			RETURNING id, email, phone
+		)
+		INSERT INTO recipient_classes (recipient_id, class_name)
+		SELECT inserted.id, class_name
+		FROM inserted
+		JOIN input ON input.email IS NOT DISTINCT FROM inserted.email AND input.phone IS NOT DISTINCT FROM inserted.phone
+		CROSS JOIN LATERAL unnest(string_to_array(nullif(input.classes, ''), ',')) AS class_name`,
+		first, last, emails, phones, types, classes)
 	if err != nil {
 		return fmt.Errorf("insert %d recipients: %w", len(rs), contactError(err))
 	}
@@ -130,6 +150,20 @@ func (s *PGStore) RecipientsByType(ctx context.Context, t Type) ([]Recipient, er
 	return s.query(ctx, `SELECT `+recipientColumns+` FROM recipients WHERE type = $1::recipient_type ORDER BY lower(last_name), lower(first_name), id`, string(t))
 }
 
+// Classes returns every class some recipient is assigned to, in
+// CompareClasses order. Each one has its class groups (ADR-0009).
+func (s *PGStore) Classes(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT DISTINCT class_name FROM recipient_classes`)
+	if err != nil {
+		return nil, fmt.Errorf("query classes: %w", err)
+	}
+	classes, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("read classes: %w", err)
+	}
+	return NormalizeClasses(classes), nil
+}
+
 // ListRecipients implements RecipientStore. Query is matched against the
 // first and last name (in both orders), the e-mail and the phone number, the
 // latter also with spaces and dashes removed ("500 100" finds +48500100101).
@@ -148,8 +182,9 @@ func (s *PGStore) ListRecipients(ctx context.Context, f Filter) ([]Recipient, er
 		  AND ($2 = '' OR first_name ILIKE $2 OR last_name ILIKE $2
 		       OR first_name || ' ' || last_name ILIKE $2 OR last_name || ' ' || first_name ILIKE $2
 		       OR email ILIKE $2 OR ($3 <> '' AND phone LIKE $3))
+		  AND ($4 = '' OR EXISTS (SELECT 1 FROM recipient_classes c WHERE c.recipient_id = recipients.id AND c.class_name = $4))
 		ORDER BY lower(last_name), lower(first_name), id`,
-		string(f.Type), pattern, phonePattern)
+		string(f.Type), pattern, phonePattern, f.Class)
 }
 
 // GetRecipient implements RecipientStore.
@@ -185,19 +220,27 @@ func (s *PGStore) RecipientGroupIDs(ctx context.Context, id string) ([]string, e
 	return groupIDs, nil
 }
 
-// CreateRecipient implements RecipientStore.
+// CreateRecipient implements RecipientStore. The recipient and their classes
+// are stored in one transaction.
 func (s *PGStore) CreateRecipient(ctx context.Context, r Recipient) (Recipient, error) {
-	rows, err := s.pool.Query(ctx, `
-		INSERT INTO recipients (first_name, last_name, email, phone, type)
-		VALUES ($1, $2, $3, $4, $5::recipient_type)
-		RETURNING `+recipientColumns,
-		r.FirstName, r.LastName, nullable(r.Email), nullable(r.Phone), string(r.Type))
+	var created Recipient
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			INSERT INTO recipients (first_name, last_name, email, phone, type)
+			VALUES ($1, $2, $3, $4, $5::recipient_type)
+			RETURNING `+recipientColumns,
+			r.FirstName, r.LastName, nullable(r.Email), nullable(r.Phone), string(r.Type))
+		if err != nil {
+			return err
+		}
+		if created, err = pgx.CollectExactlyOneRow(rows, scanRecipient); err != nil {
+			return contactError(err)
+		}
+		created.Classes, err = replaceClasses(ctx, tx, created.ID, r.Classes)
+		return err
+	})
 	if err != nil {
 		return Recipient{}, fmt.Errorf("insert recipient: %w", err)
-	}
-	created, err := pgx.CollectExactlyOneRow(rows, scanRecipient)
-	if err != nil {
-		return Recipient{}, fmt.Errorf("insert recipient: %w", contactError(err))
 	}
 	return created, nil
 }
@@ -208,23 +251,44 @@ func (s *PGStore) UpdateRecipient(ctx context.Context, r Recipient) (Recipient, 
 	if len(ids) == 0 {
 		return Recipient{}, ErrNotFound
 	}
-	rows, err := s.pool.Query(ctx, `
-		UPDATE recipients
-		SET first_name = $2, last_name = $3, email = $4, phone = $5, type = $6::recipient_type, updated_at = now()
-		WHERE id = $1
-		RETURNING `+recipientColumns,
-		ids[0], r.FirstName, r.LastName, nullable(r.Email), nullable(r.Phone), string(r.Type))
-	if err != nil {
-		return Recipient{}, fmt.Errorf("update recipient: %w", err)
-	}
-	updated, err := pgx.CollectExactlyOneRow(rows, scanRecipient)
+	var updated Recipient
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			UPDATE recipients
+			SET first_name = $2, last_name = $3, email = $4, phone = $5, type = $6::recipient_type, updated_at = now()
+			WHERE id = $1
+			RETURNING `+recipientColumns,
+			ids[0], r.FirstName, r.LastName, nullable(r.Email), nullable(r.Phone), string(r.Type))
+		if err != nil {
+			return err
+		}
+		if updated, err = pgx.CollectExactlyOneRow(rows, scanRecipient); err != nil {
+			return contactError(err)
+		}
+		updated.Classes, err = replaceClasses(ctx, tx, updated.ID, r.Classes)
+		return err
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Recipient{}, ErrNotFound
 	}
 	if err != nil {
-		return Recipient{}, fmt.Errorf("update recipient: %w", contactError(err))
+		return Recipient{}, fmt.Errorf("update recipient: %w", err)
 	}
 	return updated, nil
+}
+
+// replaceClasses makes classes the only classes of recipient id and returns
+// them in the order recipients are read with.
+func replaceClasses(ctx context.Context, tx pgx.Tx, id string, classes []string) ([]string, error) {
+	if _, err := tx.Exec(ctx, `DELETE FROM recipient_classes WHERE recipient_id = $1`, id); err != nil {
+		return nil, fmt.Errorf("clear classes: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO recipient_classes (recipient_id, class_name)
+		SELECT $1, unnest($2::text[])`, id, nonNil(classes)); err != nil {
+		return nil, fmt.Errorf("store classes: %w", err)
+	}
+	return NormalizeClasses(classes), nil
 }
 
 // DeleteRecipient implements RecipientStore. Group memberships go with the
@@ -268,8 +332,9 @@ func (s *PGStore) query(ctx context.Context, sql string, args ...any) ([]Recipie
 func scanRecipient(row pgx.CollectableRow) (Recipient, error) {
 	var r Recipient
 	var typ string
-	err := row.Scan(&r.ID, &r.FirstName, &r.LastName, &r.Email, &r.Phone, &typ, &r.CreatedAt, &r.UpdatedAt)
+	err := row.Scan(&r.ID, &r.FirstName, &r.LastName, &r.Email, &r.Phone, &typ, &r.Classes, &r.CreatedAt, &r.UpdatedAt)
 	r.Type = Type(typ)
+	r.Classes = NormalizeClasses(r.Classes)
 	return r, err
 }
 

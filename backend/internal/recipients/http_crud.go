@@ -37,7 +37,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	lq := ListQuery{
-		Filter: Filter{Query: q.Get("q"), Type: Type(q.Get("type"))},
+		Filter: Filter{Query: q.Get("q"), Type: Type(q.Get("type")), Class: q.Get("class")},
 		Issue:  Channel(q.Get("issue")),
 	}
 	var errs []FieldError
@@ -120,6 +120,7 @@ func (h *Handler) decodeInput(w http.ResponseWriter, r *http.Request) (Input, bo
 		Email:     deref(body.Email),
 		Phone:     deref(body.Phone),
 		Type:      body.Type,
+		Classes:   body.Classes,
 	}, true
 }
 
@@ -183,6 +184,7 @@ type (
 		Email     *string     `json:"email"`
 		Phone     *string     `json:"phone"`
 		Type      Type        `json:"type"`
+		Classes   []string    `json:"classes"`
 		GroupIDs  *[]string   `json:"groupIds,omitempty"`
 		Issues    []issueJSON `json:"issues"`
 		CreatedAt time.Time   `json:"createdAt"`
@@ -202,6 +204,8 @@ type (
 		Email     *string `json:"email"`
 		Phone     *string `json:"phone"`
 		Type      Type    `json:"type"`
+		// Classes is a pointer so that an omitted field keeps the classes on PUT.
+		Classes *[]string `json:"classes"`
 	}
 )
 
@@ -219,6 +223,7 @@ func toRecipientJSON(r Recipient, groupIDs *[]string) RecipientJSON {
 		Email:     nullable(r.Email),
 		Phone:     nullable(r.Phone),
 		Type:      r.Type,
+		Classes:   nonNil(r.Classes),
 		GroupIDs:  groupIDs,
 		Issues:    make([]issueJSON, len(issues)),
 		CreatedAt: r.CreatedAt,

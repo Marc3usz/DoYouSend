@@ -8,6 +8,10 @@ export type Group = {
 	description: string;
 	/** system = computed from recipient data, read-only. */
 	kind: 'system' | 'custom';
+	/** For class groups (ADR-0009) the class, e.g. "3A"; null otherwise. */
+	className: string | null;
+	/** For class groups: whom the group covers; null otherwise. */
+	audience: 'students' | 'parents' | null;
 	memberCount: number;
 	/** null for built-in groups. */
 	createdAt: string | null;

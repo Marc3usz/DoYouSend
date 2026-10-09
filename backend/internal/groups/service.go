@@ -35,8 +35,9 @@ func NewService(store Store, dir Directory) *Service {
 	return &Service{store: store, dir: dir}
 }
 
-// List returns the built-in groups first, then custom groups by name, each
-// with its current number of members.
+// List returns the fixed built-in groups first, then the class groups
+// (ADR-0009: by class, students before parents), then custom groups by name,
+// each with its current number of members.
 func (s *Service) List(ctx context.Context) ([]GroupInfo, error) {
 	custom, err := s.store.ListGroups(ctx)
 	if err != nil {
@@ -61,11 +62,21 @@ func (s *Service) List(ctx context.Context) ([]GroupInfo, error) {
 		}
 	}
 
-	out := make([]GroupInfo, 0, len(custom)+2)
-	for _, g := range SystemGroups() {
-		rs, err := s.dir.RecipientsByType(ctx, g.Rule.Type)
-		if err != nil {
-			return nil, fmt.Errorf("count members of group %s: %w", g.ID, err)
+	classes, err := s.dir.Classes(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list classes: %w", err)
+	}
+	builtIns := append(SystemGroups(), ClassGroups(classes)...)
+
+	out := make([]GroupInfo, 0, len(builtIns)+len(custom))
+	byType := make(map[recipients.Type][]recipients.Recipient, 2)
+	for _, g := range builtIns {
+		rs, ok := byType[g.Rule.Type]
+		if !ok {
+			if rs, err = s.dir.RecipientsByType(ctx, g.Rule.Type); err != nil {
+				return nil, fmt.Errorf("count members of group %s: %w", g.ID, err)
+			}
+			byType[g.Rule.Type] = rs
 		}
 		out = append(out, GroupInfo{Group: g, MemberCount: countMatching(rs, *g.Rule)})
 	}
@@ -81,7 +92,11 @@ func (s *Service) Get(ctx context.Context, id string) (Group, error) {
 	if err != nil {
 		return Group{}, err
 	}
-	if g, ok := systemGroup(id); ok {
+	g, ok, err := builtIn(ctx, s.dir, id)
+	if err != nil {
+		return Group{}, err
+	}
+	if ok {
 		return g, nil
 	}
 	return s.custom(ctx, id)
@@ -247,7 +262,11 @@ func (s *Service) editable(ctx context.Context, id string) (Group, error) {
 	if err != nil {
 		return Group{}, err
 	}
-	if _, ok := systemGroup(id); ok {
+	_, ok, err := builtIn(ctx, s.dir, id)
+	if err != nil {
+		return Group{}, err
+	}
+	if ok {
 		return Group{}, fmt.Errorf("group %s: %w", id, ErrSystemGroup)
 	}
 	return s.custom(ctx, id)

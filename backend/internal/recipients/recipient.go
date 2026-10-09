@@ -21,6 +21,10 @@ type Recipient struct {
 	Email     string
 	Phone     string
 	Type      Type
+	// Classes are the normalized class names (ADR-0009), sorted with
+	// CompareClasses: a student's own class, or the classes of a parent's
+	// children. Empty when the recipient has no class.
+	Classes   []string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -58,6 +62,7 @@ func (r Recipient) Validate() []FieldError {
 	if r.Email == "" && r.Phone == "" {
 		errs = append(errs, FieldError{Field: "contact", Message: "recipient must have an e-mail or a phone number"})
 	}
+	errs = append(errs, validateClasses(r.Type, r.Classes)...)
 
 	return errs
 }

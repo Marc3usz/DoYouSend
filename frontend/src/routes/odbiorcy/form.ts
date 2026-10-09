@@ -11,6 +11,8 @@ export type RecipientFormValues = {
 	email: string;
 	phone: string;
 	type: string;
+	/** Classes as typed, comma-separated: "3A" or "1B, 3A". */
+	classes: string;
 };
 
 export type FormField = keyof RecipientFormValues | 'contact';
@@ -22,7 +24,7 @@ export type RecipientFormErrors = {
 };
 
 export function emptyValues(): RecipientFormValues {
-	return { firstName: '', lastName: '', email: '', phone: '', type: '' };
+	return { firstName: '', lastName: '', email: '', phone: '', type: '', classes: '' };
 }
 
 export function valuesOf(r: Recipient): RecipientFormValues {
@@ -31,7 +33,8 @@ export function valuesOf(r: Recipient): RecipientFormValues {
 		lastName: r.lastName,
 		email: r.email ?? '',
 		phone: r.phone ?? '',
-		type: r.type
+		type: r.type,
+		classes: r.classes.join(', ')
 	};
 }
 
@@ -45,7 +48,8 @@ export function readForm(data: FormData): RecipientFormValues {
 		lastName: text('lastName'),
 		email: text('email'),
 		phone: text('phone'),
-		type: text('type')
+		type: text('type'),
+		classes: text('classes')
 	};
 }
 
@@ -56,8 +60,17 @@ export function toInput(v: RecipientFormValues): RecipientInput {
 		lastName: v.lastName,
 		email: v.email.trim() === '' ? null : v.email,
 		phone: v.phone.trim() === '' ? null : v.phone,
-		type: v.type === 'parent' || v.type === 'student' ? v.type : ''
+		type: v.type === 'parent' || v.type === 'student' ? v.type : '',
+		classes: splitClasses(v.classes)
 	};
+}
+
+/** "1b, 3A" -> ["1b", "3A"]; normalizing and checking is the backend's job. */
+export function splitClasses(raw: string): string[] {
+	return raw
+		.split(/[,;]/)
+		.map((c) => c.trim())
+		.filter((c) => c !== '');
 }
 
 // Backend field keys (openapi.yaml ErrorBody.fields) -> form fields and texts.
@@ -67,7 +80,11 @@ const fieldTexts: Record<string, [FormField, string]> = {
 	type: ['type', 'Wybierz, czy to rodzic, czy uczeń.'],
 	email: ['email', 'To nie wygląda na poprawny adres e-mail.'],
 	phone: ['phone', 'Wpisz numer w formacie +48 500 100 101 albo 500 100 101.'],
-	contact: ['contact', 'Podaj e-mail albo telefon — bez nich nie da się wysłać wiadomości.']
+	contact: ['contact', 'Podaj e-mail albo telefon — bez nich nie da się wysłać wiadomości.'],
+	classes: [
+		'classes',
+		'Wpisz klasy jak „3A” albo „1B, 3A” (cyfra i litery). Uczeń może mieć tylko jedną klasę.'
+	]
 };
 
 const duplicateTexts: Record<string, [FormField, string]> = {
