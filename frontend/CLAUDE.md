@@ -6,7 +6,7 @@ SvelteKit 2 + Svelte 5 (runes) + TypeScript strict. Read the root `CLAUDE.md` fi
 
 - `src/routes/` — pages, mirroring the domain split:
   `odbiorcy/` and `grupy/` (DEV A), `wiadomosci/` (DEV B), `historia/` (DEV B),
-  `admin/` (DEV C), `login/` (DEV C).
+  `admin/` (DEV D), `login/` (DEV D).
 - `src/lib/api/` — the only place that calls the backend. Add one typed function per endpoint.
 - `src/lib/components/` — shared components. Anything used by two domains lives here;
   domain-only components stay under the route folder.

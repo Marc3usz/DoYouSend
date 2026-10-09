@@ -16,13 +16,20 @@ tags:
   - name: groups       # DEV A
   - name: messages     # DEV B
   - name: batches      # DEV B
-  - name: admin        # DEV C
-  - name: auth         # DEV C
+  - name: admin        # DEV D
+  - name: auth         # DEV D
+
+# Kazdy endpoint wymaga zalogowania (cookie sesji), o ile nie ma "security: []".
+# Ktora rola moze co: backend/internal/iam/policy.go (ADR-0010). Brak sesji -> 401
+# unauthenticated, zla rola -> 403 forbidden.
+security:
+  - sessionCookie: []
 
 paths:
   /healthz:
     get:
       summary: Stan uslugi
+      security: []
       responses:
         "200": { description: OK }
 
@@ -31,7 +38,7 @@ paths:
       tags: [recipients]
       summary: Lista odbiorcow (stronicowana)
       description: |
-        Posortowana po nazwisku, imieniu i ID. Wymaga roli administratora (gdy dojdzie iam).
+        Posortowana po nazwisku, imieniu i ID. Wymaga roli administratora.
       parameters:
         - in: query
           name: q
@@ -124,7 +131,7 @@ paths:
         Zapisuje wiersze poprawne (wszystkie albo zaden) i zwraca raport per wiersz;
         valid to wiersze faktycznie zapisane. Bledne wiersze i duplikaty (w pliku i wzgledem
         zapisanych odbiorcow) sa pomijane. Kontakt zapisany rownolegle przez kogos innego
-        trafia do duplicates zamiast przerywac import. Wymaga roli administratora (gdy dojdzie iam).
+        trafia do duplicates zamiast przerywac import. Wymaga roli administratora.
       requestBody:
         required: true
         content:
@@ -439,6 +446,159 @@ paths:
       responses:
         "202": { description: Ponowienie uruchomione }
 
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Logowanie
+      description: |
+        Ustawia cookie sesji dys_session (HttpOnly, SameSite=Lax, Secure poza APP_ENV=development),
+        waznej 12 godzin. Zly e-mail, zle haslo i zablokowane konto daja te sama odpowiedz 401
+        invalid_credentials. Po 5 nieudanych probach dla jednego e-maila w ciagu 15 minut
+        odpowiedz to 429 too_many_attempts z naglowkiem Retry-After.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Zalogowano
+          headers:
+            Set-Cookie: { schema: { type: string }, description: "dys_session=<token>; Path=/; HttpOnly; SameSite=Lax" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Wylogowanie - konczy sesje z cookie i czysci cookie
+      responses:
+        "204": { description: Wylogowano }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: Zalogowany uzytkownik
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /users:
+    get:
+      tags: [admin]
+      summary: Konta uzytkownikow (administratorzy najpierw, potem po nazwisku)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/User" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [admin]
+      summary: Zaklada konto
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserInput" }
+      responses:
+        "201":
+          description: Utworzono
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /users/{id}:
+    patch:
+      tags: [admin]
+      summary: Zmienia imie i nazwisko, role albo blokade konta
+      description: |
+        Pominiete pola zostaja bez zmian. Zablokowanie konta konczy wszystkie jego sesje.
+        Administrator nie moze zablokowac ani zdegradowac siebie (409 self_lockout), a ostatniego
+        aktywnego administratora nie moze zdegradowac ani zablokowac nikt (409 last_admin).
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserChange" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /users/{id}/password:
+    put:
+      tags: [admin]
+      summary: Nadaje nowe haslo i konczy wszystkie sesje tego uzytkownika
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PasswordInput" }
+      responses:
+        "204": { description: Ustawiono }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /audit:
+    get:
+      tags: [admin]
+      summary: Dziennik zdarzen (audit_log), od najnowszych
+      parameters:
+        - { in: query, name: limit,  schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { in: query, name: offset, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuditPage" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /admin/config:
+    get:
+      tags: [admin]
+      summary: Konfiguracja wysylki (tylko do odczytu, bez sekretow)
+      description: |
+        Operatorzy, tryb DRY_RUN, nadawcy, cena SMS i to, czy klucze i webhooki sa ustawione.
+        Wartosci kluczy nigdy nie sa zwracane. Zmiana wymaga edycji .env na serwerze, a podlaczenie
+        prawdziwego operatora - zgody opiekuna projektu (CLAUDE.md, zasada 3).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SendingConfig" }
+        "403": { $ref: "#/components/responses/Error" }
+
   /stats/sms:
     get:
       tags: [admin]
@@ -448,7 +608,7 @@ paths:
         w tysiecznych czesciach zlotego (milli-PLN, 1 gr = 10 milli, 1 PLN = 1000 milli).
         Obsluguje opcjonalne filtrowanie po identyfikatorze wsadu (batch_id) oraz zakresie
         czasowym wysylki (from, to).
-        Wymaga uprawnien administratora (gdy dojdzie iam).
+        Wymaga roli administratora.
       parameters:
         - in: query
           name: batch_id
@@ -475,7 +635,114 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
 
 components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: dys_session
+      description: Token sesji z POST /auth/login (ADR-0010)
+
   schemas:
+    Role:
+      type: string
+      enum: [admin, sender]
+      description: admin = odbiorcy, grupy, konta, konfiguracja; sender = tworzenie i wysylka komunikatow
+
+    User:
+      type: object
+      required: [id, email, fullName, role, disabled, createdAt, lastLoginAt]
+      properties:
+        id:          { type: string, format: uuid }
+        email:       { type: string, description: "Login, zapisany malymi literami" }
+        fullName:    { type: string }
+        role:        { $ref: "#/components/schemas/Role" }
+        disabled:    { type: boolean, description: "Zablokowane konto nie moze sie zalogowac" }
+        createdAt:   { type: string, format: date-time }
+        lastLoginAt: { type: string, format: date-time, nullable: true }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:    { type: string }
+        password: { type: string }
+
+    UserInput:
+      type: object
+      required: [email, fullName, role, password]
+      properties:
+        email:    { type: string }
+        fullName: { type: string, maxLength: 200 }
+        role:     { $ref: "#/components/schemas/Role" }
+        password: { type: string, minLength: 12, maxLength: 128 }
+
+    UserChange:
+      type: object
+      properties:
+        fullName: { type: string, maxLength: 200 }
+        role:     { $ref: "#/components/schemas/Role" }
+        disabled: { type: boolean }
+
+    PasswordInput:
+      type: object
+      required: [password]
+      properties:
+        password: { type: string, minLength: 12, maxLength: 128 }
+
+    AuditEntry:
+      type: object
+      required: [id, userId, userName, action, entity, entityId, details, createdAt]
+      properties:
+        id:       { type: integer, format: int64 }
+        userId:   { type: string, format: uuid, nullable: true, description: "Kto; przy login_failed - konto, na ktore probowano sie zalogowac" }
+        userName: { type: string, nullable: true, description: "Biezace imie i nazwisko userId" }
+        action:
+          type: string
+          description: |
+            login, login_failed, logout, user_created, user_updated, password_reset, password_changed;
+            inne domeny dopisuja wlasne (np. batch_confirmed) - UI pokazuje nieznane bez zmian
+        entity:   { type: string, nullable: true }
+        entityId: { type: string, nullable: true }
+        details:
+          type: object
+          additionalProperties: { type: string }
+          description: Wartosci zawsze jako tekst; bez danych kontaktowych i tresci wiadomosci
+        createdAt: { type: string, format: date-time }
+
+    AuditPage:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AuditEntry" }
+        total: { type: integer }
+
+    SendingConfig:
+      type: object
+      required: [dryRun, email, sms]
+      properties:
+        dryRun: { type: boolean }
+        email:
+          type: object
+          required: [provider, from, sandbox, credentialsSet, eventsWebhook]
+          properties:
+            provider:       { type: string, description: "mailpit albo sendgrid" }
+            from:           { type: string }
+            sandbox:        { type: boolean }
+            credentialsSet: { type: boolean, description: "Czy klucz/haslo sa ustawione; wartosci nie sa zwracane" }
+            eventsWebhook:  { type: boolean, description: "Czy webhook zdarzen SendGrid jest wlaczony" }
+        sms:
+          type: object
+          required: [provider, senderName, testMode, credentialsSet, reportsWebhook, pricePerPartMilli]
+          properties:
+            provider:          { type: string, description: "fake albo smsapi" }
+            senderName:        { type: string }
+            testMode:          { type: boolean }
+            credentialsSet:    { type: boolean }
+            reportsWebhook:    { type: boolean, description: "Czy raporty doreczen SMSAPI sa wlaczone" }
+            pricePerPartMilli: { type: integer, format: int64 }
+
     RecipientType:
       type: string
       enum: [parent, student]
@@ -687,6 +954,13 @@ components:
             - selection_changed    # POST /batches: wybrana grupa lub osoba juz nie istnieje, brakujace ID w ids
             - no_recipients        # POST /batches: wybor nie daje zadnego odbiorcy
             - idempotency_conflict # POST /batches: Idempotency-Key uzyty z inna trescia
+            - unauthenticated      # brak waznej sesji (401)
+            - forbidden            # rola nie ma dostepu (403)
+            - invalid_credentials  # POST /auth/login: zly e-mail, haslo albo konto zablokowane
+            - too_many_attempts    # POST /auth/login: za duzo nieudanych prob (429)
+            - email_taken          # POST /users: e-mail ma juz inne konto
+            - last_admin           # PATCH /users/{id}: ostatni aktywny administrator
+            - self_lockout         # PATCH /users/{id}: administrator nie zablokuje ani nie zdegraduje siebie
             - internal
         message: { type: string, description: "Szczegol diagnostyczny po angielsku, nie do wyswietlania wprost" }
         fields:

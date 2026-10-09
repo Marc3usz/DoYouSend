@@ -16,12 +16,14 @@ import (
 	"time"
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/groups"
+	"github.com/Marc3usz/DoYouSend/backend/internal/iam"
 	"github.com/Marc3usz/DoYouSend/backend/internal/messaging"
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/config"
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/database"
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/httpx"
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers/email"
+	"github.com/Marc3usz/DoYouSend/backend/internal/providers/setup"
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers/sms"
 	"github.com/Marc3usz/DoYouSend/backend/internal/recipients"
 )
@@ -45,6 +47,9 @@ func main() {
 
 	// Without a database the API still serves what needs none (health, import
 	// check), so frontend work on those screens does not require Postgres.
+	// Logging in needs the database too, so only then is every route behind
+	// the iam middleware.
+	var handler http.Handler = mux
 	pool, err := database.Open(ctx, cfg.DatabaseURL)
 	switch {
 	case errors.Is(err, database.ErrNoURL):
@@ -91,14 +96,32 @@ func main() {
 			logger.Warn("SENDGRID_WEBHOOK_PUBLIC_KEY is not set: SendGrid event webhook route is disabled")
 		}
 
-		// TODO(iam): admin only - restrict access once IAM middleware lands.
 		smsUsageStore := sms.NewPGUsageStore(pool)
 		mux.Handle("GET /api/stats/sms", sms.HandleUsageStats(smsUsageStore, smsPrice, logger))
+
+		providerCfg := setup.ConfigFromEnv()
+		sending := iam.SendingConfig{
+			DryRun:               cfg.DryRun,
+			EmailProvider:        providerCfg.EmailProvider,
+			EmailFrom:            providerCfg.EmailFrom,
+			EmailSandbox:         providerCfg.SendGridSandbox,
+			EmailCredentialsSet:  providerCfg.SendGridAPIKey != "" || providerCfg.SMTPPassword != "",
+			EmailEventsWebhook:   sendgridKey != "",
+			SMSProvider:          providerCfg.SMSProvider,
+			SMSSenderName:        providerCfg.SMSSenderName,
+			SMSTestMode:          providerCfg.SMSAPITestMode,
+			SMSCredentialsSet:    providerCfg.SMSAPIKey != "",
+			SMSReportsWebhook:    smsToken != "",
+			SMSPricePerPartMilli: smsPrice,
+		}
+		iamSvc := iam.NewService(iam.NewPGStore(pool))
+		iam.NewHandler(iamSvc, iam.CookieOptions{Secure: cfg.SessionCookieSecure}, sending, logger).Register(mux)
+		handler = iam.Middleware(iamSvc, logger, mux)
 	}
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.APIPort,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

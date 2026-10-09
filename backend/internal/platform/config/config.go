@@ -18,6 +18,9 @@ type Config struct {
 	// DryRun keeps the system from reaching real e-mail/SMS providers. It defaults to true
 	// and may only be turned off with the project supervisor's approval.
 	DryRun bool
+	// SessionCookieSecure marks the session cookie Secure (HTTPS only). It defaults to
+	// true everywhere except APP_ENV=development, where the app runs on plain HTTP.
+	SessionCookieSecure bool
 }
 
 func Load() (Config, error) {
@@ -33,6 +36,13 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("parse DRY_RUN: %w", err)
 	}
 	cfg.DryRun = dryRun
+
+	secureDefault := strconv.FormatBool(cfg.AppEnv != "development")
+	secure, err := strconv.ParseBool(env("SESSION_COOKIE_SECURE", secureDefault))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse SESSION_COOKIE_SECURE: %w", err)
+	}
+	cfg.SessionCookieSecure = secure
 
 	return cfg, nil
 }
