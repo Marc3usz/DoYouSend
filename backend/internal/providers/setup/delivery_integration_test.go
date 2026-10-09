@@ -14,6 +14,7 @@ import (
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers/setup"
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers/sms"
+	"github.com/Marc3usz/DoYouSend/backend/internal/recipients"
 )
 
 func TestDeliveryPipeline_EndToEnd_Integration(t *testing.T) {
@@ -48,11 +49,14 @@ func TestDeliveryPipeline_EndToEnd_Integration(t *testing.T) {
 	// 3. Plan and dispatch messages
 	recipientsList := []groups.Resolved{
 		{
-			ID:        recipientID,
-			FirstName: "Jan",
-			LastName:  "Kowalski",
-			Email:     "jan@example.test",
-			Phone:     "+48500100101",
+			Recipient: recipients.Recipient{
+				ID:        recipientID,
+				FirstName: "Jan",
+				LastName:  "Kowalski",
+				Email:     "jan@example.test",
+				Phone:     "+48500100101",
+				Type:      recipients.TypeParent,
+			},
 		},
 	}
 
@@ -98,21 +102,25 @@ func TestDeliveryPipeline_EndToEnd_Integration(t *testing.T) {
 	// 5. Simulate incoming delivery reports via PGDeliveryReportConsumer
 	reportConsumer := providers.NewPGDeliveryReportConsumer(pool)
 
-	smsReport := providers.DeliveryReport{
-		Channel:           providers.ChannelSMS,
-		ProviderMessageID: smsMsgID,
-		Status:            providers.StatusDelivered,
+	smsReports := []providers.DeliveryReport{
+		{
+			Channel:           providers.ChannelSMS,
+			ProviderMessageID: smsMsgID,
+			Status:            providers.StatusDelivered,
+		},
 	}
-	if err := reportConsumer.ConsumeReport(ctx, smsReport); err != nil {
+	if err := reportConsumer.ConsumeDeliveryReports(ctx, smsReports); err != nil {
 		t.Fatalf("consume SMS delivery report: %v", err)
 	}
 
-	emailReport := providers.DeliveryReport{
-		Channel:           providers.ChannelEmail,
-		ProviderMessageID: emailMsgID,
-		Status:            providers.StatusDelivered,
+	emailReports := []providers.DeliveryReport{
+		{
+			Channel:           providers.ChannelEmail,
+			ProviderMessageID: emailMsgID,
+			Status:            providers.StatusDelivered,
+		},
 	}
-	if err := reportConsumer.ConsumeReport(ctx, emailReport); err != nil {
+	if err := reportConsumer.ConsumeDeliveryReports(ctx, emailReports); err != nil {
 		t.Fatalf("consume Email delivery report: %v", err)
 	}
 
