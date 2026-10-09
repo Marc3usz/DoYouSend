@@ -11,6 +11,13 @@ export const errorCodes = [
 	'name_taken',
 	'system_group',
 	'unknown_recipient',
+	'unauthenticated',
+	'forbidden',
+	'invalid_credentials',
+	'too_many_attempts',
+	'email_taken',
+	'last_admin',
+	'self_lockout',
 	'internal'
 ] as const;
 

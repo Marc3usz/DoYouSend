@@ -2,7 +2,7 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := help
 COMPOSE := docker compose
 
-.PHONY: help doctor up down logs migrate seed dev-api dev-web build test test-integration check fmt lint-go lint-web
+.PHONY: help doctor up down logs migrate seed create-admin dev-api dev-web build test test-integration check fmt lint-go lint-web
 
 help: ## Lista dostepnych komend
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -25,6 +25,9 @@ migrate: ## Stosuje migracje SQL z backend/migrations
 
 seed: ## Wgrywa fikcyjne dane demonstracyjne
 	@bash scripts/seed.sh
+
+create-admin: ## Pierwszy administrator albo nowe haslo: make create-admin EMAIL=admin@example.test NAME="Imie Nazwisko"
+	cd backend && go run ./cmd/create-admin -email "$(EMAIL)" -name "$(NAME)"
 
 dev-api: ## API na :8080
 	cd backend && go run ./cmd/api
