@@ -634,6 +634,40 @@ paths:
               schema: { $ref: "#/components/schemas/SMSUsageStats" }
         "400": { $ref: "#/components/responses/Error" }
 
+  /stats/email:
+    get:
+      tags: [admin]
+      summary: Agregacja wykorzystania e-mail dla panelu administratora
+      description: |
+        Zwraca sumaryczne statystyki wyslanych wiadomosci e-mail (laczenie, doreczone, wyslane, nieudane, w trakcie).
+        Obsluguje opcjonalne filtrowanie po identyfikatorze wsadu (batch_id) oraz zakresie
+        czasowym wysylki (from, to).
+        Wymaga uprawnien administratora (gdy dojdzie iam).
+      parameters:
+        - in: query
+          name: batch_id
+          description: Opcjonalny filtr po identyfikatorze wsadu (UUID)
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: from
+          description: Poczatek zakresu czasu utworzenia/potwierdzenia wsadu (RFC3339 lub YYYY-MM-DD)
+          schema:
+            type: string
+        - in: query
+          name: to
+          description: Koniec zakresu czasu utworzenia/potwierdzenia wsadu (RFC3339 lub YYYY-MM-DD; data bez godziny obejmuje caly dzien)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Zagregowane statystyki wykorzystania e-mail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmailUsageStats" }
+        "400": { $ref: "#/components/responses/Error" }
+
 components:
   securitySchemes:
     sessionCookie:
@@ -1311,6 +1345,33 @@ components:
         inFlightParts:
           type: integer
           description: Liczba czesci wiadomosci w trakcie przetwarzania
+
+    EmailUsageStats:
+      type: object
+      description: |
+        Zagregowane statystyki wykorzystania e-mail dla panelu administratora.
+      required:
+        - totalMessages
+        - deliveredMessages
+        - sentMessages
+        - failedMessages
+        - inFlightMessages
+      properties:
+        totalMessages:
+          type: integer
+          description: Laczna liczba zaplanowanych wiadomosci e-mail
+        deliveredMessages:
+          type: integer
+          description: Liczba wiadomosci e-mail potwierdzonych jako doreczone przez operatora
+        sentMessages:
+          type: integer
+          description: Liczba wiadomosci e-mail wyslanych przez serwer (oczekujacych na raport doreczenia)
+        failedMessages:
+          type: integer
+          description: Liczba wiadomosci e-mail zakonczonych bledem lub odrzuconych (bounced, dropped)
+        inFlightMessages:
+          type: integer
+          description: Liczba wiadomosci e-mail w trakcie przetwarzania (pending, sending)
 
   responses:
     Error:

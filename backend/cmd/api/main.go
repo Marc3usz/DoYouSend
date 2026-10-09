@@ -99,6 +99,9 @@ func main() {
 		smsUsageStore := sms.NewPGUsageStore(pool)
 		mux.Handle("GET /api/stats/sms", sms.HandleUsageStats(smsUsageStore, smsPrice, logger))
 
+		emailUsageStore := email.NewPGUsageStore(pool)
+		mux.Handle("GET /api/stats/email", email.HandleUsageStats(emailUsageStore, logger))
+
 		providerCfg := setup.ConfigFromEnv()
 		sending := iam.SendingConfig{
 			DryRun:               cfg.DryRun,
