@@ -125,15 +125,27 @@ Adapter integrujący się z bramką SMSAPI przez REST API v2 (`https://api.smsap
 
 ---
 
-## 5. Rozliczanie kosztów i statystyki SMS
+## 5. Statystyki wykorzystania kanałów i rozliczanie kosztów
 
-System udostępnia endpoint `GET /api/stats/sms` agregujący dane z bazy danych (`deliveries` i `message_batches`):
-* **Cena jednostkowa:** pobierana z `SMS_PRICE_PER_PART_PLN` (np. `0.08` zł / część).
+Dla panelu administratora (`/admin`, domena DEV D) system udostępnia dedykowane endpointy agregujące metryki bezpośrednio z tabel `deliveries`, `batch_recipients` oraz `message_batches`. Oba endpointy podlegają kontroli dostępu IAM i wymagają uprawnień administratora (`AccessAdmin`).
+
+### 5.1. Statystyki i koszty SMS (`GET /api/stats/sms`)
+* **Cena jednostkowa:** pobierana z `SMS_PRICE_PER_PART_PLN` (np. `0.08` zł / część = `80` milli-PLN).
 * **`plannedCostMilli`:** koszt wszystkich zaplanowanych części SMS w danym okresie.
 * **`billedCostMilli`:** koszt faktycznie rozliczonych SMS-ów przez bramkę:
   * Obejmuje statusy `sent`, `delivered` oraz wiadomości `failed`, które zostały przyjęte do wysyłki przez operatora (`provider_message_id IS NOT NULL`).
   * Wiadomości odrzucone przed przyjęciem do sieci (błędy walidacji, brak środków, `provider_message_id IS NULL`) nie generują kosztu.
-* **Strefa czasowa zapytań:** parametry z samą datą (`?from=2026-10-01&to=2026-10-31`) interpretowane są w strefie `Europe/Warsaw`, obejmując pełną dobę w polskim czasie.
+* **Części i wiadomości:** zwraca rozbicie na `totalMessages`, `totalParts`, `deliveredMessages`, `deliveredParts`, `sentMessages`, `sentParts`, `failedMessages`, `failedParts`, `inFlightMessages` oraz `inFlightParts`.
+
+### 5.2. Statystyki wiadomości E-mail (`GET /api/stats/email`)
+* **Struktura odpowiedzi:** zwraca agregację `totalMessages`, `deliveredMessages`, `sentMessages`, `failedMessages` oraz `inFlightMessages` dla kanału `email`.
+* **Aktualizacja statusów:** statusy doręczeń `delivered` i `failed` aktualizowane są w czasie rzeczywistym przez konsumenta raportów (`PGDeliveryReportConsumer`) na podstawie webhooków SendGrid Event Webhook lub Mailpit.
+
+### 5.3. Filtry czasowe i zakresy
+Oba endpointy statystyk obsługują identyczny zestaw parametrów zapytania:
+* `batch_id`: opcjonalny filtr po identyfikatorze UUID wsadu.
+* `from`: początek zakresu czasu utworzenia/potwierdzenia wsadu (RFC3339 lub format daty `YYYY-MM-DD`).
+* `to`: koniec zakresu czasu. W przypadku formatu `YYYY-MM-DD` data interpretowana jest w strefie czasowej `Europe/Warsaw` z domknięciem do końca doby (następna północ, przedział lewostronnie domknięty, prawostronnie otwarty).
 
 ---
 
@@ -151,8 +163,32 @@ System udostępnia endpoint `GET /api/stats/sms` agregujący dane z bazy danych 
    ```bash
    make migrate
    ```
-4. Uruchom serwer API:
+4. Utwórz konto administratora:
+   ```bash
+   make create-admin EMAIL=admin@example.test NAME="Administrator"
+   ```
+5. Uruchom serwer API:
    ```bash
    make dev-api
    ```
-5. Przeglądaj maile w Mailpicie pod adresem: [http://localhost:8025](http://localhost:8025).
+6. Przeglądaj maile w Mailpicie pod adresem: [http://localhost:8025](http://localhost:8025).
+
+---
+
+## 7. Weryfikacja i testy integracyjne E2E (M3)
+
+Kompletny przepływ integracji wysyłki end-to-end (dyspozytor $\rightarrow$ baza PostgreSQL $\rightarrow$ raporty doręczeń $\rightarrow$ agregacja kosztów) jest objęty testem integracyjnym w `backend/internal/providers/setup/delivery_integration_test.go`:
+
+```bash
+# Uruchomienie testów integracyjnych na bazie PostgreSQL:
+make test-integration
+# Lub bezpośrednio dla pakietu providerów:
+cd backend && TEST_DATABASE_URL="postgres://postgres:postgres@localhost:5432/doyousend_test?sslmode=disable" go test -tags integration -v ./internal/providers/...
+```
+
+Test automatycznie:
+1. Inicjalizuje providerów przez fabrykę `setup.New` z włączonym bezpiecznikiem `DRY_RUN`.
+2. Buduje plan wysyłki i dyspaczuje wiadomości e-mail oraz SMS przez `delivery.Dispatcher`.
+3. Zapisuje wyniki i identyfikatory wiadomości w bazie danych.
+4. Symuluje napływ raportów doręczeń przez `PGDeliveryReportConsumer` (zmiana statusów na `delivered`).
+5. Weryfikuje prawidłową agregację statusów, części i kosztów przez `sms.PGUsageStore` oraz `email.PGUsageStore`.
