@@ -431,6 +431,41 @@ paths:
       responses:
         "202": { description: Ponowienie uruchomione }
 
+  /stats/sms:
+    get:
+      tags: [admin]
+      summary: Agregacja wykorzystania i kosztow SMS dla panelu administratora
+      description: |
+        Zwraca sumaryczne statystyki wyslanych wiadomosci SMS, liczbe czesci oraz koszty
+        w tysiecznych czesciach zlotego (milli-PLN, 1 gr = 10 milli, 1 PLN = 1000 milli).
+        Obsluguje opcjonalne filtrowanie po identyfikatorze wsadu (batch_id) oraz zakresie
+        czasowym wysylki (from, to).
+        Wymaga uprawnien administratora (gdy dojdzie iam).
+      parameters:
+        - in: query
+          name: batch_id
+          description: Opcjonalny filtr po identyfikatorze wsadu (UUID)
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: from
+          description: Poczatek zakresu czasu utworzenia/potwierdzenia wsadu (RFC3339 lub YYYY-MM-DD)
+          schema:
+            type: string
+        - in: query
+          name: to
+          description: Koniec zakresu czasu utworzenia/potwierdzenia wsadu (RFC3339 lub YYYY-MM-DD; data bez godziny obejmuje caly dzien)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Zagregowane statystyki wykorzystania SMS
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SMSUsageStats" }
+        "400": { $ref: "#/components/responses/Error" }
+
 components:
   schemas:
     RecipientType:
@@ -879,6 +914,75 @@ components:
           type: string
           enum: [invalid_request, missing_file, empty_file, missing_columns, invalid_header, unsupported_format, file_too_large, too_many_rows, unclosed_quote, internal]
         message: { type: string, description: "Szczegol diagnostyczny po angielsku, np. lista brakujacych kolumn" }
+
+    SMSUsageStats:
+      type: object
+      description: |
+        Zagregowane statystyki wykorzystania i kosztow SMS.
+        plannedCostMilli to koszt zaplanowany (wszystkie czesci SMS).
+        billedCostMilli to koszt faktycznie rozliczonych SMS-ow przez bramke (przekazanych do operatora: sent + delivered oraz failed z nadanym provider_message_id; nie obejmuje bledow odrzuconych przed przyjeciem do sieci).
+      required:
+        - pricePerPartMilli
+        - totalMessages
+        - totalParts
+        - plannedCostMilli
+        - billedCostMilli
+        - deliveredMessages
+        - deliveredParts
+        - deliveredCostMilli
+        - sentMessages
+        - sentParts
+        - failedMessages
+        - failedParts
+        - inFlightMessages
+        - inFlightParts
+      properties:
+        pricePerPartMilli:
+          type: integer
+          format: int64
+          description: Biezaca cena jednostkowa za jedna czesc SMS w tysiecznych czesciach PLN (np. 80 = 0.08 PLN)
+        totalMessages:
+          type: integer
+          description: Laczna liczba zaplanowanych wiadomosci SMS
+        totalParts:
+          type: integer
+          description: Laczna liczba zaplanowanych czesci SMS
+        plannedCostMilli:
+          type: integer
+          format: int64
+          description: Przewidywany / zaplanowany koszt wszystkich czesci SMS w milli-PLN
+        billedCostMilli:
+          type: integer
+          format: int64
+          description: Koszt czesci SMS faktycznie rozliczonych przez bramke (sent + delivered oraz failed z provider_message_id) w milli-PLN
+        deliveredMessages:
+          type: integer
+          description: Liczba doreczonych wiadomosci SMS (status delivered)
+        deliveredParts:
+          type: integer
+          description: Liczba doreczonych czesci SMS
+        deliveredCostMilli:
+          type: integer
+          format: int64
+          description: Koszt doreczonych czesci SMS w milli-PLN
+        sentMessages:
+          type: integer
+          description: Liczba wiadomosci wyslanych, oczekujacych na raport doreczenia (status sent)
+        sentParts:
+          type: integer
+          description: Liczba czesci wyslanych, oczekujacych na raport
+        failedMessages:
+          type: integer
+          description: Liczba niedoreczonych wiadomosci SMS (status failed)
+        failedParts:
+          type: integer
+          description: Liczba niedoreczonych czesci SMS
+        inFlightMessages:
+          type: integer
+          description: Liczba wiadomosci w trakcie przetwarzania (status pending lub sending)
+        inFlightParts:
+          type: integer
+          description: Liczba czesci wiadomosci w trakcie przetwarzania
 
   responses:
     Error:

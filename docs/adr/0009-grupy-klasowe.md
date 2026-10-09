@@ -1,7 +1,8 @@
 # ADR-0009: Grupy klasowe — „uczniowie klasy X” i „rodzice uczniów klasy X”
 
-- **Status:** propozycja — czeka na uwagi S1D0R-10 (DEV B, konsument grup w kreatorze) i
-  przegląd kontraktu przez zespół
+- **Status:** przyjęta (2026-10-07) — S1D0R-10 (DEV B) zaakceptował w komentarzu do PR #27
+  po dopisaniu migawki `selected_groups`, kolejności grup i przestrzeni nazw UUIDv5;
+  MichalK252 (DEV C) zatwierdził i zmergował PR #27. Szczegóły kontraktu przejdą osobnym PR-em
 - **Data:** 2026-10-07
 - **Uczestnicy:** Marc3usz (DEV A) proponuje; S1D0R-10 (DEV B) konsumuje grupy w kreatorze i
   wsadzie; cały zespół — zmiana `openapi.yaml` i nowa migracja
