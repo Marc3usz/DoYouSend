@@ -3,20 +3,22 @@ import { listHref, PAGE_SIZE, pageCount, parseListParams, toApiQuery } from './l
 
 describe('parseListParams', () => {
 	it('reads known values', () => {
-		expect(parseListParams(new URLSearchParams('q=+kowal+&type=student&issue=sms&page=3'))).toEqual(
-			{
-				q: 'kowal',
-				type: 'student',
-				issue: 'sms',
-				page: 3
-			}
-		);
+		expect(
+			parseListParams(new URLSearchParams('q=+kowal+&type=student&klasa=3+a&issue=sms&page=3'))
+		).toEqual({
+			q: 'kowal',
+			type: 'student',
+			klasa: '3A',
+			issue: 'sms',
+			page: 3
+		});
 	});
 
 	it('falls back to no filter for unknown values', () => {
 		expect(parseListParams(new URLSearchParams('type=teacher&issue=fax&page=-2'))).toEqual({
 			q: '',
 			type: '',
+			klasa: '',
 			issue: '',
 			page: 1
 		});
@@ -29,7 +31,7 @@ describe('parseListParams', () => {
 
 describe('toApiQuery', () => {
 	it('turns the page into an offset and drops empty filters', () => {
-		expect(toApiQuery({ q: '', type: 'parent', issue: '', page: 2 })).toEqual({
+		expect(toApiQuery({ q: '', type: 'parent', klasa: '', issue: '', page: 2 })).toEqual({
 			q: undefined,
 			type: 'parent',
 			issue: undefined,
@@ -41,8 +43,8 @@ describe('toApiQuery', () => {
 
 describe('listHref', () => {
 	it('leaves out defaults', () => {
-		expect(listHref({ q: '', type: '', issue: '', page: 1 })).toBe('/odbiorcy');
-		expect(listHref({ q: 'jan k', type: '', issue: 'email', page: 2 })).toBe(
+		expect(listHref({ q: '', type: '', klasa: '', issue: '', page: 1 })).toBe('/odbiorcy');
+		expect(listHref({ q: 'jan k', type: '', klasa: '', issue: 'email', page: 2 })).toBe(
 			'/odbiorcy?q=jan+k&issue=email&page=2'
 		);
 	});

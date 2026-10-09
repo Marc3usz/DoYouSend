@@ -94,8 +94,9 @@
 
 <p>
 	Wgraj plik CSV (UTF-8, separator przecinek albo średnik) lub XLSX. Pierwszy wiersz to nagłówek z
-	kolumnami: <strong>imię, nazwisko, e-mail, telefon, typ</strong> (rodzic albo uczeń). Każda osoba musi
-	mieć e-mail lub telefon.
+	kolumnami: <strong>imię, nazwisko, e-mail, telefon, typ</strong> (rodzic albo uczeń) i opcjonalnie
+	<strong>klasa</strong> (uczeń: jego klasa, rodzic: klasy dzieci po przecinku, np. „1B, 3A”). Każda osoba
+	musi mieć e-mail lub telefon.
 </p>
 <p class="note">
 	Najpierw sprawdź plik — sprawdzenie niczego nie zapisuje. Potem zapisz poprawne wiersze: błędne i
@@ -191,7 +192,7 @@
 			<thead>
 				<tr
 					><th>Wiersz</th><th>Imię</th><th>Nazwisko</th><th>E-mail</th><th>Telefon</th><th>Typ</th
-					></tr
+					><th>Klasa</th></tr
 				>
 			</thead>
 			<tbody>
@@ -203,6 +204,7 @@
 						<td>{recipient.email ?? '—'}</td>
 						<td>{recipient.phone ?? '—'}</td>
 						<td>{recipientTypeLabel(recipient.type)}</td>
+						<td>{recipient.classes.length > 0 ? recipient.classes.join(', ') : '—'}</td>
 					</tr>
 				{/each}
 			</tbody>

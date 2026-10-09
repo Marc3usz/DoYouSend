@@ -86,7 +86,8 @@ describe('savedSummary', () => {
 		lastName: 'Kowalski',
 		email: 'jan.kowalski@example.test',
 		phone: null,
-		type: 'parent' as const
+		type: 'parent' as const,
+		classes: []
 	};
 
 	it('counts stored and skipped rows', () => {

@@ -58,3 +58,30 @@ JOIN recipients r ON (r.type = 'student' AND r.last_name IN ('Zielinski', 'Wojci
                   OR r.email = 'marek.wojcik@example.test'
 WHERE g.name = 'Wycieczka 2B'
 ON CONFLICT DO NOTHING;
+
+-- Klasy (ADR-0009): uczen ma swoja klase, rodzic klasy swoich dzieci. Na tej podstawie
+-- powstaja grupy "Uczniowie klasy 3A" i "Rodzice uczniow klasy 3A". Jan Kowalski ma dzieci
+-- w 3A i 2B - wybrany przez obie grupy rodzicow dostanie wiadomosc raz.
+INSERT INTO recipient_classes (recipient_id, class_name)
+SELECT r.id, c.class_name
+FROM (VALUES
+  ('kacper.kowalski@example.test',     '3A'),
+  ('lena.nowak@example.test',          '3A'),
+  ('antoni.zielinski@example.test',    '2B'),
+  ('+48500100113',                     '2B'),
+  ('szymon.kaminski@example.test',     '2B'),
+  ('hanna.lewandowska@example.test',   '1A'),
+  ('filip.dabrowski@example.test',     '1A'),
+  ('jan.kowalski@example.test',        '3A'),
+  ('jan.kowalski@example.test',        '2B'),
+  ('maria.kowalska@example.test',      '3A'),
+  ('tomasz.nowak@example.test',        '3A'),
+  ('ewa.zielinska@example.test',       '2B'),
+  ('marek.wojcik@example.test',        '2B'),
+  ('agnieszka.kaminska@example.test',  '2B'),
+  ('pawel.lewandowski@example.test',   '1A'),
+  ('katarzyna.dabrowska@example.test', '1A'),
+  ('+48500100104',                     '1A')
+) AS c(contact, class_name)
+JOIN recipients r ON r.email = c.contact OR r.phone = c.contact
+ON CONFLICT DO NOTHING;

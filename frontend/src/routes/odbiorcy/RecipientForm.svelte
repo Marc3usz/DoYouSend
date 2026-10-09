@@ -76,6 +76,23 @@
 		{#if fields.type}<span class="field-error" id="err-type">{fields.type}</span>{/if}
 	</label>
 
+	<label>
+		Klasy
+		<input
+			name="classes"
+			value={values.classes}
+			autocomplete="off"
+			placeholder="np. 3A — rodzic dzieci z dwóch klas: 1B, 3A"
+			aria-invalid={fields.classes ? 'true' : undefined}
+			aria-describedby={fields.classes ? 'err-classes' : 'hint-classes'}
+		/>
+		{#if fields.classes}<span class="field-error" id="err-classes">{fields.classes}</span
+			>{:else}<span class="hint" id="hint-classes"
+				>Uczeń: jego klasa. Rodzic: klasy dzieci. Na tej podstawie powstają grupy „Uczniowie klasy
+				3A” i „Rodzice uczniów klasy 3A”.</span
+			>{/if}
+	</label>
+
 	<fieldset aria-describedby={fields.contact ? 'err-contact' : undefined}>
 		<legend>Kontakt — co najmniej jedno z dwóch</legend>
 		{#if fields.contact}<p class="field-error" id="err-contact">{fields.contact}</p>{/if}

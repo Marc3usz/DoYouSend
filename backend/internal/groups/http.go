@@ -248,6 +248,8 @@ type (
 		Name        string     `json:"name"`
 		Description string     `json:"description"`
 		Kind        Kind       `json:"kind"`
+		ClassName   *string    `json:"className"`
+		Audience    *Audience  `json:"audience"`
 		MemberCount int        `json:"memberCount"`
 		CreatedAt   *time.Time `json:"createdAt"`
 	}
@@ -284,6 +286,11 @@ func toGroupJSON(g GroupInfo) groupJSON {
 		Description: g.Description,
 		Kind:        g.Kind,
 		MemberCount: g.MemberCount,
+	}
+	// Class groups (ADR-0009) name their class and audience; others have null.
+	if g.Rule != nil && g.Rule.Class != "" {
+		class, audience := g.Rule.Class, g.Rule.Audience()
+		out.ClassName, out.Audience = &class, &audience
 	}
 	// Built-in groups live in code and have no creation time (null).
 	if !g.IsSystem() && !g.CreatedAt.IsZero() {

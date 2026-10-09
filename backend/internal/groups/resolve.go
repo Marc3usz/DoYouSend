@@ -196,11 +196,27 @@ func (rv *Resolver) Resolve(ctx context.Context, sel Selection) (Resolution, err
 // findGroups looks up the selected groups, built-in ones from code and custom
 // ones from the store, keeping selection order.
 func (rv *Resolver) findGroups(ctx context.Context, ids []string) ([]Group, []string, error) {
+	builtIns := make(map[string]Group)
+	for _, g := range SystemGroups() {
+		builtIns[g.ID] = g
+	}
 	var customIDs []string
 	for _, id := range ids {
-		if _, ok := systemGroup(id); !ok {
+		if _, ok := builtIns[id]; !ok {
 			customIDs = append(customIDs, id)
 		}
+	}
+	// Class groups are looked up only when the selection names a group that
+	// is not one of the fixed ones.
+	if len(customIDs) > 0 {
+		classes, err := rv.dir.Classes(ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("list classes: %w", err)
+		}
+		for _, g := range ClassGroups(classes) {
+			builtIns[g.ID] = g
+		}
+		customIDs = slices.DeleteFunc(customIDs, func(id string) bool { _, ok := builtIns[id]; return ok })
 	}
 
 	custom := make(map[string]Group, len(customIDs))
@@ -217,7 +233,7 @@ func (rv *Resolver) findGroups(ctx context.Context, ids []string) ([]Group, []st
 	var groups []Group
 	var unknown []string
 	for _, id := range ids {
-		if g, ok := systemGroup(id); ok {
+		if g, ok := builtIns[id]; ok {
 			groups = append(groups, g)
 			continue
 		}
