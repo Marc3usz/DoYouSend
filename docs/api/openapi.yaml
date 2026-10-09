@@ -46,6 +46,10 @@ paths:
           schema: { type: string, maxLength: 100 }
         - { in: query, name: type, schema: { $ref: "#/components/schemas/RecipientType" } }
         - in: query
+          name: class
+          description: Tylko odbiorcy przypisani do tej klasy (normalizowana jak ClassName, np. "3 a" = 3A; ADR-0009)
+          schema: { $ref: "#/components/schemas/ClassName" }
+        - in: query
           name: issue
           description: Tylko odbiorcy z problemem danych kontaktowych w danym kanale
           schema: { $ref: "#/components/schemas/Channel" }
@@ -172,7 +176,11 @@ paths:
     get:
       tags: [groups]
       summary: Lista grup
-      description: Najpierw grupy systemowe (stala kolejnosc), potem wlasne po nazwie.
+      description: |
+        Kolejnosc (ADR-0009): "Wszyscy rodzice", "Wszyscy uczniowie"; potem grupy klasowe
+        posortowane po numerze klasy liczbowo, nastepnie po reszcie nazwy (1A, 1B, 2A, ..., 10A),
+        w kazdej klasie najpierw uczniowie, potem rodzice; na koncu grupy wlasne po nazwie.
+        Grupa klasowa jest na liscie, dopoki w klasie jest co najmniej jeden odbiorca.
       responses:
         "200":
           description: OK
@@ -354,37 +362,85 @@ paths:
   /batches:
     get:
       tags: [batches]
-      summary: Historia wysylek
+      summary: Historia wysylek (stronicowana)
+      description: |
+        Od najnowszej. Kazda pozycja to podsumowanie; szczegoly per odbiorca w GET /batches/{id}.
+        Wysylajacy widzi swoje wsady, administrator wszystkie (gdy dojdzie iam).
+      parameters:
+        - in: query
+          name: status
+          schema: { $ref: "#/components/schemas/BatchStatus" }
+        - { in: query, name: limit,  schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { in: query, name: offset, schema: { type: integer, minimum: 0, default: 0 } }
       responses:
-        "200": { description: OK }
-    post:
-      tags: [batches]
-      summary: Tworzy wsad (draft)
-      responses:
-        "201": { description: Utworzono }
-
-  /batches/{id}/confirm:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BatchPage" }
+        "400": { $ref: "#/components/responses/Error" }
     post:
       tags: [batches]
       summary: Zatwierdza i uruchamia wysylke
-      parameters:
-        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
-      responses:
-        "202": { description: Wysylka uruchomiona }
+      description: |
+        Jedno wywolanie = koncowe potwierdzenie wysylajacego (description.md: "masowa wysylka
+        powinna wymagac koncowego potwierdzenia"; potwierdzenie to okno w kreatorze po podgladzie
+        z POST /messages/preview). Nie ma osobnego szkicu ani /confirm: tresc i wybor sa w zadaniu.
 
-  /batches/{id}/deliveries:
+        Przed zapisem cokolwiek, co sprawiloby, ze wysylka padnie w calosci, jest odrzucane:
+        pusty temat lub tresc i nieznany placeholder -> 400 invalid_input (pola subject, body);
+        wybrana grupa lub osoba juz nie istnieje -> 409 selection_changed (brakujace ID w ids);
+        wybor nie daje nikogo -> 422 no_recipients. Problemy pojedynczych odbiorcow (brak kanalu,
+        brak imienia) nie blokuja wysylki - trafiaja do statusow tego odbiorcy.
+
+        Idempotency-Key chroni przed podwojnym kliknieciem i ponowieniem zadania przez siec:
+        ten sam klucz z ta sama trescia zwraca istniejacy wsad (200) i niczego nie wysyla
+        ponownie; ten sam klucz z inna trescia to 409 idempotency_conflict.
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          description: Nowy UUID na kazde otwarcie okna potwierdzenia (generuje frontend)
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BatchRequest" }
+      responses:
+        "202":
+          description: Wsad zapisany, wysylka uruchomiona. Status wsadu moze byc jeszcze running.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BatchDetail" }
+        "200":
+          description: Powtorzone zadanie z tym samym Idempotency-Key - istniejacy wsad, nic nie wyslano ponownie
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BatchDetail" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /batches/{id}:
     get:
       tags: [batches]
-      summary: Statusy obu kanalow dla kazdego odbiorcy
+      summary: Szczegoly wsadu - status obu kanalow dla kazdego odbiorcy
       parameters:
         - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
       responses:
-        "200": { description: OK }
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BatchDetail" }
+        "404": { $ref: "#/components/responses/Error" }
 
   /batches/{id}/retry:
     post:
       tags: [batches]
       summary: Ponawia nieudane wiadomosci we wsadzie
+      description: Do zdefiniowania osobnym PR-em razem z implementacja ponownej wysylki.
       parameters:
         - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
       responses:
@@ -693,7 +749,7 @@ components:
 
     Recipient:
       type: object
-      required: [id, firstName, lastName, type, issues, createdAt, updatedAt]
+      required: [id, firstName, lastName, type, classes, issues, createdAt, updatedAt]
       properties:
         id:        { type: string, format: uuid }
         firstName: { type: string }
@@ -701,9 +757,15 @@ components:
         email:     { type: string, nullable: true }
         phone:     { type: string, nullable: true, description: "E.164" }
         type:      { $ref: "#/components/schemas/RecipientType" }
+        classes:
+          type: array
+          description: |
+            Klasy odbiorcy (ADR-0009), posortowane jak grupy klasowe. Uczen: najwyzej jedna
+            (jego klasa). Rodzic: dowolnie wiele (klasy dzieci). Pusta tablica = brak klasy.
+          items: { $ref: "#/components/schemas/ClassName" }
         groupIds:
           type: array
-          description: Grupy wlasne odbiorcy. Tylko w GET /recipients/{id}; systemowe wynikaja z type.
+          description: Grupy wlasne odbiorcy. Tylko w GET /recipients/{id}; systemowe i klasowe wynikaja z type i classes.
           items: { type: string, format: uuid }
         issues:
           type: array
@@ -722,6 +784,13 @@ components:
         email:     { type: string, nullable: true }
         phone:     { type: string, nullable: true, description: "Dowolny zapis, normalizowany do E.164" }
         type:      { $ref: "#/components/schemas/RecipientType" }
+        classes:
+          type: array
+          description: |
+            Pominiete = bez zmian przy PUT, brak klasy przy POST. Wartosci normalizowane
+            (przyciecie, usuniecie spacji, wielkie litery) i deduplikowane. Uczen z wiecej niz
+            jedna klasa albo niepoprawna nazwa -> 400 invalid_input, pole "classes".
+          items: { type: string }
 
     RecipientPage:
       type: object
@@ -746,6 +815,13 @@ components:
           enum: [missing, invalid]
           description: missing = brak wartosci, invalid = zapisana wartosc nie przechodzi walidacji
 
+    ClassName:
+      type: string
+      pattern: "^[0-9][0-9A-Z]{0,5}$"
+      description: |
+        Znormalizowana nazwa klasy (ADR-0009): cyfra na poczatku, potem wielkie litery lub cyfry,
+        1-6 znakow, np. 3A, 1TI, 2BG. Wejscie jest normalizowane przed sprawdzeniem.
+
     Group:
       type: object
       required: [id, name, description, kind, memberCount]
@@ -756,7 +832,23 @@ components:
         kind:
           type: string
           enum: [system, custom]
-          description: system = wyliczana z danych odbiorcow, tylko do odczytu
+          description: |
+            system = wyliczana z danych odbiorcow, tylko do odczytu. Obejmuje tez grupy klasowe
+            (className != null) - enum sie nie zmienia, wiec dotychczasowi klienci dzialaja bez zmian.
+        className:
+          type: string
+          nullable: true
+          pattern: "^[0-9][0-9A-Z]{0,5}$"
+          description: |
+            Dla grup klasowych ("Uczniowie klasy 3A", "Rodzice uczniow klasy 3A") nazwa klasy, inaczej
+            null. ID grupy klasowej jest stale: UUIDv5 z przestrzeni nazw ADR-0009 i "students:3A" /
+            "parents:3A", wiec zapisany wybor wskazuje te sama grupe tak dlugo, jak klasa istnieje.
+            Format jak ClassName.
+        audience:
+          type: string
+          nullable: true
+          enum: [students, parents, null]
+          description: Dla grup klasowych - kogo obejmuje; inaczej null. Pozwala UI grupowac liste bez parsowania nazwy.
         memberCount: { type: integer }
         createdAt:   { type: string, format: date-time, nullable: true, description: "null dla grup systemowych" }
 
@@ -859,6 +951,9 @@ components:
             - name_taken           # nazwa grupy zajeta
             - system_group         # proba zmiany grupy systemowej
             - unknown_recipient    # nieistniejace ID w ids
+            - selection_changed    # POST /batches: wybrana grupa lub osoba juz nie istnieje, brakujace ID w ids
+            - no_recipients        # POST /batches: wybor nie daje zadnego odbiorcy
+            - idempotency_conflict # POST /batches: Idempotency-Key uzyty z inna trescia
             - unauthenticated      # brak waznej sesji (401)
             - forbidden            # rola nie ma dostepu (403)
             - invalid_credentials  # POST /auth/login: zly e-mail, haslo albo konto zablokowane
@@ -878,7 +973,7 @@ components:
               message: { type: string }
         ids:
           type: array
-          description: ID, ktorych dotyczy blad (duplicate_contact -> istniejacy odbiorca, unknown_recipient -> brakujace)
+          description: ID, ktorych dotyczy blad (duplicate_contact -> istniejacy odbiorca, unknown_recipient i selection_changed -> brakujace)
           items: { type: string, format: uuid }
 
     MessageDraft:
@@ -946,6 +1041,125 @@ components:
           description: Odbiorcy bez wartosci dla uzytego placeholdera (np. puste imie). Nie sa wliczani do licznikow SMS/e-mail.
           items: { type: string, format: uuid }
 
+    BatchStatus:
+      type: string
+      enum: [draft, scheduled, running, done, done_with_errors, cancelled]
+      description: |
+        running = sa dostawy pending albo sending; done = wszystko wyslane; done_with_errors = co
+        najmniej jedna dostawa failed albo odbiorca bez zadnego kanalu. draft, scheduled, cancelled
+        sa w schemacie bazy, ale API ich jeszcze nie nadaje.
+
+    DeliveryStatus:
+      type: string
+      enum: [pending, sending, sent, delivered, failed]
+      description: |
+        Zmienia sie tylko do przodu. sending po zakonczeniu wysylki = wynik nieznany (przerwane
+        w trakcie wywolania operatora); rozstrzyga go raport doreczenia, nie ponowna wysylka.
+
+    BatchRequest:
+      type: object
+      required: [subject, body, selection]
+      properties:
+        subject:   { type: string, description: "Wylacznie temat e-maila; niepusty" }
+        body:      { type: string, description: "Jedna wspolna tresc, wysylana bajt w bajt; niepusta" }
+        selection: { $ref: "#/components/schemas/RecipientSelection" }
+
+    GroupRef:
+      type: object
+      description: Grupa tak, jak sie nazywala w chwili wysylki (ADR-0009) - historia nie zalezy od tego, czy grupa nadal istnieje
+      required: [id, name]
+      properties:
+        id:   { type: string, format: uuid }
+        name: { type: string }
+
+    UserRef:
+      type: object
+      required: [id, fullName]
+      properties:
+        id:       { type: string, format: uuid }
+        fullName: { type: string }
+
+    BatchSummary:
+      type: object
+      required: [id, subject, status, createdBy, createdAt, groups, recipientCount, partialCount, failedCount, totalSmsParts, costMilli]
+      properties:
+        id:        { type: string, format: uuid }
+        subject:   { type: string }
+        status:    { $ref: "#/components/schemas/BatchStatus" }
+        createdBy:
+          description: Kto zatwierdzil i uruchomil wysylke
+          allOf: [{ $ref: "#/components/schemas/UserRef" }]
+        createdAt:  { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time, nullable: true, description: "Gdy status pierwszy raz przestal byc running" }
+        groups:
+          type: array
+          items: { $ref: "#/components/schemas/GroupRef" }
+        recipientCount: { type: integer }
+        partialCount:   { type: integer, description: "Odbiorcy osiagalni jednym kanalem" }
+        failedCount:    { type: integer, description: "Odbiorcy z co najmniej jedna dostawa failed albo bez zadnego kanalu" }
+        totalSmsParts:  { type: integer }
+        costMilli:      { type: integer, format: int64, description: "Koszt SMS w tysiecznych PLN, wg ceny z chwili wysylki" }
+
+    BatchPage:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/BatchSummary" }
+        total: { type: integer }
+
+    BatchDetail:
+      allOf:
+        - { $ref: "#/components/schemas/BatchSummary" }
+        - type: object
+          required: [body, recipientIds, recipients]
+          properties:
+            body:
+              type: string
+              description: Tresc przed podstawieniem placeholderow (kopia wsadu startuje od niej)
+            recipientIds:
+              type: array
+              description: Osoby wybrane recznie, poza grupami
+              items: { type: string, format: uuid }
+            recipients:
+              type: array
+              description: Ostateczna lista odbiorcow, po nazwisku i imieniu
+              items: { $ref: "#/components/schemas/BatchRecipient" }
+
+    BatchRecipient:
+      type: object
+      description: Bez adresu i numeru - historia pokazuje kto i z jakim skutkiem, nie dane kontaktowe.
+      required: [recipientId, firstName, lastName, partial, unreachable, deliveries]
+      properties:
+        recipientId: { type: string, format: uuid }
+        firstName:   { type: string }
+        lastName:    { type: string }
+        renderedBody:
+          type: string
+          nullable: true
+          description: Tresc, ktora dostala ta osoba (identyczna w obu kanalach); null, gdy nie dalo sie jej wyrenderowac
+        partial:     { type: boolean }
+        unreachable: { type: boolean }
+        deliveries:
+          type: array
+          description: Jedna pozycja na kanal, ktorym wysylka faktycznie szla (e-mail przed SMS)
+          items: { $ref: "#/components/schemas/Delivery" }
+
+    Delivery:
+      type: object
+      required: [channel, status, parts, attempts]
+      properties:
+        channel:  { $ref: "#/components/schemas/Channel" }
+        status:   { $ref: "#/components/schemas/DeliveryStatus" }
+        parts:    { type: integer, description: "Czesci SMS; 1 dla e-maila" }
+        attempts: { type: integer }
+        error:
+          type: string
+          nullable: true
+          description: 'Krotki sklasyfikowany powod, np. "permanent: invalid recipient"; nigdy surowa odpowiedz operatora'
+        updatedAt: { type: string, format: date-time }
+
     ImportFile:
       type: object
       required: [file]
@@ -953,7 +1167,11 @@ components:
         file:
           type: string
           format: binary
-          description: CSV (UTF-8, separator , albo ;) lub XLSX (pierwszy arkusz), najwyzej 5 MB i 5000 wierszy
+          description: |
+            CSV (UTF-8, separator , albo ;) lub XLSX (pierwszy arkusz), najwyzej 5 MB i 5000 wierszy.
+            Kolumny wymagane: imie, nazwisko, e-mail, telefon, typ. Opcjonalna kolumna klasa (ADR-0009):
+            jedna klasa ucznia albo kilka klas rodzica po przecinku, np. "3A, 1B" (w CSV z separatorem
+            przecinkiem komorke trzeba ujac w cudzyslow). Plik bez tej kolumny dziala jak dotad.
 
     ImportReport:
       type: object
@@ -992,13 +1210,17 @@ components:
 
     ImportedRecipient:
       type: object
-      required: [firstName, lastName, type]
+      required: [firstName, lastName, type, classes]
       properties:
         firstName: { type: string }
         lastName:  { type: string }
         email:     { type: string, nullable: true }
         phone:     { type: string, nullable: true, description: "E.164" }
         type:      { $ref: "#/components/schemas/RecipientType" }
+        classes:
+          type: array
+          description: Znormalizowane klasy z kolumny klasa; pusta tablica, gdy kolumny brak albo komorka jest pusta
+          items: { $ref: "#/components/schemas/ClassName" }
 
     ImportFieldError:
       type: object
@@ -1006,8 +1228,10 @@ components:
       properties:
         field:
           type: string
-          enum: [first_name, last_name, type, email, phone, contact, encoding, row]
-          description: Stabilny klucz dla UI (contact = brak e-maila i telefonu, row = wiersza nie da sie odczytac)
+          enum: [first_name, last_name, type, email, phone, classes, contact, encoding, row]
+          description: |
+            Stabilny klucz dla UI (contact = brak e-maila i telefonu, row = wiersza nie da sie odczytac,
+            classes = niepoprawna nazwa klasy albo uczen z wiecej niz jedna klasa)
         message: { type: string, description: "Szczegol diagnostyczny po angielsku, nie do wyswietlania wprost" }
 
     ImportFileErrorBody:

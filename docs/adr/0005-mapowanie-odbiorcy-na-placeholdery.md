@@ -1,6 +1,7 @@
 # ADR-0005: Mapowanie Recipient → placeholdery w messaging.Render
 
-- **Status:** propozycja DEV B (2026-10-06) — czeka na akceptację DEV A
+- **Status:** przyjęta (2026-10-07) — zaproponowana przez S1D0R-10 (DEV B), zaakceptowana przez
+  Marc3usz (DEV A) w review PR #25
 - **Data:** 2026-09-25
 - **Uczestnicy:** Marc3usz (DEV A), S1D0R-10 (DEV B)
 
@@ -25,7 +26,7 @@ zacznie spinać `recipients`/`groups` z `messaging`/`delivery` (M3 z `docs/podzi
 
 ## Decyzja
 
-Propozycja DEV B, wdrożona w `POST /api/messages/preview` (`messaging/placeholders.go`):
+Wdrożona w `POST /api/messages/preview` (`messaging/placeholders.go`, PR #25):
 
 - **Mapowanie po stronie `messaging`.** `messaging.RecipientFields(firstName, lastName)`
   zwraca `map[string]string` dla `Render`. Nazwy placeholderów są częścią treści wiadomości,
@@ -39,8 +40,6 @@ Propozycja DEV B, wdrożona w `POST /api/messages/preview` (`messaging/placehold
 - **Pusta wartość u odbiorcy** oznacza błąd tylko tego odbiorcy (`renderFailedIds`). Reszta
   wsadu idzie dalej. Nie podstawiamy pustego tekstu, bo e-mail i SMS muszą być identyczne
   i kompletne.
-
-Jeśli DEV A woli inną nazwę albo miejsce mapowania, wystarczy zmienić jeden plik.
 
 ## Rozważane alternatywy
 
@@ -57,6 +56,12 @@ Jeśli DEV A woli inną nazwę albo miejsce mapowania, wystarczy zmienić jeden 
 
 ## Konsekwencje
 
-Do uzupełnienia po decyzji. Na razie: `recipients` i `messaging` pozostają od siebie
-niezależne (żadna z paczek nie importuje drugiej) — zgodnie z `backend/CLAUDE.md`
-("zależności między pakietami domenowymi idą przez interfejsy definiowane przez konsumenta").
+- `messaging` importuje `groups` (typy `Selection`, `Resolution`, `Resolved`), a przez nie
+  pośrednio `recipients.Recipient`. `recipients` nie zna nazw placeholderów i nie importuje
+  `messaging`. Kierunek zależności jest jeden: B → A.
+- `delivery` używa tego samego `messaging.RecipientFields` przy budowie planu wysyłki (PR #29, w review),
+  więc podgląd i faktyczna wysyłka personalizują treść identycznie.
+- Nowy placeholder (np. `{{klasa}}` po ADR-0009) to zmiana w `messaging/placeholders.go`
+  i w argumentach `RecipientFields`, bez zmian w `recipients`.
+- Pusta wartość jest rzadka, bo walidacja w `recipients` wymaga imienia i nazwiska. Dotyczy
+  głównie danych wpisanych z pominięciem walidacji.
