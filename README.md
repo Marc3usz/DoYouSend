@@ -26,9 +26,14 @@ cp .env.example .env        # uzupełnij lokalnie, .env nie trafia do repo
 make up                     # Postgres + Redis + Mailpit w kontenerach
 make migrate                # struktura bazy
 make seed                   # dane demonstracyjne (wyłącznie fikcyjne)
+make create-admin EMAIL=admin@example.test   # hasło dla konta admina z danych demo (zapyta o nie)
 make dev-api                # API na http://localhost:8080
 make dev-web                # UI na http://localhost:5173   (drugi terminal)
 ```
+
+Zaloguj się na <http://localhost:5173> adresem i hasłem z `make create-admin`. Kolejne konta
+(także dla wysyłających) zakłada się w **Panelu administratora → Użytkownicy**. Hasło ma co najmniej
+12 znaków. Szczegóły logowania i ról: `docs/adr/0010-logowanie-sesje-role.md`.
 
 Podgląd „wysłanych" e-maili: Mailpit na <http://localhost:8025>.
 SMS-y przy `SMS_PROVIDER=fake` nie wychodzą na zewnątrz — lądują w logu i w bazie,

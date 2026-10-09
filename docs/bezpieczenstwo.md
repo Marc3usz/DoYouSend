@@ -30,4 +30,9 @@
 - Dostęp tylko dla zalogowanych. Role: `admin` (odbiorcy, grupy, użytkownicy, konfiguracja)
   i `sender` (tworzenie i wysyłka komunikatów, podgląd swoich wysyłek).
 - Sprawdzanie uprawnień po stronie serwera. Ukrycie przycisku w UI nie jest zabezpieczeniem.
+- Reguły dostępu do API są w jednej tabeli: `backend/internal/iam/policy.go`. Nowy endpoint
+  domyślnie wymaga zalogowania; jeśli ma być tylko dla administratora albo publiczny, dopisz
+  regułę i test w `policy_test.go` w tym samym PR (ADR-0010).
+- Sesja to cookie `dys_session` (HttpOnly, SameSite=Lax); w bazie jest tylko skrót tokenu.
+  Hasła: PBKDF2-SHA256, min. 12 znaków. Pierwsze konto: `make create-admin`.
 - Logi nie zawierają adresów e-mail, numerów telefonów ani treści wiadomości, tylko ID.
