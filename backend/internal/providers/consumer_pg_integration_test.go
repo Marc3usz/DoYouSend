@@ -213,19 +213,20 @@ func TestPGDeliveryReportConsumer_UnmatchedReportsBufferedAndReconciled(t *testi
 		t.Errorf("bufferedStatus = %q, want delivered", bufferedStatus)
 	}
 
-	// 3. Insert or update delivery with this provider_message_id
-	newDeliveryID := "66666666-6666-6666-6666-666666666661"
+	// 3. Update delivery with this provider_message_id (simulating dispatch outcome save)
+	existingDeliveryID := "55555555-5555-5555-5555-555555555551"
 	_, err = pool.Exec(ctx, `
-		INSERT INTO deliveries (id, batch_recipient_id, channel, status, provider_message_id)
-		VALUES ($1, '44444444-4444-4444-4444-444444444444', 'sms', 'sent', $2)
-	`, newDeliveryID, earlyID)
+		UPDATE deliveries
+		SET provider_message_id = $1, status = 'sent'
+		WHERE id = $2
+	`, earlyID, existingDeliveryID)
 	if err != nil {
-		t.Fatalf("insert delivery with provider_message_id: %v", err)
+		t.Fatalf("update delivery with provider_message_id: %v", err)
 	}
 
 	// 4. Trigger should have applied the buffered report and upgraded status to delivered
 	var deliveryStatus string
-	err = pool.QueryRow(ctx, `SELECT status FROM deliveries WHERE id = $1`, newDeliveryID).Scan(&deliveryStatus)
+	err = pool.QueryRow(ctx, `SELECT status FROM deliveries WHERE id = $1`, existingDeliveryID).Scan(&deliveryStatus)
 	if err != nil {
 		t.Fatalf("query delivery status: %v", err)
 	}

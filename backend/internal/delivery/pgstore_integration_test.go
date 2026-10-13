@@ -299,7 +299,7 @@ func TestPGStoreInterruptedDispatchLeavesProgress(t *testing.T) {
 	d, _ := newTestDispatcher(t, DefaultRetryPolicy(), sms, email)
 
 	obs := DeliveryObserverFunc(func(obsCtx context.Context, recipientID string, del Delivery) error {
-		return store.SaveDelivery(obsCtx, created.ID, recipientID, del)
+		return store.SaveDelivery(context.WithoutCancel(obsCtx), created.ID, recipientID, del)
 	})
 
 	_, _ = d.DispatchWithObserver(cancelCtx, created.Plan, obs)
@@ -402,4 +402,3 @@ func TestPGStore_DLRDuringDispatchEndsDelivered(t *testing.T) {
 		t.Errorf("delivery finalStatus = %q, want 'delivered'", finalStatus)
 	}
 }
-

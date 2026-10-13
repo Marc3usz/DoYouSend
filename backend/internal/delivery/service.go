@@ -144,7 +144,7 @@ func (s *Service) Send(ctx context.Context, d Draft) (Batch, error) {
 
 	detached := context.WithoutCancel(ctx)
 	obs := DeliveryObserverFunc(func(obsCtx context.Context, recipientID string, del Delivery) error {
-		return s.store.SaveDelivery(obsCtx, batch.ID, recipientID, del)
+		return s.store.SaveDelivery(context.WithoutCancel(obsCtx), batch.ID, recipientID, del)
 	})
 
 	var (

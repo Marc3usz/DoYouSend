@@ -288,4 +288,3 @@ func TestDispatchWithObserverTracksProgress(t *testing.T) {
 		t.Errorf("observed = %v, want [sending, sent]", observed)
 	}
 }
-

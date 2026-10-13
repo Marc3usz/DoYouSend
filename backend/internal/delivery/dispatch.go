@@ -102,7 +102,7 @@ func (d *Dispatcher) DispatchWithObserver(ctx context.Context, plan Plan, obs De
 			}
 			r.Deliveries[j] = d.send(ctx, out.Subject, r.RecipientID, r.Body, r.Deliveries[j])
 			if obs != nil {
-				_ = obs.OnDelivery(ctx, r.RecipientID, r.Deliveries[j])
+				_ = obs.OnDelivery(context.WithoutCancel(ctx), r.RecipientID, r.Deliveries[j])
 			}
 			if err := ctx.Err(); err != nil {
 				return out, fmt.Errorf("dispatch batch: %w", err)

@@ -355,4 +355,3 @@ func TestMemStoreSaveDelivery(t *testing.T) {
 		t.Errorf("status = %s, want sent (must not downgrade)", d.Status)
 	}
 }
-
