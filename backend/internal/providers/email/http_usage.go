@@ -47,7 +47,7 @@ func parseTimeParam(s string, isEnd bool) (time.Time, bool, error) {
 
 // HandleUsageStats returns an HTTP handler serving aggregated email usage metrics.
 //
-// TODO(iam): admin only - restrict access once IAM middleware lands.
+// Access is restricted to administrators by iam.Middleware and policy.go (/api/stats).
 //
 // Query parameters:
 //   - batch_id: filter by batch UUID
