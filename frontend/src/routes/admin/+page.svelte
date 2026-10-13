@@ -45,7 +45,9 @@
 				<div class="profile-header">
 					<strong>Stan konta SMSAPI</strong>
 					{#if data.profile.points < 50}
-						<span class="badge-warn" title="Niski stan punktów SMSAPI — doładuj konto">Niski stan</span>
+						<span class="badge-warn" title="Niski stan punktów SMSAPI — doładuj konto"
+							>Niski stan</span
+						>
 					{/if}
 				</div>
 				<dl>

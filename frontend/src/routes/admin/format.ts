@@ -19,7 +19,8 @@ export function plnText(milli: number): string {
 
 const pointsFormat = new Intl.NumberFormat('pl-PL', {
 	minimumFractionDigits: 2,
-	maximumFractionDigits: 2
+	maximumFractionDigits: 2,
+	useGrouping: true
 });
 
 /** Formats a points balance (e.g. 125.5 -> "125,50 pkt"). */

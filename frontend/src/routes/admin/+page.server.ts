@@ -1,4 +1,11 @@
-import { emailUsage, listAudit, listUsers, sendingConfig, smsProfile, smsUsage } from '$lib/api/admin';
+import {
+	emailUsage,
+	listAudit,
+	listUsers,
+	sendingConfig,
+	smsProfile,
+	smsUsage
+} from '$lib/api/admin';
 import type { PageServerLoad } from './$types';
 import { currentMonth } from './format';
 

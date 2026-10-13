@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '$lib/api/client';
 import type { AuditEntry } from '$lib/api/admin';
-import { actionText, actorText, currentMonth, detailsText, plnText, pointsText, setupChecks } from './format';
+import {
+	actionText,
+	actorText,
+	currentMonth,
+	detailsText,
+	plnText,
+	pointsText,
+	setupChecks
+} from './format';
 import { failureOf } from './uzytkownicy/users';
 import { loginFailureText } from '../login/messages';
 
