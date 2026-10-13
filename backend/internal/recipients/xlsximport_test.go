@@ -63,8 +63,8 @@ func TestReadXLSXReport(t *testing.T) {
 				{"Kacper", "Kowalski", "kacper.kowalski@example.test", "+48 500 100 105", "Uczeń", "3A"},
 			},
 			want: ImportReport{Valid: []ImportedRow{
-				{Row: 2, Recipient: Recipient{FirstName: "Zofia", LastName: "Wiśniewska", Phone: "+48500100104", Type: TypeParent}},
-				{Row: 3, Recipient: Recipient{FirstName: "Kacper", LastName: "Kowalski", Email: "kacper.kowalski@example.test", Phone: "+48500100105", Type: TypeStudent}},
+				{Row: 2, Recipient: Recipient{FirstName: "Zofia", LastName: "Wiśniewska", Phone: "+48500100104", Type: TypeParent, Classes: []string{"3A"}}},
+				{Row: 3, Recipient: Recipient{FirstName: "Kacper", LastName: "Kowalski", Email: "kacper.kowalski@example.test", Phone: "+48500100105", Type: TypeStudent, Classes: []string{"3A"}}},
 			}},
 		},
 		{

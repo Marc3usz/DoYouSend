@@ -67,6 +67,8 @@ type Filter struct {
 	Query string
 	// Type, when set, keeps only recipients of this type.
 	Type Type
+	// Class, when set, keeps only recipients assigned to this normalized class.
+	Class string
 }
 
 // ListQuery is a page request of GET /recipients.
@@ -97,10 +99,14 @@ type Input struct {
 	Email     string
 	Phone     string
 	Type      Type
+	// Classes replace the recipient's classes; nil keeps them unchanged on
+	// Update and means no class on Create.
+	Classes *[]string
 }
 
 // normalize applies the same clean-up as a file import (recordToRecipient):
-// trimmed fields and a phone number in E.164 where it can be derived.
+// trimmed fields, a phone number in E.164 where it can be derived and
+// normalized class names.
 func (in Input) normalize() Recipient {
 	r := Recipient{
 		FirstName: strings.TrimSpace(in.FirstName),
@@ -111,6 +117,9 @@ func (in Input) normalize() Recipient {
 	}
 	if r.Phone != "" {
 		r.Phone = NormalizePhone(r.Phone)
+	}
+	if in.Classes != nil {
+		r.Classes = NormalizeClasses(*in.Classes)
 	}
 	return r
 }
@@ -187,6 +196,9 @@ func checkListQuery(q ListQuery) (ListQuery, error) {
 	if q.Type != "" && q.Type != TypeParent && q.Type != TypeStudent {
 		errs = append(errs, FieldError{Field: "type", Message: "type must be 'parent' or 'student'"})
 	}
+	if q.Class = NormalizeClass(q.Class); q.Class != "" && !ValidClass(q.Class) {
+		errs = append(errs, FieldError{Field: "class", Message: "not a valid class name, expected e.g. 3A"})
+	}
 	if q.Issue != "" && q.Issue != ChannelEmail && q.Issue != ChannelSMS {
 		errs = append(errs, FieldError{Field: "issue", Message: "issue must be 'email' or 'sms'"})
 	}
@@ -244,8 +256,12 @@ func (s *Service) Update(ctx context.Context, id string, in Input) (Recipient, e
 	}
 	// Check existence first: a 404 is more useful than field errors for a
 	// recipient someone else has just deleted.
-	if _, err := s.store.GetRecipient(ctx, id); err != nil {
+	current, err := s.store.GetRecipient(ctx, id)
+	if err != nil {
 		return Recipient{}, fmt.Errorf("get recipient %s: %w", id, err)
+	}
+	if in.Classes == nil {
+		in.Classes = &current.Classes
 	}
 	r, err := s.checkInput(ctx, id, in)
 	if err != nil {

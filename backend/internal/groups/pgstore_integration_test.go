@@ -231,3 +231,45 @@ func sortedCopy(ids []string) []string {
 	slices.Sort(out)
 	return out
 }
+
+func TestClassGroupsWithPostgres(t *testing.T) {
+	env := newPGEnv(t)
+	ctx := context.Background()
+	for name, classes := range map[string][]string{"Lena": {"3A"}, "Jan": {"1B", "3A"}, "Zofia": {"3A"}} {
+		r, err := env.dir.GetRecipient(ctx, env.byName[name])
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Classes = classes
+		if _, err := env.dir.UpdateRecipient(ctx, r); err != nil {
+			t.Fatalf("UpdateRecipient(%s) error = %v", name, err)
+		}
+	}
+
+	list, err := NewService(env.store, env.dir).List(ctx)
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	counts := map[string]int{}
+	for _, g := range list {
+		counts[g.Name] = g.MemberCount
+	}
+	for name, want := range map[string]int{
+		"Uczniowie klasy 3A": 1, "Rodzice uczniów klasy 3A": 2,
+		"Uczniowie klasy 1B": 0, "Rodzice uczniów klasy 1B": 1,
+	} {
+		if counts[name] != want {
+			t.Errorf("%s has %d members, want %d (all: %v)", name, counts[name], want, counts)
+		}
+	}
+
+	res, err := NewResolver(env.store, env.dir).Resolve(ctx, Selection{GroupIDs: []string{
+		classGroupID(AudienceParents, "3A"), classGroupID(AudienceParents, "1B"),
+	}})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if len(res.Recipients) != 2 || res.MergedDuplicates != 1 {
+		t.Errorf("Resolve(parents of 3A and 1B) = %d recipients, %d merged, want Jan once and Zofia", len(res.Recipients), res.MergedDuplicates)
+	}
+}
