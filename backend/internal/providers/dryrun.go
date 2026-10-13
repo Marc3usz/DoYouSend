@@ -54,3 +54,8 @@ func (d *dryRunProvider) Send(ctx context.Context, msg Message) (Result, error) 
 func (d *dryRunProvider) Channel() Channel {
 	return d.inner.Channel()
 }
+
+// Unwrap returns the underlying Provider wrapped by dryRunProvider.
+func (d *dryRunProvider) Unwrap() Provider {
+	return d.inner
+}

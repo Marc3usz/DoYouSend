@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '$lib/api/client';
 import type { AuditEntry } from '$lib/api/admin';
-import { actionText, actorText, currentMonth, detailsText, plnText, setupChecks } from './format';
+import { actionText, actorText, currentMonth, detailsText, plnText, pointsText, setupChecks } from './format';
 import { failureOf } from './uzytkownicy/users';
 import { loginFailureText } from '../login/messages';
 
@@ -27,6 +27,17 @@ describe('plnText', () => {
 		[1234560, '1 234,56 zł']
 	])('formats %d thousandths as %s', (milli, want) => {
 		expect(spaces(plnText(milli))).toBe(want);
+	});
+});
+
+describe('pointsText', () => {
+	it.each([
+		[0, '0,00 pkt'],
+		[125.5, '125,50 pkt'],
+		[500, '500,00 pkt'],
+		[1234.56, '1 234,56 pkt']
+	])('formats %d points as %s', (points, want) => {
+		expect(spaces(pointsText(points))).toBe(want);
 	});
 });
 

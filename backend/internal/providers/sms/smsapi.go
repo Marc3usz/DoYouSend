@@ -53,10 +53,11 @@ type SMSAPIConfig struct {
 // It implements providers.Provider and is safe for concurrent use.
 // No vendor SDKs are used (pure net/http).
 type SMSAPI struct {
-	cfg    SMSAPIConfig
-	client *http.Client
-	url    string
-	logger *slog.Logger
+	cfg        SMSAPIConfig
+	client     *http.Client
+	url        string
+	profileURL string
+	logger     *slog.Logger
 }
 
 // NewSMSAPI creates an SMSAPI SMS provider.
@@ -83,11 +84,67 @@ func NewSMSAPI(cfg SMSAPIConfig, logger *slog.Logger) (*SMSAPI, error) {
 	base = strings.TrimRight(base, "/")
 
 	return &SMSAPI{
-		cfg:    cfg,
-		client: client,
-		url:    base + "/sms.do",
-		logger: logger,
+		cfg:        cfg,
+		client:     client,
+		url:        base + "/sms.do",
+		profileURL: base + "/profile",
+		logger:     logger,
 	}, nil
+}
+
+// Profile contains account profile details and available points balance from SMSAPI GET /profile.
+type Profile struct {
+	Points   float64 `json:"points"`
+	Name     string  `json:"name"`
+	UserType string  `json:"user_type"`
+}
+
+// Profiler provides access to provider profile and balance details.
+type Profiler interface {
+	GetProfile(ctx context.Context) (Profile, error)
+}
+
+// GetProfile fetches account profile and balance details from SMSAPI GET /profile.
+func (s *SMSAPI) GetProfile(ctx context.Context) (Profile, error) {
+	if ctx.Err() != nil {
+		return Profile{}, ctx.Err()
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.profileURL, nil)
+	if err != nil {
+		return Profile{}, fmt.Errorf("smsapi get profile: create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+s.cfg.APIKey)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return Profile{}, fmt.Errorf("smsapi get profile: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	if err != nil {
+		return Profile{}, fmt.Errorf("smsapi get profile: read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		var apiErr struct {
+			Error   int    `json:"error"`
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(body, &apiErr) == nil && apiErr.Error != 0 {
+			return Profile{}, fmt.Errorf("smsapi get profile: api error %d: %s", apiErr.Error, apiErr.Message)
+		}
+		return Profile{}, fmt.Errorf("smsapi get profile: unexpected status %d", resp.StatusCode)
+	}
+
+	var p Profile
+	if err := json.Unmarshal(body, &p); err != nil {
+		return Profile{}, fmt.Errorf("smsapi get profile: parse json: %w", err)
+	}
+	return p, nil
 }
 
 // Channel returns providers.ChannelSMS.

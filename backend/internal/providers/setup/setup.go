@@ -149,6 +149,26 @@ func (p *Providers) Dispatcher(policy delivery.RetryPolicy, logger *slog.Logger)
 	return delivery.NewDispatcher(p.Senders(), policy, logger)
 }
 
+// SMSProfiler returns an sms.Profiler if the configured SMS provider supports it.
+// It automatically unwraps dry-run wrappers if present.
+func (p *Providers) SMSProfiler() sms.Profiler {
+	if p == nil || p.SMS == nil {
+		return nil
+	}
+	prov := p.SMS
+	for {
+		if prof, ok := prov.(sms.Profiler); ok {
+			return prof
+		}
+		if unwrapper, ok := prov.(interface{ Unwrap() providers.Provider }); ok {
+			prov = unwrapper.Unwrap()
+		} else {
+			break
+		}
+	}
+	return nil
+}
+
 // newEmailProvider creates the email provider selected by cfg.EmailProvider.
 func newEmailProvider(cfg Config, logger *slog.Logger) (providers.Provider, error) {
 	switch cfg.EmailProvider {

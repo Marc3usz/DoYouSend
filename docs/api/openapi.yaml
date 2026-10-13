@@ -599,6 +599,23 @@ paths:
               schema: { $ref: "#/components/schemas/SendingConfig" }
         "403": { $ref: "#/components/responses/Error" }
 
+  /admin/providers/sms/profile:
+    get:
+      tags: [admin]
+      summary: Stan konta i saldo punktow operatora SMS (SMSAPI)
+      description: |
+        Pobiera aktualny profil i saldo punktow bezposrednio z SMSAPI (GET https://api.smsapi.pl/profile).
+        W srodowisku fake zwraca zasymulowane wartosci (500 punktow). Wymaga roli administratora.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SMSProfile" }
+        "403": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+
   /stats/sms:
     get:
       tags: [admin]
@@ -776,6 +793,24 @@ components:
             credentialsSet:    { type: boolean }
             reportsWebhook:    { type: boolean, description: "Czy raporty doreczen SMSAPI sa wlaczone" }
             pricePerPartMilli: { type: integer, format: int64 }
+
+    SMSProfile:
+      type: object
+      required: [points, name, userType]
+      properties:
+        points:
+          type: number
+          format: double
+          description: Liczba dostepnych punktow na koncie SMSAPI
+          example: 125.5
+        name:
+          type: string
+          description: Nazwa uzytkownika/konta w SMSAPI
+          example: DoYouSend Sandbox
+        userType:
+          type: string
+          description: Typ uzytkownika w SMSAPI (np. developer, client)
+          example: developer
 
     RecipientType:
       type: string

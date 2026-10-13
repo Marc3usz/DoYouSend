@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emailUsage, smsUsage } from './admin';
+import { emailUsage, smsProfile, smsUsage } from './admin';
 
 describe('emailUsage', () => {
 	it('calls GET /api/stats/email with query params', async () => {
@@ -24,7 +24,7 @@ describe('emailUsage', () => {
 			return new Response(JSON.stringify({ totalMessages: 0 }), { status: 200 });
 		};
 		const got = await emailUsage({}, fakeFetch);
-		expect(got.totalMessages).toBe(0);
+		expect(got).toEqual(expected.totalMessages ? expected : { totalMessages: 0 });
 	});
 });
 
@@ -36,5 +36,21 @@ describe('smsUsage', () => {
 		};
 		const got = await smsUsage({ from: '2026-10-01', to: '2026-10-31' }, fakeFetch);
 		expect(got.totalMessages).toBe(5);
+	});
+});
+
+describe('smsProfile', () => {
+	it('calls GET /api/admin/providers/sms/profile', async () => {
+		const expected = {
+			points: 125.5,
+			name: 'SMSAPI Test',
+			userType: 'developer'
+		};
+		const fakeFetch: typeof fetch = async (input) => {
+			expect(String(input)).toBe('/api/admin/providers/sms/profile');
+			return new Response(JSON.stringify(expected), { status: 200 });
+		};
+		const got = await smsProfile(fakeFetch);
+		expect(got).toEqual(expected);
 	});
 });

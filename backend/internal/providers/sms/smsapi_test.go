@@ -560,3 +560,80 @@ func TestSMSAPI_Channel(t *testing.T) {
 		t.Errorf("Channel() = %v, want %v", p.Channel(), providers.ChannelSMS)
 	}
 }
+
+func TestSMSAPI_GetProfile_Success(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("Method = %q, want %q", r.Method, http.MethodGet)
+		}
+		if r.URL.Path != "/profile" {
+			t.Errorf("Path = %q, want %q", r.URL.Path, "/profile")
+		}
+		if auth := r.Header.Get("Authorization"); auth != "Bearer test-key" {
+			t.Errorf("Authorization = %q, want Bearer test-key", auth)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"points": 142.50,
+			"name": "Szkola Podstawowa",
+			"user_type": "developer"
+		}`))
+	}))
+	defer srv.Close()
+
+	p, err := NewSMSAPI(SMSAPIConfig{
+		APIKey:     "test-key",
+		BaseURL:    srv.URL,
+		HTTPClient: srv.Client(),
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected NewSMSAPI error: %v", err)
+	}
+
+	profile, err := p.GetProfile(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected GetProfile error: %v", err)
+	}
+
+	if profile.Points != 142.50 {
+		t.Errorf("Points = %f, want 142.50", profile.Points)
+	}
+	if profile.Name != "Szkola Podstawowa" {
+		t.Errorf("Name = %q, want 'Szkola Podstawowa'", profile.Name)
+	}
+	if profile.UserType != "developer" {
+		t.Errorf("UserType = %q, want 'developer'", profile.UserType)
+	}
+}
+
+func TestSMSAPI_GetProfile_APIError(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error": 101, "message": "Niepoprawny token autoryzacyjny"}`))
+	}))
+	defer srv.Close()
+
+	p, err := NewSMSAPI(SMSAPIConfig{
+		APIKey:     "invalid-key",
+		BaseURL:    srv.URL,
+		HTTPClient: srv.Client(),
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected NewSMSAPI error: %v", err)
+	}
+
+	_, err = p.GetProfile(context.Background())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "101") {
+		t.Errorf("error = %v, want mentioning error code 101", err)
+	}
+}
