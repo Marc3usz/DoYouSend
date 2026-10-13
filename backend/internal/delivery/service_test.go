@@ -307,3 +307,52 @@ func TestSMSPartsSkipsFailedDeliveries(t *testing.T) {
 		t.Errorf("smsParts = %d, want 1 (render failure costs nothing)", got)
 	}
 }
+
+func TestMemStoreSaveDelivery(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemStore()
+	b, _ := s.CreateBatch(ctx, Batch{Plan: NewPlan("S", "x", []groups.Resolved{resolved(id1, "A", "", "+48500100101")})})
+
+	// 1. Advance to sending
+	err := s.SaveDelivery(ctx, b.ID, id1, Delivery{
+		Channel: providers.ChannelSMS,
+		Status:  StatusSending,
+	})
+	if err != nil {
+		t.Fatalf("SaveDelivery sending err = %v", err)
+	}
+	got, _ := s.Batch(ctx, b.ID)
+	if got.Plan.Recipients[0].Deliveries[0].Status != StatusSending {
+		t.Errorf("status = %s, want sending", got.Plan.Recipients[0].Deliveries[0].Status)
+	}
+
+	// 2. Advance to sent with provider_message_id
+	err = s.SaveDelivery(ctx, b.ID, id1, Delivery{
+		Channel:           providers.ChannelSMS,
+		Status:            StatusSent,
+		ProviderMessageID: "sms-msg-1",
+	})
+	if err != nil {
+		t.Fatalf("SaveDelivery sent err = %v", err)
+	}
+	got, _ = s.Batch(ctx, b.ID)
+	d := got.Plan.Recipients[0].Deliveries[0]
+	if d.Status != StatusSent || d.ProviderMessageID != "sms-msg-1" {
+		t.Errorf("delivery = %+v, want sent with sms-msg-1", d)
+	}
+
+	// 3. Stale pending update must not downgrade sent
+	err = s.SaveDelivery(ctx, b.ID, id1, Delivery{
+		Channel: providers.ChannelSMS,
+		Status:  StatusPending,
+	})
+	if err != nil {
+		t.Fatalf("SaveDelivery stale err = %v", err)
+	}
+	got, _ = s.Batch(ctx, b.ID)
+	d = got.Plan.Recipients[0].Deliveries[0]
+	if d.Status != StatusSent {
+		t.Errorf("status = %s, want sent (must not downgrade)", d.Status)
+	}
+}
+

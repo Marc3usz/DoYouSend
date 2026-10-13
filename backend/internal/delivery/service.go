@@ -56,6 +56,12 @@ type PlanDispatcher interface {
 	Dispatch(ctx context.Context, plan Plan) (Plan, error)
 }
 
+// ObservablePlanDispatcher sends a plan while notifying an observer of delivery progress.
+// *Dispatcher satisfies it.
+type ObservablePlanDispatcher interface {
+	DispatchWithObserver(ctx context.Context, plan Plan, obs DeliveryObserver) (Plan, error)
+}
+
 // Draft is the message the sender confirms in the composer.
 type Draft struct {
 	Subject   string
@@ -137,7 +143,19 @@ func (s *Service) Send(ctx context.Context, d Draft) (Batch, error) {
 	}
 
 	detached := context.WithoutCancel(ctx)
-	sent, dispatchErr := s.dispatcher.Dispatch(detached, batch.Plan)
+	obs := DeliveryObserverFunc(func(obsCtx context.Context, recipientID string, del Delivery) error {
+		return s.store.SaveDelivery(obsCtx, batch.ID, recipientID, del)
+	})
+
+	var (
+		sent        Plan
+		dispatchErr error
+	)
+	if observable, ok := s.dispatcher.(ObservablePlanDispatcher); ok {
+		sent, dispatchErr = observable.DispatchWithObserver(detached, batch.Plan, obs)
+	} else {
+		sent, dispatchErr = s.dispatcher.Dispatch(detached, batch.Plan)
+	}
 	batch.Plan = sent
 	batch.Status = sent.Status()
 

@@ -262,3 +262,144 @@ func TestPGStoreWithService(t *testing.T) {
 		t.Errorf("stored batch = %s, groups %v, cost %d for %d parts", got.Status, got.Groups, got.CostMilli, got.SMSParts)
 	}
 }
+
+func TestPGStoreInterruptedDispatchLeavesProgress(t *testing.T) {
+	store, pool := newPGStore(t)
+	ctx := context.Background()
+
+	// Batch with two recipients: pgSMS and pgEmail
+	res := groups.Resolution{Recipients: []groups.Resolved{
+		resolved(pgSMS, "Ola", "", "+48500100103"),
+		resolved(pgEmail, "Jan", "jan@example.test", ""),
+	}}
+	plan := NewPlan("Zebranie", "Czesc {{imie}}", res.Recipients)
+	created, err := store.CreateBatch(ctx, Batch{
+		Subject:   "Zebranie",
+		Body:      "Czesc {{imie}}",
+		CreatedBy: userID,
+		Status:    BatchRunning,
+		Plan:      plan,
+		CostMilli: 65,
+	})
+	if err != nil {
+		t.Fatalf("CreateBatch error = %v", err)
+	}
+
+	cancelCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	sms := &scriptedSender{
+		channel: providers.ChannelSMS,
+		onSend: func() {
+			// Interrupt dispatch right after first message is dispatched
+			cancel()
+		},
+	}
+	email := &scriptedSender{channel: providers.ChannelEmail}
+	d, _ := newTestDispatcher(t, DefaultRetryPolicy(), sms, email)
+
+	obs := DeliveryObserverFunc(func(obsCtx context.Context, recipientID string, del Delivery) error {
+		return store.SaveDelivery(obsCtx, created.ID, recipientID, del)
+	})
+
+	_, _ = d.DispatchWithObserver(cancelCtx, created.Plan, obs)
+
+	// Check DB: first delivery must be sent with provider_message_id, second must remain pending with NULL
+	var smsStatus string
+	var smsMsgID *string
+	err = pool.QueryRow(ctx, `
+		SELECT d.status, d.provider_message_id
+		FROM deliveries d
+		JOIN batch_recipients br ON br.id = d.batch_recipient_id
+		WHERE br.batch_id = $1 AND br.recipient_id = $2 AND d.channel = 'sms'`,
+		created.ID, pgSMS).Scan(&smsStatus, &smsMsgID)
+	if err != nil {
+		t.Fatalf("query sms delivery: %v", err)
+	}
+	if smsStatus != "sent" || smsMsgID == nil || *smsMsgID == "" {
+		t.Errorf("first delivery status = %q, msgID = %v; want 'sent' with provider_message_id", smsStatus, smsMsgID)
+	}
+
+	var emailStatus string
+	var emailMsgID *string
+	err = pool.QueryRow(ctx, `
+		SELECT d.status, d.provider_message_id
+		FROM deliveries d
+		JOIN batch_recipients br ON br.id = d.batch_recipient_id
+		WHERE br.batch_id = $1 AND br.recipient_id = $2 AND d.channel = 'email'`,
+		created.ID, pgEmail).Scan(&emailStatus, &emailMsgID)
+	if err != nil {
+		t.Fatalf("query email delivery: %v", err)
+	}
+	if emailStatus != "pending" || emailMsgID != nil {
+		t.Errorf("second delivery status = %q, msgID = %v; want 'pending' with nil provider_message_id", emailStatus, emailMsgID)
+	}
+}
+
+func TestPGStore_DLRDuringDispatchEndsDelivered(t *testing.T) {
+	store, pool := newPGStore(t)
+	ctx := context.Background()
+
+	res := groups.Resolution{Recipients: []groups.Resolved{
+		resolved(pgSMS, "Ola", "", "+48500100103"),
+	}}
+	plan := NewPlan("Zebranie", "Czesc {{imie}}", res.Recipients)
+	created, err := store.CreateBatch(ctx, Batch{
+		Subject:   "Zebranie",
+		Body:      "Czesc {{imie}}",
+		CreatedBy: userID,
+		Status:    BatchRunning,
+		Plan:      plan,
+		CostMilli: 65,
+	})
+	if err != nil {
+		t.Fatalf("CreateBatch error = %v", err)
+	}
+
+	consumer := providers.NewPGDeliveryReportConsumer(pool)
+	expectedMsgID := "sms-" + pgSMS
+
+	sms := &scriptedSender{
+		channel: providers.ChannelSMS,
+		onSend: func() {
+			// Simulate DLR callback arriving in the middle of provider call / dispatch
+			report := providers.DeliveryReport{
+				ProviderMessageID: expectedMsgID,
+				Channel:           providers.ChannelSMS,
+				Status:            providers.StatusDelivered,
+			}
+			if err := consumer.ConsumeDeliveryReports(ctx, []providers.DeliveryReport{report}); err != nil {
+				t.Fatalf("ConsumeDeliveryReports during dispatch failed: %v", err)
+			}
+		},
+	}
+	d, _ := newTestDispatcher(t, DefaultRetryPolicy(), sms)
+
+	obs := DeliveryObserverFunc(func(obsCtx context.Context, recipientID string, del Delivery) error {
+		return store.SaveDelivery(obsCtx, created.ID, recipientID, del)
+	})
+
+	dispatched, err := d.DispatchWithObserver(ctx, created.Plan, obs)
+	if err != nil {
+		t.Fatalf("DispatchWithObserver error = %v", err)
+	}
+	if err := store.SaveOutcome(ctx, created.ID, dispatched); err != nil {
+		t.Fatalf("SaveOutcome error = %v", err)
+	}
+
+	// Verify in DB that the delivery ended as 'delivered'
+	var finalStatus string
+	err = pool.QueryRow(ctx, `
+		SELECT d.status
+		FROM deliveries d
+		JOIN batch_recipients br ON br.id = d.batch_recipient_id
+		WHERE br.batch_id = $1 AND br.recipient_id = $2 AND d.channel = 'sms'`,
+		created.ID, pgSMS).Scan(&finalStatus)
+	if err != nil {
+		t.Fatalf("query delivery status: %v", err)
+	}
+	if finalStatus != "delivered" {
+		t.Errorf("delivery finalStatus = %q, want 'delivered'", finalStatus)
+	}
+}
+

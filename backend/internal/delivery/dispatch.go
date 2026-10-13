@@ -72,6 +72,46 @@ func NewDispatcher(senders []Sender, policy RetryPolicy, logger *slog.Logger) (*
 	return &Dispatcher{senders: byChannel, policy: policy, logger: logger, sleep: sleepCtx}, nil
 }
 
+// DeliveryObserver observes each delivery transition during dispatch.
+type DeliveryObserver interface {
+	OnDelivery(ctx context.Context, recipientID string, del Delivery) error
+}
+
+// DeliveryObserverFunc adapts a function to DeliveryObserver.
+type DeliveryObserverFunc func(ctx context.Context, recipientID string, del Delivery) error
+
+// OnDelivery calls f(ctx, recipientID, del).
+func (f DeliveryObserverFunc) OnDelivery(ctx context.Context, recipientID string, del Delivery) error {
+	return f(ctx, recipientID, del)
+}
+
+// DispatchWithObserver sends every pending delivery of plan and notifies observer
+// on transitions (marking 'sending' before gateway call, and outcome after gateway call).
+func (d *Dispatcher) DispatchWithObserver(ctx context.Context, plan Plan, obs DeliveryObserver) (Plan, error) {
+	out := plan.clone()
+	for i := range out.Recipients {
+		r := &out.Recipients[i]
+		for j := range r.Deliveries {
+			if r.Deliveries[j].Status != StatusPending {
+				continue
+			}
+			if obs != nil {
+				sending := r.Deliveries[j]
+				sending.Status = StatusSending
+				_ = obs.OnDelivery(ctx, r.RecipientID, sending)
+			}
+			r.Deliveries[j] = d.send(ctx, out.Subject, r.RecipientID, r.Body, r.Deliveries[j])
+			if obs != nil {
+				_ = obs.OnDelivery(ctx, r.RecipientID, r.Deliveries[j])
+			}
+			if err := ctx.Err(); err != nil {
+				return out, fmt.Errorf("dispatch batch: %w", err)
+			}
+		}
+	}
+	return out, nil
+}
+
 // Dispatch sends every pending delivery of plan and returns the updated copy; plan
 // itself is not changed. Each delivery ends sent or failed on its own: one failure
 // never stops the others (CLAUDE.md rule 5). Transient errors are retried under the
@@ -84,20 +124,7 @@ func NewDispatcher(senders []Sender, policy RetryPolicy, logger *slog.Logger) (*
 // gateway may already have accepted it, so it waits for a delivery report or a person
 // instead of being sent again.
 func (d *Dispatcher) Dispatch(ctx context.Context, plan Plan) (Plan, error) {
-	out := plan.clone()
-	for i := range out.Recipients {
-		r := &out.Recipients[i]
-		for j := range r.Deliveries {
-			if r.Deliveries[j].Status != StatusPending {
-				continue
-			}
-			r.Deliveries[j] = d.send(ctx, out.Subject, r.RecipientID, r.Body, r.Deliveries[j])
-			if err := ctx.Err(); err != nil {
-				return out, fmt.Errorf("dispatch batch: %w", err)
-			}
-		}
-	}
-	return out, nil
+	return d.DispatchWithObserver(ctx, plan, nil)
 }
 
 // send tries one delivery until it succeeds, fails for good or runs out of attempts.
