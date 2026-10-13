@@ -37,7 +37,7 @@
 		<li>
 			<a href="/admin">
 				<strong>Panel administratora</strong>
-				<span>Użytkownicy, konfiguracja wysyłki, koszty SMS i dziennik zdarzeń.</span>
+				<span>Użytkownicy, konfiguracja wysyłki, statystyki e-mail i SMS, dziennik zdarzeń.</span>
 			</a>
 		</li>
 	{/if}

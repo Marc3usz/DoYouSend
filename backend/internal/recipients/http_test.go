@@ -67,7 +67,7 @@ func TestHandleCheckImportReport(t *testing.T) {
 		t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body)
 	}
 	want := `{
-		"valid": [{"row": 2, "recipient": {"firstName": "Jan", "lastName": "Kowalski", "email": "jan.kowalski@example.test", "phone": null, "type": "parent"}}],
+		"valid": [{"row": 2, "recipient": {"firstName": "Jan", "lastName": "Kowalski", "email": "jan.kowalski@example.test", "phone": null, "type": "parent", "classes": []}}],
 		"invalid": [{"row": 3, "errors": [{"field": "last_name", "message": "last name is required"}]}],
 		"duplicates": [{"row": 4, "field": "email", "duplicateOfRow": 2}]
 	}`
@@ -167,7 +167,7 @@ func TestHandleImportFileStores(t *testing.T) {
 		t.Errorf("created %+v, want Maria only", store.created)
 	}
 	want := `{
-		"valid": [{"row": 3, "recipient": {"firstName": "Maria", "lastName": "Kowalska", "email": "maria.kowalska@example.test", "phone": "+48500100102", "type": "parent"}}],
+		"valid": [{"row": 3, "recipient": {"firstName": "Maria", "lastName": "Kowalska", "email": "maria.kowalska@example.test", "phone": "+48500100102", "type": "parent", "classes": []}}],
 		"invalid": [{"row": 4, "errors": [{"field": "last_name", "message": "last name is required"}]}],
 		"duplicates": [{"row": 2, "field": "email", "existingRecipientId": "id-jan"}]
 	}`
