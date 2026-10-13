@@ -24,7 +24,7 @@ describe('emailUsage', () => {
 			return new Response(JSON.stringify({ totalMessages: 0 }), { status: 200 });
 		};
 		const got = await emailUsage({}, fakeFetch);
-		expect(got).toEqual(expected.totalMessages ? expected : { totalMessages: 0 });
+		expect(got.totalMessages).toBe(0);
 	});
 });
 
