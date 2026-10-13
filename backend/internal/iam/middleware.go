@@ -72,13 +72,15 @@ type CookieOptions struct {
 	Secure bool
 }
 
-func (o CookieOptions) session(token string, expires time.Time) *http.Cookie {
+// session is the cookie of a session expiring at expires. MaxAge counts from now,
+// the service clock that set expires, not the wall clock.
+func (o CookieOptions) session(token string, expires, now time.Time) *http.Cookie {
 	return &http.Cookie{
 		Name:     SessionCookie,
 		Value:    token,
 		Path:     "/",
 		Expires:  expires,
-		MaxAge:   int(time.Until(expires).Seconds()),
+		MaxAge:   int(expires.Sub(now).Seconds()),
 		HttpOnly: true,
 		Secure:   o.Secure,
 		// Lax keeps the cookie off cross-site POSTs, which is the CSRF
