@@ -33,6 +33,7 @@ func TestRouteAccess(t *testing.T) {
 		{http.MethodPatch, "/api/users/1", AccessAdmin},
 		{http.MethodGet, "/api/audit", AccessAdmin},
 		{http.MethodGet, "/api/stats/sms", AccessAdmin},
+		{http.MethodGet, "/api/stats/email", AccessAdmin},
 		{http.MethodGet, "/api/admin/config", AccessAdmin},
 
 		// Segment matching, not a bare string prefix.

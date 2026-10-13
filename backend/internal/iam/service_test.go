@@ -205,7 +205,7 @@ func testService(t *testing.T) (*Service, *memStore, *time.Time, User, User) {
 	store := newMemStore()
 	svc := NewService(store)
 	svc.hash = cheapHash
-	now := time.Date(2026, 10, 9, 10, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Truncate(time.Second)
 	svc.now = func() time.Time { return now }
 
 	h1, _ := cheapHash(adminPassword)
