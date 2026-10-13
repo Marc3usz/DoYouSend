@@ -28,6 +28,7 @@ func NewHandler(svc *Service, logger *slog.Logger) *Handler {
 // Register adds the routes to mux.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/recipients", h.list)
+	mux.HandleFunc("GET /api/recipients/lookup", h.lookup)
 	mux.HandleFunc("POST /api/recipients", h.create)
 	mux.HandleFunc("GET /api/recipients/{id}", h.get)
 	mux.HandleFunc("PUT /api/recipients/{id}", h.update)
@@ -56,6 +57,31 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	out := pageJSON{Items: make([]RecipientJSON, len(page.Items)), Total: page.Total}
 	for i, rec := range page.Items {
 		out.Items[i] = toRecipientJSON(rec, nil)
+	}
+	httpx.JSON(w, http.StatusOK, out)
+}
+
+// lookup serves the composer's recipient search to every signed-in user, so it
+// leaves out the e-mail and phone (docs/api/openapi.yaml, RecipientLookup).
+func (h *Handler) lookup(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	lq := ListQuery{Filter: Filter{Query: q.Get("q"), Type: Type(q.Get("type")), Class: q.Get("class")}}
+	var errs []FieldError
+	lq.Limit, errs = intParam(q.Get("limit"), "limit", errs)
+	lq.Offset, errs = intParam(q.Get("offset"), "offset", errs)
+	if len(errs) > 0 {
+		h.writeError(w, r, &ParamError{Fields: errs})
+		return
+	}
+
+	page, err := h.svc.Lookup(r.Context(), lq)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	out := lookupPageJSON{Items: make([]lookupJSON, len(page.Items)), Total: page.Total}
+	for i, rec := range page.Items {
+		out.Items[i] = toLookupJSON(rec)
 	}
 	httpx.JSON(w, http.StatusOK, out)
 }
@@ -198,6 +224,19 @@ type (
 		Items []RecipientJSON `json:"items"`
 		Total int             `json:"total"`
 	}
+	// lookupJSON is the RecipientLookup schema: a recipient without contact data.
+	lookupJSON struct {
+		ID        string      `json:"id"`
+		FirstName string      `json:"firstName"`
+		LastName  string      `json:"lastName"`
+		Type      Type        `json:"type"`
+		Classes   []string    `json:"classes"`
+		Issues    []issueJSON `json:"issues"`
+	}
+	lookupPageJSON struct {
+		Items []lookupJSON `json:"items"`
+		Total int          `json:"total"`
+	}
 	inputJSON struct {
 		FirstName string  `json:"firstName"`
 		LastName  string  `json:"lastName"`
@@ -233,6 +272,14 @@ func toRecipientJSON(r Recipient, groupIDs *[]string) RecipientJSON {
 		out.Issues[i] = issueJSON(is)
 	}
 	return out
+}
+
+func toLookupJSON(r Recipient) lookupJSON {
+	full := toRecipientJSON(r, nil)
+	return lookupJSON{
+		ID: full.ID, FirstName: full.FirstName, LastName: full.LastName,
+		Type: full.Type, Classes: full.Classes, Issues: full.Issues,
+	}
 }
 
 func toFieldErrorsJSON(errs []FieldError) []httpx.FieldError {
