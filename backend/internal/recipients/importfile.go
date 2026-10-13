@@ -239,8 +239,11 @@ var columnAliases = map[string]string{
 	"email": "email", "e-mail": "email", "adres email": "email", "adres e-mail": "email",
 	"phone": "phone", "telefon": "phone", "numer telefonu": "phone", "nr telefonu": "phone",
 	"type": "type", "typ": "type",
+	"classes": "classes", "class": "classes", "klasa": "classes", "klasy": "classes",
 }
 
+// requiredColumns must all be in the header. The classes column (ADR-0009) is
+// optional, so files made before it existed still import.
 var requiredColumns = []string{"first_name", "last_name", "email", "phone", "type"}
 
 // typeAliases maps accepted values of the type column (case-insensitive).
@@ -304,8 +307,8 @@ func isEmptyRecord(record []string) bool {
 // An unrecognised type is left as typed and rejected by Validate.
 func recordToRecipient(record []string, cols map[string]int) Recipient {
 	field := func(name string) string {
-		i := cols[name]
-		if i >= len(record) {
+		i, ok := cols[name]
+		if !ok || i >= len(record) {
 			return ""
 		}
 		return strings.TrimSpace(record[i])
@@ -325,5 +328,6 @@ func recordToRecipient(record []string, cols map[string]int) Recipient {
 		Email:     field("email"),
 		Phone:     phone,
 		Type:      typ,
+		Classes:   ParseClassList(field("classes")),
 	}
 }

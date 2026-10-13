@@ -11,13 +11,19 @@ describe('readForm and toInput', () => {
 		data.set('email', '   ');
 		data.set('phone', '500 100 101');
 		data.set('type', 'parent');
+		data.set('classes', ' 1b, 3A ;; ');
 		expect(toInput(readForm(data))).toEqual({
 			firstName: ' Jan ',
 			lastName: 'Kowalski',
 			email: null,
 			phone: '500 100 101',
-			type: 'parent'
+			type: 'parent',
+			classes: ['1b', '3A']
 		});
+	});
+
+	it('sends no class when the field is blank', () => {
+		expect(toInput(readForm(new FormData())).classes).toEqual([]);
 	});
 
 	it('passes an unknown or missing type on as empty for the backend to report', () => {

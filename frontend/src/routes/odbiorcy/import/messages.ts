@@ -15,6 +15,7 @@ const fieldErrorTexts: Record<ImportFieldError['field'], string> = {
 	type: 'Nieznany typ — wpisz „rodzic” albo „uczeń”',
 	email: 'Niepoprawny adres e-mail',
 	phone: 'Niepoprawny numer telefonu, oczekiwany np. +48 500 100 101',
+	classes: 'Niepoprawna klasa — wpisz np. „3A” albo „1B, 3A”; uczeń może mieć tylko jedną klasę',
 	contact: 'Brak e-maila i telefonu — potrzebny jest co najmniej jeden',
 	encoding: 'Wiersz nie jest zapisany w UTF-8 — zapisz plik jako „CSV UTF-8”',
 	row: 'Nie udało się odczytać wiersza'

@@ -24,13 +24,13 @@ func TestReadCSVReport(t *testing.T) {
 			}},
 		},
 		{
-			name: "polish header, semicolon delimiter, BOM, extra column, trimmed values",
+			name: "polish header, semicolon delimiter, BOM, class column, trimmed values",
 			input: "\xEF\xBB\xBFImię;Nazwisko;E-mail;Telefon;Typ;Klasa\n" +
-				" Zofia ; Wiśniewska ;;+48 500-100-104; Rodzic ;3A\n" +
+				" Zofia ; Wiśniewska ;;+48 500-100-104; Rodzic ;3a, 1 b\n" +
 				"Kacper;Kowalski;kacper.kowalski@example.test;;uczeń;3A\n",
 			want: ImportReport{Valid: []ImportedRow{
-				{Row: 2, Recipient: Recipient{FirstName: "Zofia", LastName: "Wiśniewska", Phone: "+48500100104", Type: TypeParent}},
-				{Row: 3, Recipient: Recipient{FirstName: "Kacper", LastName: "Kowalski", Email: "kacper.kowalski@example.test", Type: TypeStudent}},
+				{Row: 2, Recipient: Recipient{FirstName: "Zofia", LastName: "Wiśniewska", Phone: "+48500100104", Type: TypeParent, Classes: []string{"1B", "3A"}}},
+				{Row: 3, Recipient: Recipient{FirstName: "Kacper", LastName: "Kowalski", Email: "kacper.kowalski@example.test", Type: TypeStudent, Classes: []string{"3A"}}},
 			}},
 		},
 		{

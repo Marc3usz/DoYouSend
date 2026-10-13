@@ -9,10 +9,20 @@ export type ImportedRecipient = {
 	email: string | null;
 	phone: string | null;
 	type: RecipientType;
+	classes: string[];
 };
 
 export type ImportFieldError = {
-	field: 'first_name' | 'last_name' | 'type' | 'email' | 'phone' | 'contact' | 'encoding' | 'row';
+	field:
+		| 'first_name'
+		| 'last_name'
+		| 'type'
+		| 'email'
+		| 'phone'
+		| 'classes'
+		| 'contact'
+		| 'encoding'
+		| 'row';
 	message: string;
 };
 
@@ -91,6 +101,8 @@ export type Recipient = {
 	email: string | null;
 	phone: string | null;
 	type: RecipientType;
+	/** Normalized class names (ADR-0009): a student's class, or the classes of a parent's children. */
+	classes: string[];
 	/** Custom groups; only in getRecipient. */
 	groupIds?: string[];
 	/** Channels the recipient cannot be reached on; empty when both work. */
@@ -106,6 +118,8 @@ export type RecipientInput = {
 	phone: string | null;
 	/** '' lets the backend report a missing type together with the other field errors. */
 	type: RecipientType | '';
+	/** Replaces the classes; the backend normalizes "3 a" to "3A". */
+	classes: string[];
 };
 
 export type RecipientPage = { items: Recipient[]; total: number };
@@ -113,6 +127,8 @@ export type RecipientPage = { items: Recipient[]; total: number };
 export type RecipientListQuery = {
 	q?: string;
 	type?: RecipientType;
+	/** Only recipients of this class (ADR-0009). */
+	class?: string;
 	issue?: Channel;
 	limit?: number;
 	offset?: number;

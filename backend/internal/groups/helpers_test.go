@@ -61,6 +61,17 @@ func (d *fakeDirectory) RecipientsByIDs(_ context.Context, ids []string) ([]reci
 	return out, nil
 }
 
+func (d *fakeDirectory) Classes(context.Context) ([]string, error) {
+	if d.err != nil {
+		return nil, d.err
+	}
+	var all []string
+	for _, r := range d.byID {
+		all = append(all, r.Classes...)
+	}
+	return recipients.NormalizeClasses(all), nil
+}
+
 func (d *fakeDirectory) RecipientsByType(_ context.Context, t recipients.Type) ([]recipients.Recipient, error) {
 	d.byTypeCalls[t]++
 	if d.err != nil {

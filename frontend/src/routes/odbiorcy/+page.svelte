@@ -8,7 +8,10 @@
 
 	const lastPage = $derived(data.page ? pageCount(data.page.total) : 1);
 	const filtered = $derived(
-		data.params.q !== '' || data.params.type !== '' || data.params.issue !== ''
+		data.params.q !== '' ||
+			data.params.type !== '' ||
+			data.params.klasa !== '' ||
+			data.params.issue !== ''
 	);
 	const deleted = $derived(pageState.url.searchParams.has('usunieto'));
 </script>
@@ -50,6 +53,10 @@
 		</select>
 	</label>
 	<label>
+		Klasa
+		<input name="klasa" value={data.params.klasa} maxlength="6" size="5" placeholder="np. 3A" />
+	</label>
+	<label>
 		Problem z danymi
 		<select name="issue" value={data.params.issue}>
 			<option value="">dowolny</option>
@@ -87,13 +94,18 @@
 	{:else}
 		<table>
 			<thead>
-				<tr><th>Nazwisko i imię</th><th>Typ</th><th>E-mail</th><th>Telefon</th><th>Uwagi</th></tr>
+				<tr
+					><th>Nazwisko i imię</th><th>Typ</th><th>Klasa</th><th>E-mail</th><th>Telefon</th><th
+						>Uwagi</th
+					></tr
+				>
 			</thead>
 			<tbody>
 				{#each data.page.items as r (r.id)}
 					<tr>
 						<td><a href="/odbiorcy/{r.id}">{r.lastName} {r.firstName}</a></td>
 						<td>{recipientTypeLabel(r.type)}</td>
+						<td>{r.classes.length > 0 ? r.classes.join(', ') : '—'}</td>
 						<td>{r.email ?? '—'}</td>
 						<td>{r.phone ?? '—'}</td>
 						<td>

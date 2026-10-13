@@ -46,4 +46,6 @@ type Directory interface {
 	RecipientsByIDs(ctx context.Context, ids []string) ([]recipients.Recipient, error)
 	// RecipientsByType returns every recipient of type t.
 	RecipientsByType(ctx context.Context, t recipients.Type) ([]recipients.Recipient, error)
+	// Classes returns every class some recipient is assigned to (ADR-0009).
+	Classes(ctx context.Context) ([]string, error)
 }
