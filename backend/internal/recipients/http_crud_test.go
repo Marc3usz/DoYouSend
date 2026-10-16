@@ -150,3 +150,44 @@ func TestHandlerHidesStoreErrors(t *testing.T) {
 		t.Errorf("= %d %s, want a generic 500", rec.Code, rec.Body.String())
 	}
 }
+
+func TestHandlerStats(t *testing.T) {
+	mux := crudServer(serviceFixture())
+
+	rec, body := do(t, mux, http.MethodGet, "/api/recipients/stats", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %v", rec.Code, body)
+	}
+	want := map[string]any{
+		"total": 4.0, "parents": 3.0, "students": 1.0,
+		"withoutEmail": 1.0, "withoutPhone": 2.0, "unreachable": 0.0,
+	}
+	if len(body) != len(want) {
+		t.Errorf("body = %v, want exactly %d fields", body, len(want))
+	}
+	for k, v := range want {
+		if body[k] != v {
+			t.Errorf("%s = %v, want %v", k, body[k], v)
+		}
+	}
+	if body["email"] != nil || body["items"] != nil {
+		t.Errorf("stats must not carry recipient data: %v", body)
+	}
+}
+
+func TestHandlerStatsIsNotARecipientID(t *testing.T) {
+	// "stats" must never be read as the {id} of GET /api/recipients/{id}.
+	rec, _ := do(t, crudServer(serviceFixture()), http.MethodGet, "/api/recipients/stats", "")
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (not 400/404 from the {id} route)", rec.Code)
+	}
+}
+
+func TestHandlerStatsStoreError(t *testing.T) {
+	store := serviceFixture()
+	store.err = errors.New("boom")
+	rec, body := do(t, crudServer(store), http.MethodGet, "/api/recipients/stats", "")
+	if rec.Code != http.StatusInternalServerError || body["code"] != "internal" {
+		t.Errorf("status = %d, body %v, want 500 internal", rec.Code, body)
+	}
+}
