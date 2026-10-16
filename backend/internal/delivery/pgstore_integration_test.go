@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -419,7 +420,7 @@ func TestPGStore_SaveDelivery_StaleStatusPreservedAndFailed(t *testing.T) {
 		resolved(pgSMS, "Ola", "", "+48500100103"),
 	}}
 	plan := NewPlan("Subject", "Body", res.Recipients)
-	created, err := store.CreateBatch(ctx, CreateBatchParams{
+	created, err := store.CreateBatch(ctx, Batch{
 		CreatedBy: userID,
 		Status:    BatchRunning,
 		Plan:      plan,
@@ -512,7 +513,7 @@ func TestPGStore_SaveDelivery_ConcurrentReportRace(t *testing.T) {
 		resolved(pgSMS, "Ola", "", "+48500100103"),
 	}}
 	plan := NewPlan("Subject", "Body", res.Recipients)
-	created, err := store.CreateBatch(ctx, CreateBatchParams{
+	created, err := store.CreateBatch(ctx, Batch{
 		CreatedBy: userID,
 		Status:    BatchRunning,
 		Plan:      plan,
