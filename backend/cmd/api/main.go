@@ -32,6 +32,19 @@ import (
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
+	// The shell and Make do not load .env, and `go run` is started from backend/.
+	envFile, fromExample, err := config.LoadDevEnv()
+	if err != nil {
+		logger.Error("load env file", "err", err)
+		os.Exit(1)
+	}
+	switch {
+	case fromExample:
+		logger.Warn("no .env file, using .env.example (test data, DRY_RUN=true); copy it to .env to change settings", "file", envFile)
+	case envFile != "":
+		logger.Info("loaded env file", "file", envFile)
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		logger.Error("invalid configuration", "err", err)
