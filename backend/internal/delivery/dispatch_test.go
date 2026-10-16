@@ -288,3 +288,29 @@ func TestDispatchWithObserverTracksProgress(t *testing.T) {
 		t.Errorf("observed = %v, want [sending, sent]", observed)
 	}
 }
+
+func TestDispatchWithObserverContinuesOnObserverError(t *testing.T) {
+	sms := &scriptedSender{channel: providers.ChannelSMS}
+	d, _ := newTestDispatcher(t, DefaultRetryPolicy(), sms)
+
+	plan := NewPlan("Subject", "Body", []groups.Resolved{
+		resolved(id1, "Anna", "", "+48500100101"),
+	})
+
+	calls := 0
+	obs := DeliveryObserverFunc(func(_ context.Context, _ string, _ Delivery) error {
+		calls++
+		return errors.New("observer boom")
+	})
+
+	out, err := d.DispatchWithObserver(context.Background(), plan, obs)
+	if err != nil {
+		t.Fatalf("DispatchWithObserver err = %v, want nil even if observer fails", err)
+	}
+	if out.Recipients[0].Deliveries[0].Status != StatusSent {
+		t.Errorf("delivery status = %s, want sent", out.Recipients[0].Deliveries[0].Status)
+	}
+	if calls != 2 {
+		t.Errorf("observer calls = %d, want 2", calls)
+	}
+}

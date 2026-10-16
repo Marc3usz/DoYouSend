@@ -15,9 +15,6 @@ CREATE TABLE unmatched_delivery_reports (
     PRIMARY KEY (provider_message_id, channel)
 );
 
-CREATE INDEX unmatched_delivery_reports_lookup_idx
-    ON unmatched_delivery_reports (provider_message_id, channel);
-
 CREATE OR REPLACE FUNCTION apply_unmatched_delivery_report()
 RETURNS TRIGGER AS $$
 DECLARE

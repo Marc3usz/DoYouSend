@@ -42,7 +42,7 @@ func TestPGDeliveryReportConsumer_NilPool(t *testing.T) {
 		t.Fatal("expected error for nil consumer, got nil")
 	}
 
-	c2 := NewPGDeliveryReportConsumer(nil)
+	c2 := NewPGDeliveryReportConsumer(nil, nil)
 	err = c2.ConsumeDeliveryReports(context.Background(), []DeliveryReport{{ProviderMessageID: "1"}})
 	if err == nil {
 		t.Fatal("expected error for nil pool, got nil")
@@ -53,11 +53,27 @@ func TestPGDeliveryReportConsumer_EmptyReports(t *testing.T) {
 	t.Parallel()
 
 	// An empty slice should return nil without touching the pool
-	c := NewPGDeliveryReportConsumer(nil)
+	c := NewPGDeliveryReportConsumer(nil, nil)
 	if err := c.ConsumeDeliveryReports(context.Background(), nil); err != nil {
 		t.Errorf("expected nil for empty slice, got %v", err)
 	}
 	if err := c.ConsumeDeliveryReports(context.Background(), []DeliveryReport{}); err != nil {
 		t.Errorf("expected nil for empty slice, got %v", err)
+	}
+}
+
+func TestPGDeliveryReportConsumer_PruneUnmatchedReports_NilPool(t *testing.T) {
+	t.Parallel()
+
+	var c *PGDeliveryReportConsumer
+	_, err := c.PruneUnmatchedReports(context.Background(), 0)
+	if err == nil {
+		t.Fatal("expected error for nil consumer, got nil")
+	}
+
+	c2 := NewPGDeliveryReportConsumer(nil, nil)
+	_, err = c2.PruneUnmatchedReports(context.Background(), 0)
+	if err == nil {
+		t.Fatal("expected error for nil pool, got nil")
 	}
 }

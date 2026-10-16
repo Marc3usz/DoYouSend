@@ -98,11 +98,15 @@ func (d *Dispatcher) DispatchWithObserver(ctx context.Context, plan Plan, obs De
 			if obs != nil {
 				sending := r.Deliveries[j]
 				sending.Status = StatusSending
-				_ = obs.OnDelivery(ctx, r.RecipientID, sending)
+				if err := obs.OnDelivery(ctx, r.RecipientID, sending); err != nil {
+					d.logger.Warn("delivery observer failed", "recipient_id", r.RecipientID, "channel", r.Deliveries[j].Channel, "err", err)
+				}
 			}
 			r.Deliveries[j] = d.send(ctx, out.Subject, r.RecipientID, r.Body, r.Deliveries[j])
 			if obs != nil {
-				_ = obs.OnDelivery(context.WithoutCancel(ctx), r.RecipientID, r.Deliveries[j])
+				if err := obs.OnDelivery(context.WithoutCancel(ctx), r.RecipientID, r.Deliveries[j]); err != nil {
+					d.logger.Warn("delivery observer failed", "recipient_id", r.RecipientID, "channel", r.Deliveries[j].Channel, "err", err)
+				}
 			}
 			if err := ctx.Err(); err != nil {
 				return out, fmt.Errorf("dispatch batch: %w", err)

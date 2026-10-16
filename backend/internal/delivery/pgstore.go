@@ -170,6 +170,18 @@ func (s *PGStore) SaveOutcome(ctx context.Context, batchID string, plan Plan) er
 			return fmt.Errorf("lock batch: %w", err)
 		}
 		if len(cols.keys) > 0 {
+			// Acquire transaction advisory locks ordered deterministically to prevent deadlocks
+			// with concurrent delivery report consumers (Issue #42, ADR-0011).
+			_, err = tx.Exec(ctx, `
+				SELECT pg_advisory_xact_lock(hashtext(m || ':' || c))
+				FROM unnest($1::text[], $2::text[]) AS t(m, c)
+				WHERE m IS NOT NULL AND m <> ''
+				ORDER BY hashtext(m || ':' || c)`,
+				cols.messageIDs, cols.channels)
+			if err != nil {
+				return fmt.Errorf("lock deliveries: %w", err)
+			}
+
 			_, err = tx.Exec(ctx, `
 				UPDATE deliveries d
 				SET status = o.status::channel_status, attempts = o.attempts,
@@ -213,21 +225,18 @@ func (s *PGStore) SaveOutcome(ctx context.Context, batchID string, plan Plan) er
 func (s *PGStore) SaveDelivery(ctx context.Context, batchID string, recipientID string, d Delivery) error {
 	id := strings.ToLower(batchID)
 	recID := strings.ToLower(recipientID)
-	if !groups.IsValidID(id) {
+	if !groups.IsValidID(id) || !groups.IsValidID(recID) {
 		return fmt.Errorf("save delivery of batch %s: %w", batchID, ErrBatchNotFound)
 	}
 
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		var exists bool
-		err := tx.QueryRow(ctx, `SELECT true FROM message_batches WHERE id = $1`, id).Scan(&exists)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrBatchNotFound
-		}
-		if err != nil {
-			return fmt.Errorf("query batch: %w", err)
+		if d.ProviderMessageID != "" {
+			if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1 || ':' || $2))`, d.ProviderMessageID, string(d.Channel)); err != nil {
+				return fmt.Errorf("lock delivery: %w", err)
+			}
 		}
 
-		_, err = tx.Exec(ctx, `
+		tag, err := tx.Exec(ctx, `
 			UPDATE deliveries d
 			SET status = $4::channel_status, attempts = $5,
 				provider_message_id = nullif($6, ''), error = nullif($7, ''),
@@ -240,6 +249,17 @@ func (s *PGStore) SaveDelivery(ctx context.Context, batchID string, recipientID 
 			id, recID, string(d.Channel), string(d.Status), d.Attempts, d.ProviderMessageID, d.Error)
 		if err != nil {
 			return fmt.Errorf("update delivery: %w", err)
+		}
+
+		if tag.RowsAffected() == 0 {
+			var exists bool
+			err := tx.QueryRow(ctx, `SELECT true FROM message_batches WHERE id = $1`, id).Scan(&exists)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrBatchNotFound
+			}
+			if err != nil {
+				return fmt.Errorf("query batch: %w", err)
+			}
 		}
 		return nil
 	})
