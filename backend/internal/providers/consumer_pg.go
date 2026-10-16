@@ -183,3 +183,42 @@ func (c *PGDeliveryReportConsumer) PruneUnmatchedReports(ctx context.Context, ma
 	}
 	return tag.RowsAffected(), nil
 }
+
+// StartCleaner runs PruneUnmatchedReports immediately on startup, and then periodically
+// every interval until ctx is cancelled. If interval <= 0, 24 hours is used.
+// If maxAge <= 0, 7 days is used.
+func (c *PGDeliveryReportConsumer) StartCleaner(ctx context.Context, interval time.Duration, maxAge time.Duration) {
+	if c == nil || c.pool == nil {
+		return
+	}
+	if interval <= 0 {
+		interval = 24 * time.Hour
+	}
+	if maxAge <= 0 {
+		maxAge = 7 * 24 * time.Hour
+	}
+
+	go func() {
+		if deleted, err := c.PruneUnmatchedReports(ctx, maxAge); err != nil {
+			c.logger.Warn("initial prune of unmatched delivery reports failed", "err", err)
+		} else if deleted > 0 {
+			c.logger.Info("pruned unmatched delivery reports on startup", "deleted", deleted)
+		}
+
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if deleted, err := c.PruneUnmatchedReports(ctx, maxAge); err != nil {
+					c.logger.Warn("periodic prune of unmatched delivery reports failed", "err", err)
+				} else if deleted > 0 {
+					c.logger.Info("periodic prune of unmatched delivery reports", "deleted", deleted)
+				}
+			}
+		}
+	}()
+}

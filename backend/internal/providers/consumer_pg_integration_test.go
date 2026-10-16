@@ -458,3 +458,65 @@ func TestPGDeliveryReportConsumer_PruneUnmatchedReports(t *testing.T) {
 		t.Errorf("recentCount = %d, want 1", recentCount)
 	}
 }
+
+func TestPGDeliveryReportConsumer_StartCleaner(t *testing.T) {
+	pool := dbtest.New(t)
+	setupDeliveryFixtures(t, pool)
+
+	consumer := NewPGDeliveryReportConsumer(pool, nil)
+	ctx := context.Background()
+
+	// 1. Insert an old report (10 days old)
+	_, err := pool.Exec(ctx, `
+		INSERT INTO unmatched_delivery_reports (provider_message_id, channel, status, created_at, updated_at)
+		VALUES ('cleaner-old-id', 'sms', 'delivered', now() - interval '10 days', now() - interval '10 days')
+	`)
+	if err != nil {
+		t.Fatalf("insert old unmatched report: %v", err)
+	}
+
+	cleanerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// 2. Start cleaner with short interval (30ms) and 7-day maxAge
+	consumer.StartCleaner(cleanerCtx, 30*time.Millisecond, 7*24*time.Hour)
+
+	// Wait for initial prune on startup to complete
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var count int
+		_ = pool.QueryRow(ctx, `SELECT count(*) FROM unmatched_delivery_reports WHERE provider_message_id = 'cleaner-old-id'`).Scan(&count)
+		if count == 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	var count int
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM unmatched_delivery_reports WHERE provider_message_id = 'cleaner-old-id'`).Scan(&count)
+	if count != 0 {
+		t.Errorf("cleaner did not prune old report on startup, count = %d", count)
+	}
+
+	// 3. Insert a second old report to verify periodic ticker prunes it
+	_, err = pool.Exec(ctx, `
+		INSERT INTO unmatched_delivery_reports (provider_message_id, channel, status, created_at, updated_at)
+		VALUES ('cleaner-second-id', 'sms', 'delivered', now() - interval '10 days', now() - interval '10 days')
+	`)
+	if err != nil {
+		t.Fatalf("insert second old unmatched report: %v", err)
+	}
+
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		_ = pool.QueryRow(ctx, `SELECT count(*) FROM unmatched_delivery_reports WHERE provider_message_id = 'cleaner-second-id'`).Scan(&count)
+		if count == 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM unmatched_delivery_reports WHERE provider_message_id = 'cleaner-second-id'`).Scan(&count)
+	if count != 0 {
+		t.Errorf("cleaner did not prune second old report on ticker, count = %d", count)
+	}
+}

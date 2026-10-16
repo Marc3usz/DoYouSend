@@ -77,3 +77,14 @@ func TestPGDeliveryReportConsumer_PruneUnmatchedReports_NilPool(t *testing.T) {
 		t.Fatal("expected error for nil pool, got nil")
 	}
 }
+
+func TestPGDeliveryReportConsumer_StartCleaner_NilPool(t *testing.T) {
+	t.Parallel()
+
+	var c *PGDeliveryReportConsumer
+	// Should not panic
+	c.StartCleaner(context.Background(), 0, 0)
+
+	c2 := NewPGDeliveryReportConsumer(nil, nil)
+	c2.StartCleaner(context.Background(), 0, 0)
+}
