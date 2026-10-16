@@ -51,6 +51,9 @@ type Store interface {
 	// The batch status is derived from the merged deliveries, and FinishedAt is set
 	// once, when the batch first finishes.
 	SaveOutcome(ctx context.Context, batchID string, plan Plan) error
+	// SaveDelivery records an incremental delivery progress update for one recipient and
+	// channel, enforcing the forward-only Advance lifecycle.
+	SaveDelivery(ctx context.Context, batchID string, recipientID string, d Delivery) error
 	// Batch returns one batch, or ErrBatchNotFound.
 	Batch(ctx context.Context, id string) (Batch, error)
 }
