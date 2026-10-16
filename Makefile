@@ -2,6 +2,14 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := help
 COMPOSE := docker compose
 
+# Backend czyta tylko zmienne srodowiska i nie laduje .env sam, wiec cele, ktore go uruchamiaja,
+# wczytuja .env (bez ewentualnych znakow CR z Windows). Bez .env uzywaja .env.example:
+# dane testowe, DRY_RUN=true i providerzy fake/Mailpit.
+LOAD_ENV = set -a; \
+  if [ -f .env ]; then . <(tr -d '\r' < .env); \
+  else echo "brak .env - uzywam .env.example (dane testowe, DRY_RUN=true)"; . <(tr -d '\r' < .env.example); fi; \
+  set +a;
+
 .PHONY: help doctor up down logs migrate seed create-admin dev-api dev-web build test test-integration check fmt lint-go lint-web
 
 help: ## Lista dostepnych komend
@@ -27,10 +35,10 @@ seed: ## Wgrywa fikcyjne dane demonstracyjne
 	@bash scripts/seed.sh
 
 create-admin: ## Pierwszy administrator albo nowe haslo: make create-admin EMAIL=admin@example.test NAME="Imie Nazwisko"
-	cd backend && go run ./cmd/create-admin -email "$(EMAIL)" -name "$(NAME)"
+	@$(LOAD_ENV) cd backend && go run ./cmd/create-admin -email "$(EMAIL)" -name "$(NAME)"
 
-dev-api: ## API na :8080
-	cd backend && go run ./cmd/api
+dev-api: ## API na :8080 (wczytuje .env)
+	@$(LOAD_ENV) cd backend && go run ./cmd/api
 
 dev-web: ## UI na :5173
 	cd frontend && npm run dev
@@ -44,7 +52,7 @@ test: ## Testy backendu i frontendu
 	cd frontend && npm run test
 
 test-integration: ## Testy backendu na prawdziwym Postgresie (wymaga TEST_DATABASE_URL, make up)
-	cd backend && go test -tags integration -count=1 ./...
+	@$(LOAD_ENV) cd backend && go test -tags integration -count=1 ./...
 
 check: lint-go lint-web ## Wszystkie kontrole (to samo co CI)
 
