@@ -598,4 +598,3 @@ func TestSendGrid_GetProfile_ContextCancelled(t *testing.T) {
 		t.Errorf("error = %v, want context.Canceled", err)
 	}
 }
-

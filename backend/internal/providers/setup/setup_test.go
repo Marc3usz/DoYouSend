@@ -512,4 +512,3 @@ func TestProviders_EmailProfiler_NilReceiver(t *testing.T) {
 		t.Errorf("EmailProfiler() on nil receiver = %v, want nil", prof)
 	}
 }
-

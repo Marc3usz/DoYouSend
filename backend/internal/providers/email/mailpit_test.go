@@ -382,4 +382,3 @@ func TestMailpit_GetProfile(t *testing.T) {
 		t.Errorf("RemainCredits = %v, want nil", profile.RemainCredits)
 	}
 }
-
