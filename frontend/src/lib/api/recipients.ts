@@ -173,3 +173,32 @@ export function updateRecipient(
 export function deleteRecipient(id: string, fetch?: typeof globalThis.fetch): Promise<void> {
 	return api<void>(`/recipients/${encodeURIComponent(id)}`, { method: 'DELETE', fetch });
 }
+
+export type RecipientCounts = {
+	total: number;
+	parents: number;
+	students: number;
+	/** People without a working e-mail (missing or invalid). */
+	noEmail: number;
+	/** People without a working phone number (missing or invalid). */
+	noPhone: number;
+};
+
+/**
+ * Counts for the data-quality panel. There is no stats endpoint, so this asks
+ * GET /recipients for one row five times and reads only `total`.
+ */
+export async function getRecipientCounts(
+	fetch?: typeof globalThis.fetch
+): Promise<RecipientCounts> {
+	const total = (query: RecipientListQuery) =>
+		listRecipients({ ...query, limit: 1 }, fetch).then((p) => p.total);
+	const [all, parents, students, noEmail, noPhone] = await Promise.all([
+		total({}),
+		total({ type: 'parent' }),
+		total({ type: 'student' }),
+		total({ issue: 'email' }),
+		total({ issue: 'sms' })
+	]);
+	return { total: all, parents, students, noEmail, noPhone };
+}
