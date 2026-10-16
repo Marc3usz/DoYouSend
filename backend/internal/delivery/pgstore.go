@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/groups"
+	"github.com/Marc3usz/DoYouSend/backend/internal/platform/database"
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
 )
 
@@ -39,12 +40,16 @@ func (s *PGStore) CreateBatch(ctx context.Context, b Batch) (Batch, error) {
 		err := tx.QueryRow(ctx, `
 			INSERT INTO message_batches (subject, body, status, created_by, confirmed_by,
 				selected_groups, selected_recipient_ids, recipient_count, sms_part_count,
-				estimated_cost, confirmed_at)
-			VALUES ($1, $2, $3::text::batch_status, $4, $4, $5, $6::uuid[], $7, $8, $9::bigint / 1000.0, now())
-			RETURNING id::text, created_at`,
+				estimated_cost, confirmed_at, idempotency_key, request_hash)
+			VALUES ($1, $2, $3::text::batch_status, $4, $4, $5, $6::uuid[], $7, $8, $9::bigint / 1000.0, now(),
+				nullif($10, '')::uuid, nullif($11, ''))
+			RETURNING id::text, created_at, (SELECT full_name FROM users WHERE id = created_by)`,
 			b.Subject, b.Body, string(b.Status), b.CreatedBy, groupsJSON, nonNil(b.RecipientIDs),
-			len(b.Plan.Recipients), b.SMSParts, b.CostMilli,
-		).Scan(&b.ID, &b.CreatedAt)
+			len(b.Plan.Recipients), b.SMSParts, b.CostMilli, b.IdempotencyKey, b.RequestHash,
+		).Scan(&b.ID, &b.CreatedAt, &b.CreatedByName)
+		if constraint, ok := database.UniqueViolation(err); ok && constraint == "message_batches_idempotency_key" {
+			return ErrDuplicateKey
+		}
 		if err != nil {
 			return fmt.Errorf("insert batch: %w", err)
 		}
@@ -54,6 +59,7 @@ func (s *PGStore) CreateBatch(ctx context.Context, b Batch) (Batch, error) {
 		return Batch{}, fmt.Errorf("create batch: %w", err)
 	}
 	b.Plan = b.Plan.clone()
+	b.Counts = b.Plan.Counts()
 	b.Groups = append([]GroupRef(nil), b.Groups...)
 	b.RecipientIDs = append([]string(nil), b.RecipientIDs...)
 	return b, nil
@@ -225,12 +231,14 @@ func (s *PGStore) Batch(ctx context.Context, id string) (Batch, error) {
 	snapshot := pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}
 	err := pgx.BeginTxFunc(ctx, s.pool, snapshot, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `
-			SELECT id::text, subject, body, created_by::text, selected_groups,
-				selected_recipient_ids::text[], status::text, sms_part_count,
-				(estimated_cost * 1000)::bigint, created_at, finished_at
-			FROM message_batches WHERE id = $1`, id,
-		).Scan(&b.ID, &b.Subject, &b.Body, &b.CreatedBy, &groupsJSON, &b.RecipientIDs,
-			&status, &b.SMSParts, &b.CostMilli, &b.CreatedAt, &finishedAt)
+			SELECT b.id::text, b.subject, b.body, b.created_by::text, u.full_name, b.selected_groups,
+				b.selected_recipient_ids::text[], b.status::text, b.sms_part_count,
+				(b.estimated_cost * 1000)::bigint, b.created_at, b.finished_at,
+				coalesce(b.idempotency_key::text, ''), coalesce(b.request_hash, '')
+			FROM message_batches b JOIN users u ON u.id = b.created_by
+			WHERE b.id = $1`, id,
+		).Scan(&b.ID, &b.Subject, &b.Body, &b.CreatedBy, &b.CreatedByName, &groupsJSON, &b.RecipientIDs,
+			&status, &b.SMSParts, &b.CostMilli, &b.CreatedAt, &finishedAt, &b.IdempotencyKey, &b.RequestHash)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrBatchNotFound
 		}
@@ -247,10 +255,97 @@ func (s *PGStore) Batch(ctx context.Context, id string) (Batch, error) {
 		return Batch{}, fmt.Errorf("batch %s: decode groups: %w", id, err)
 	}
 	b.Status = BatchStatus(status)
+	b.Counts = b.Plan.Counts()
 	if finishedAt != nil {
 		b.FinishedAt = *finishedAt
 	}
 	return b, nil
+}
+
+// BatchByKey implements Store.
+func (s *PGStore) BatchByKey(ctx context.Context, createdBy, key string) (Batch, error) {
+	createdBy, key = strings.ToLower(createdBy), strings.ToLower(key)
+	if !groups.IsValidID(createdBy) || !groups.IsValidID(key) {
+		return Batch{}, fmt.Errorf("batch with key %s: %w", key, ErrBatchNotFound)
+	}
+	var id string
+	err := s.pool.QueryRow(ctx, `
+		SELECT id::text FROM message_batches WHERE created_by = $1 AND idempotency_key = $2`,
+		createdBy, key).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Batch{}, fmt.Errorf("batch with key %s: %w", key, ErrBatchNotFound)
+	}
+	if err != nil {
+		return Batch{}, fmt.Errorf("batch with key %s: %w", key, err)
+	}
+	return s.Batch(ctx, id)
+}
+
+// ListBatches implements Store. The counts come from the recipient and delivery rows
+// in the same query, so the list never loads whole plans.
+func (s *PGStore) ListBatches(ctx context.Context, f BatchFilter) ([]Batch, int, error) {
+	createdBy := strings.ToLower(f.CreatedBy)
+	if createdBy != "" && !groups.IsValidID(createdBy) {
+		return nil, 0, nil
+	}
+	const where = `WHERE ($1 = '' OR b.created_by::text = $1) AND ($2 = '' OR b.status::text = $2)`
+	var total int
+	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM message_batches b `+where,
+		createdBy, string(f.Status)).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("count batches: %w", err)
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT b.id::text, b.subject, b.created_by::text, u.full_name, b.selected_groups,
+			b.status::text, b.sms_part_count, (b.estimated_cost * 1000)::bigint,
+			b.created_at, b.finished_at, c.recipients, c.partial, c.failed
+		FROM message_batches b
+		JOIN users u ON u.id = b.created_by
+		CROSS JOIN LATERAL (
+			SELECT count(*) AS recipients,
+				count(*) FILTER (WHERE br.is_partial) AS partial,
+				count(*) FILTER (WHERE NOT EXISTS (
+					SELECT 1 FROM deliveries d WHERE d.batch_recipient_id = br.id
+				) OR EXISTS (
+					SELECT 1 FROM deliveries d
+					WHERE d.batch_recipient_id = br.id AND d.status = 'failed'
+				)) AS failed
+			FROM batch_recipients br WHERE br.batch_id = b.id
+		) c
+		`+where+`
+		ORDER BY b.created_at DESC, b.id DESC
+		LIMIT $3 OFFSET $4`,
+		createdBy, string(f.Status), f.Limit, f.Offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list batches: %w", err)
+	}
+	defer rows.Close()
+	var out []Batch
+	for rows.Next() {
+		var (
+			b          Batch
+			groupsJSON []byte
+			status     string
+			finishedAt *time.Time
+		)
+		if err := rows.Scan(&b.ID, &b.Subject, &b.CreatedBy, &b.CreatedByName, &groupsJSON,
+			&status, &b.SMSParts, &b.CostMilli, &b.CreatedAt, &finishedAt,
+			&b.Counts.Recipients, &b.Counts.Partial, &b.Counts.Failed); err != nil {
+			return nil, 0, fmt.Errorf("scan batch: %w", err)
+		}
+		if err := json.Unmarshal(groupsJSON, &b.Groups); err != nil {
+			return nil, 0, fmt.Errorf("batch %s: decode groups: %w", b.ID, err)
+		}
+		b.Status = BatchStatus(status)
+		if finishedAt != nil {
+			b.FinishedAt = *finishedAt
+		}
+		out = append(out, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("read batches: %w", err)
+	}
+	return out, total, nil
 }
 
 // loadPlan reads the recipients of a batch in plan order, each with its deliveries
@@ -263,11 +358,12 @@ func loadPlan(ctx context.Context, tx pgx.Tx, batchID string) (Plan, error) {
 		return Plan{}, fmt.Errorf("query plan subject: %w", err)
 	}
 	rows, err := tx.Query(ctx, `
-		SELECT br.recipient_id::text, br.rendered_body, br.is_partial,
+		SELECT br.recipient_id::text, r.first_name, r.last_name, br.rendered_body, br.is_partial,
 			coalesce(br.email_snapshot, ''), coalesce(br.phone_snapshot, ''),
 			d.channel::text, d.status::text, d.parts, d.attempts,
 			coalesce(d.provider_message_id, ''), coalesce(d.error, '')
 		FROM batch_recipients br
+		JOIN recipients r ON r.id = br.recipient_id
 		LEFT JOIN deliveries d ON d.batch_recipient_id = br.id
 		WHERE br.batch_id = $1
 		ORDER BY br.position, br.recipient_id, d.channel`, batchID)
@@ -283,7 +379,7 @@ func loadPlan(ctx context.Context, tx pgx.Tx, batchID string) (Plan, error) {
 			parts, attempts        *int
 			messageID, deliveryErr string
 		)
-		if err := rows.Scan(&r.RecipientID, &r.Body, &r.Partial, &email, &phone,
+		if err := rows.Scan(&r.RecipientID, &r.FirstName, &r.LastName, &r.Body, &r.Partial, &email, &phone,
 			&channel, &status, &parts, &attempts, &messageID, &deliveryErr); err != nil {
 			return Plan{}, fmt.Errorf("scan plan row: %w", err)
 		}

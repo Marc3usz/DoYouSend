@@ -34,10 +34,12 @@ func newPGStore(t *testing.T) (*PGStore, *pgxpool.Pool) {
 		VALUES ($1, 'nadawca@example.test', 'Nadawca Testowy', 'sender', 'x')`, userID); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
+	// Names as in testPlan: the store reads them from recipients.
+	names := []string{"Anna", "Jan", "", "Ewa"}
 	for i, id := range []string{pgBoth, pgEmail, pgSMS, pgNone} {
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO recipients (id, first_name, last_name, phone, type)
-			VALUES ($1, 'Osoba', 'Testowa', $2, 'parent')`, id, "+4850010010"+string(rune('1'+i))); err != nil {
+			VALUES ($1, $2, 'Testowy', $3, 'parent')`, id, names[i], "+4850010010"+string(rune('1'+i))); err != nil {
 			t.Fatalf("insert recipient %s: %v", id, err)
 		}
 	}
@@ -57,15 +59,16 @@ func testBatch() Batch {
 	plan := testPlan()
 	parts := plan.smsParts()
 	return Batch{
-		Subject:      "Zebranie",
-		Body:         "Czesc {{imie}}",
-		CreatedBy:    userID,
-		Groups:       []GroupRef{{ID: groupID, Name: "Rodzice uczniów klasy 3A"}},
-		RecipientIDs: []string{pgEmail},
-		Status:       BatchRunning,
-		SMSParts:     parts,
-		CostMilli:    int64(parts) * 65, // 0.065 zł a part: needs the third decimal
-		Plan:         plan,
+		Subject:       "Zebranie",
+		Body:          "Czesc {{imie}}",
+		CreatedBy:     userID,
+		CreatedByName: "Nadawca Testowy",
+		Groups:        []GroupRef{{ID: groupID, Name: "Rodzice uczniów klasy 3A"}},
+		RecipientIDs:  []string{pgEmail},
+		Status:        BatchRunning,
+		SMSParts:      parts,
+		CostMilli:     int64(parts) * 65, // 0.065 zł a part: needs the third decimal
+		Plan:          plan,
 	}
 }
 
@@ -100,7 +103,10 @@ func TestPGStoreCreateAndReadBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Batch() error = %v", err)
 	}
-	want.ID, want.CreatedAt = created.ID, got.CreatedAt
+	want.ID, want.CreatedAt, want.Counts = created.ID, got.CreatedAt, want.Plan.Counts()
+	if !reflect.DeepEqual(created.Counts, want.Counts) || created.CreatedByName != want.CreatedByName {
+		t.Errorf("CreateBatch() counts %+v, sender %q", created.Counts, created.CreatedByName)
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Batch() =\n%+v\nwant\n%+v", got, want)
 	}
@@ -260,5 +266,83 @@ func TestPGStoreWithService(t *testing.T) {
 	}
 	if got.Status != BatchDone || len(got.Groups) != 2 || got.CostMilli != int64(got.SMSParts)*65 {
 		t.Errorf("stored batch = %s, groups %v, cost %d for %d parts", got.Status, got.Groups, got.CostMilli, got.SMSParts)
+	}
+}
+
+func TestPGStoreIdempotencyKey(t *testing.T) {
+	store, _ := newPGStore(t)
+	ctx := context.Background()
+	const key = "00000000-0000-4000-8000-00000000c0de"
+	b := testBatch()
+	b.IdempotencyKey, b.RequestHash = key, "hash-1"
+
+	created, err := store.CreateBatch(ctx, b)
+	if err != nil {
+		t.Fatalf("CreateBatch() error = %v", err)
+	}
+	if _, err := store.CreateBatch(ctx, b); !errors.Is(err, ErrDuplicateKey) {
+		t.Errorf("second CreateBatch() error = %v; want ErrDuplicateKey", err)
+	}
+	got, err := store.BatchByKey(ctx, userID, key)
+	if err != nil || got.ID != created.ID || got.RequestHash != "hash-1" || got.IdempotencyKey != key {
+		t.Errorf("BatchByKey() = %s %q %q, %v; want %s with its hash", got.ID, got.RequestHash, got.IdempotencyKey, err, created.ID)
+	}
+	for _, tt := range []struct{ user, key string }{
+		{userID, "00000000-0000-4000-8000-00000000beef"},
+		{"00000000-0000-4000-8000-0000000000ab", key}, // keys are per sender
+		{userID, "not-a-uuid"},
+	} {
+		if _, err := store.BatchByKey(ctx, tt.user, tt.key); !errors.Is(err, ErrBatchNotFound) {
+			t.Errorf("BatchByKey(%s, %s) error = %v; want ErrBatchNotFound", tt.user, tt.key, err)
+		}
+	}
+}
+
+func TestPGStoreListBatches(t *testing.T) {
+	store, pool := newPGStore(t)
+	ctx := context.Background()
+	const other = "00000000-0000-4000-8000-0000000000ab"
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO users (id, email, full_name, role, password_hash)
+		VALUES ($1, 'admin@example.test', 'Admin Testowy', 'admin', 'x')`, other); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	var ids []string
+	for i, by := range []string{userID, other, userID} {
+		b := testBatch()
+		b.CreatedBy, b.Subject = by, "Wsad "+string(rune('A'+i))
+		created, err := store.CreateBatch(ctx, b)
+		if err != nil {
+			t.Fatalf("CreateBatch() error = %v", err)
+		}
+		ids = append(ids, created.ID)
+	}
+	if err := store.SaveOutcome(ctx, ids[0], outcome(testPlan(), StatusSent)); err != nil {
+		t.Fatalf("SaveOutcome() error = %v", err)
+	}
+
+	all, total, err := store.ListBatches(ctx, BatchFilter{Limit: 10})
+	if err != nil || total != 3 || len(all) != 3 {
+		t.Fatalf("ListBatches(all) = %d items, total %d, %v; want 3", len(all), total, err)
+	}
+	if all[0].ID != ids[2] || all[2].ID != ids[0] {
+		t.Errorf("order = %s, %s, %s; want newest first", all[0].ID, all[1].ID, all[2].ID)
+	}
+	first := all[2]
+	if first.Counts != (Counts{Recipients: 4, Partial: 2, Failed: 2}) || first.CreatedByName != "Nadawca Testowy" ||
+		first.Status != BatchDoneWithErrors || first.FinishedAt.IsZero() || len(first.Groups) != 1 || first.CostMilli != 65 {
+		t.Errorf("summary = %+v", first)
+	}
+	if len(first.Plan.Recipients) != 0 {
+		t.Error("ListBatches() loaded the plan")
+	}
+
+	mine, total, _ := store.ListBatches(ctx, BatchFilter{CreatedBy: userID, Limit: 1, Offset: 1})
+	if total != 2 || len(mine) != 1 || mine[0].ID != ids[0] {
+		t.Errorf("ListBatches(mine, page 2) = %v, total %d; want %s of 2", mine, total, ids[0])
+	}
+	running, total, _ := store.ListBatches(ctx, BatchFilter{Status: BatchRunning, Limit: 10})
+	if total != 2 || len(running) != 2 {
+		t.Errorf("ListBatches(running) total %d; want 2", total)
 	}
 }

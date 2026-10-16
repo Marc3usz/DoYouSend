@@ -2,10 +2,15 @@ package delivery
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/groups"
@@ -24,6 +29,13 @@ var (
 	ErrSelectionChanged = errors.New("selection refers to groups or recipients that no longer exist")
 	// ErrNoRecipients means the selection resolved to nobody.
 	ErrNoRecipients = errors.New("selection has no recipients")
+	// ErrInvalidKey means the idempotency key is not a UUID.
+	ErrInvalidKey = errors.New("idempotency key is not a valid UUID")
+	// ErrIdempotencyConflict means the idempotency key was already used for a
+	// different message or selection.
+	ErrIdempotencyConflict = errors.New("idempotency key reused with a different request")
+	// ErrShuttingDown means the server is stopping and takes no new batches.
+	ErrShuttingDown = errors.New("server is shutting down")
 )
 
 // SelectionChangedError lists what disappeared since the sender made the selection.
@@ -62,7 +74,11 @@ type Draft struct {
 	Body      string
 	Selection groups.Selection
 	// CreatedBy is the ID of the signed-in user confirming the send.
-	CreatedBy string
+	CreatedBy     string
+	CreatedByName string
+	// IdempotencyKey, when set, makes a repeated confirmation return the batch it
+	// created the first time instead of sending again.
+	IdempotencyKey string
 }
 
 // Service turns a confirmed draft into a sent, recorded batch.
@@ -73,6 +89,11 @@ type Service struct {
 	store             Store
 	pricePerPartMilli int64
 	logger            *slog.Logger
+	// running tracks Start calls and the dispatches they leave in the background, for
+	// Wait. closing, guarded by mu, stops new ones once Wait has begun.
+	mu      sync.Mutex
+	closing bool
+	running sync.WaitGroup
 }
 
 // NewService returns a Service pricing every SMS part at pricePerPartMilli thousandths
@@ -98,50 +119,156 @@ func NewService(resolver Resolver, lookup GroupLookup, dispatcher PlanDispatcher
 // closing the tab must not leave half the school unmessaged, CLAUDE.md rule 5);
 // ctx still carries its values. The returned batch holds the outcome. An error together
 // with a batch that has an ID means the batch was recorded but its outcome was not saved.
+// A repeated idempotency key returns the batch recorded the first time and sends nothing.
 func (s *Service) Send(ctx context.Context, d Draft) (Batch, error) {
-	if err := checkDraft(d); err != nil {
-		return Batch{}, fmt.Errorf("send batch: %w", err)
+	batch, replayed, err := s.record(ctx, d)
+	if err != nil || replayed {
+		return batch, err
 	}
+	return s.dispatch(context.WithoutCancel(ctx), batch)
+}
+
+// Start does what Send does but returns as soon as the batch is recorded, with its
+// deliveries still pending; the dispatch goes on in the background (POST /batches
+// answers 202). replayed reports a repeated idempotency key: the batch is the one
+// recorded the first time and nothing is sent again. Wait blocks until every
+// background dispatch has finished.
+func (s *Service) Start(ctx context.Context, d Draft) (Batch, bool, error) {
+	if !s.enter() {
+		return Batch{}, false, fmt.Errorf("send batch: %w", ErrShuttingDown)
+	}
+	batch, replayed, err := s.record(ctx, d)
+	if err != nil || replayed {
+		s.running.Done()
+		return batch, replayed, err
+	}
+	go func(b Batch) {
+		defer s.running.Done()
+		if _, err := s.dispatch(context.WithoutCancel(ctx), b); err != nil {
+			s.logger.Error("batch dispatch", "batch_id", b.ID, "err", err)
+		}
+	}(batch)
+	return batch, false, nil
+}
+
+// enter registers a Start call, unless Wait has begun.
+func (s *Service) enter() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closing {
+		return false
+	}
+	s.running.Add(1)
+	return true
+}
+
+// Wait refuses new Start calls and blocks until every batch already started has been
+// dispatched and saved.
+func (s *Service) Wait() {
+	s.mu.Lock()
+	s.closing = true
+	s.mu.Unlock()
+	s.running.Wait()
+}
+
+// record checks the draft and saves the batch, or finds the one recorded under the
+// same idempotency key.
+func (s *Service) record(ctx context.Context, d Draft) (Batch, bool, error) {
+	d.IdempotencyKey = strings.ToLower(strings.TrimSpace(d.IdempotencyKey))
+	if err := checkDraft(d); err != nil {
+		return Batch{}, false, fmt.Errorf("send batch: %w", err)
+	}
+	hash, err := requestHash(d)
+	if err != nil {
+		return Batch{}, false, fmt.Errorf("send batch: %w", err)
+	}
+	if d.IdempotencyKey != "" {
+		if b, err := s.replay(ctx, d, hash); !errors.Is(err, ErrBatchNotFound) {
+			return b, err == nil, err
+		}
+	}
+
 	res, err := s.resolver.Resolve(ctx, d.Selection)
 	if err != nil {
-		return Batch{}, fmt.Errorf("send batch: %w", err)
+		return Batch{}, false, fmt.Errorf("send batch: %w", err)
 	}
 	if len(res.UnknownGroupIDs) > 0 || len(res.UnknownRecipientIDs) > 0 {
-		return Batch{}, fmt.Errorf("send batch: %w", &SelectionChangedError{
+		return Batch{}, false, fmt.Errorf("send batch: %w", &SelectionChangedError{
 			UnknownGroupIDs: res.UnknownGroupIDs, UnknownRecipientIDs: res.UnknownRecipientIDs,
 		})
 	}
 	if len(res.Recipients) == 0 {
-		return Batch{}, fmt.Errorf("send batch: %w", ErrNoRecipients)
+		return Batch{}, false, fmt.Errorf("send batch: %w", ErrNoRecipients)
 	}
 	refs, err := s.groupRefs(ctx, d.Selection.Normalize().GroupIDs)
 	if err != nil {
-		return Batch{}, fmt.Errorf("send batch: %w", err)
+		return Batch{}, false, fmt.Errorf("send batch: %w", err)
 	}
 
 	plan := NewPlan(d.Subject, d.Body, res.Recipients)
 	parts := plan.smsParts()
 	batch, err := s.store.CreateBatch(ctx, Batch{
-		Subject:      d.Subject,
-		Body:         d.Body,
-		CreatedBy:    d.CreatedBy,
-		Groups:       refs,
-		RecipientIDs: d.Selection.Normalize().RecipientIDs,
-		Status:       BatchRunning,
-		SMSParts:     parts,
-		CostMilli:    int64(parts) * s.pricePerPartMilli,
-		Plan:         plan,
+		Subject:        d.Subject,
+		Body:           d.Body,
+		CreatedBy:      d.CreatedBy,
+		CreatedByName:  d.CreatedByName,
+		IdempotencyKey: d.IdempotencyKey,
+		RequestHash:    hash,
+		Groups:         refs,
+		RecipientIDs:   d.Selection.Normalize().RecipientIDs,
+		Status:         BatchRunning,
+		SMSParts:       parts,
+		CostMilli:      int64(parts) * s.pricePerPartMilli,
+		Plan:           plan,
 	})
-	if err != nil {
-		return Batch{}, fmt.Errorf("send batch: record: %w", err)
+	if errors.Is(err, ErrDuplicateKey) {
+		// A concurrent request with the same key won the race.
+		b, err := s.replay(ctx, d, hash)
+		return b, err == nil, err
 	}
+	if err != nil {
+		return Batch{}, false, fmt.Errorf("send batch: record: %w", err)
+	}
+	return batch, false, nil
+}
 
-	detached := context.WithoutCancel(ctx)
-	sent, dispatchErr := s.dispatcher.Dispatch(detached, batch.Plan)
+// replay returns the batch recorded under the draft's idempotency key, provided it
+// came from the same request; ErrBatchNotFound when the key is new.
+func (s *Service) replay(ctx context.Context, d Draft, hash string) (Batch, error) {
+	b, err := s.store.BatchByKey(ctx, d.CreatedBy, d.IdempotencyKey)
+	if err != nil {
+		return Batch{}, fmt.Errorf("send batch: find key: %w", err)
+	}
+	if b.RequestHash != hash {
+		return Batch{}, fmt.Errorf("send batch %s: %w", b.ID, ErrIdempotencyConflict)
+	}
+	return b, nil
+}
+
+// requestHash fingerprints what a sender confirmed, to tell a repeated request from a
+// key reused for another message. Selection order and repeats do not matter.
+func requestHash(d Draft) (string, error) {
+	sel := d.Selection.Normalize()
+	data, err := json.Marshal([]any{d.Subject, d.Body,
+		slices.Sorted(slices.Values(sel.GroupIDs)),
+		slices.Sorted(slices.Values(sel.RecipientIDs)),
+		slices.Sorted(slices.Values(sel.ExcludedRecipientIDs))})
+	if err != nil {
+		return "", fmt.Errorf("hash request: %w", err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// dispatch sends a recorded batch and saves the outcome. ctx must not be cancelled
+// by the caller going away.
+func (s *Service) dispatch(ctx context.Context, batch Batch) (Batch, error) {
+	sent, dispatchErr := s.dispatcher.Dispatch(ctx, batch.Plan)
 	batch.Plan = sent
 	batch.Status = sent.Status()
+	batch.Counts = sent.Counts()
 
-	saveCtx, cancel := context.WithTimeout(detached, saveTimeout)
+	saveCtx, cancel := context.WithTimeout(ctx, saveTimeout)
 	defer cancel()
 	if err := s.store.SaveOutcome(saveCtx, batch.ID, sent); err != nil {
 		s.logger.Error("batch outcome not saved", "batch_id", batch.ID, "err", err)
@@ -163,6 +290,8 @@ func checkDraft(d Draft) error {
 		return messaging.ErrEmptyBody
 	case !groups.IsValidID(d.CreatedBy):
 		return ErrInvalidUser
+	case d.IdempotencyKey != "" && !groups.IsValidID(d.IdempotencyKey):
+		return ErrInvalidKey
 	}
 	if unknown := messaging.UnknownPlaceholders(d.Body); len(unknown) > 0 {
 		return fmt.Errorf("%w: %s", ErrUnknownPlaceholders, strings.Join(unknown, ", "))
