@@ -434,11 +434,11 @@ func TestProviders_EmailProfiler_DryRunRealSendGridReturnsNil(t *testing.T) {
 	t.Parallel()
 
 	cfg := Config{
-		EmailProvider:    "sendgrid",
-		SendGridAPIKey:   "test-key",
-		SendGridSender:   "school@example.test",
-		SMSProvider:      "fake",
-		DryRun:           true,
+		EmailProvider:  "sendgrid",
+		SendGridAPIKey: "test-key",
+		SendGridSender: "school@example.test",
+		SMSProvider:    "fake",
+		DryRun:         true,
 	}
 
 	p, err := New(cfg, nil)
