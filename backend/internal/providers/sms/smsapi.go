@@ -140,11 +140,22 @@ func (s *SMSAPI) GetProfile(ctx context.Context) (Profile, error) {
 		return Profile{}, fmt.Errorf("smsapi get profile: unexpected status %d", resp.StatusCode)
 	}
 
-	var p Profile
-	if err := json.Unmarshal(body, &p); err != nil {
+	var raw struct {
+		Points   *float64 `json:"points"`
+		Name     string   `json:"name"`
+		UserType string   `json:"user_type"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
 		return Profile{}, fmt.Errorf("smsapi get profile: parse json: %w", err)
 	}
-	return p, nil
+	if raw.Points == nil {
+		return Profile{}, fmt.Errorf("smsapi get profile: missing points in response")
+	}
+	return Profile{
+		Points:   *raw.Points,
+		Name:     raw.Name,
+		UserType: raw.UserType,
+	}, nil
 }
 
 // Channel returns providers.ChannelSMS.

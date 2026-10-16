@@ -1,8 +1,10 @@
 package sms
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/httpx"
 )
@@ -22,10 +24,7 @@ func HandleProfile(profiler Profiler, logger *slog.Logger) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			httpx.Error(w, http.StatusMethodNotAllowed, httpx.ErrorBody{
-				Code:    "method_not_allowed",
-				Message: "method not allowed",
-			})
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
@@ -37,7 +36,10 @@ func HandleProfile(profiler Profiler, logger *slog.Logger) http.Handler {
 			return
 		}
 
-		profile, err := profiler.GetProfile(r.Context())
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		profile, err := profiler.GetProfile(ctx)
 		if err != nil {
 			logger.Error("failed to retrieve sms profile", "err", err)
 			httpx.Error(w, http.StatusBadGateway, httpx.ErrorBody{

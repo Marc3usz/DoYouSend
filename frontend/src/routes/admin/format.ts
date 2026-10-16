@@ -28,6 +28,9 @@ export function pointsText(points: number): string {
 	return `${pointsFormat.format(points)} pkt`;
 }
 
+/** Points balance below which the admin dashboard shows a low balance warning. */
+export const LOW_POINTS_THRESHOLD = 50;
+
 const dateTime = new Intl.DateTimeFormat('pl-PL', {
 	dateStyle: 'medium',
 	timeStyle: 'short',

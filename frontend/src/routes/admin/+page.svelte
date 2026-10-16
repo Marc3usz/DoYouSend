@@ -1,6 +1,14 @@
 <script lang="ts">
 	import type { PageProps } from './$types';
-	import { actionText, actorText, dateTimeText, plnText, pointsText, setupChecks } from './format';
+	import {
+		actionText,
+		actorText,
+		dateTimeText,
+		LOW_POINTS_THRESHOLD,
+		plnText,
+		pointsText,
+		setupChecks
+	} from './format';
 
 	let { data }: PageProps = $props();
 
@@ -43,8 +51,12 @@
 			<hr class="divider" />
 			<div class="profile-box">
 				<div class="profile-header">
-					<strong>Stan konta SMSAPI</strong>
-					{#if data.profile.points < 50}
+					<strong
+						>Stan konta SMSAPI {#if data.config?.sms.provider === 'fake'}<span class="badge-test"
+								>(tryb testowy)</span
+							>{/if}</strong
+					>
+					{#if data.config?.sms.provider !== 'fake' && data.profile.points < LOW_POINTS_THRESHOLD}
 						<span class="badge-warn" title="Niski stan punktów SMSAPI — doładuj konto"
 							>Niski stan</span
 						>
@@ -52,13 +64,21 @@
 				</div>
 				<dl>
 					<dt>Dostępne punkty</dt>
-					<dd class={data.profile.points < 50 ? 'points-low' : 'points-ok'}>
+					<dd
+						class={data.config?.sms.provider !== 'fake' &&
+						data.profile.points < LOW_POINTS_THRESHOLD
+							? 'points-low'
+							: 'points-ok'}
+					>
 						{pointsText(data.profile.points)}
 					</dd>
 					<dt>Konto / profil</dt>
 					<dd>{data.profile.name} ({data.profile.userType})</dd>
 				</dl>
 			</div>
+		{:else if data.config?.sms.provider === 'smsapi' && !data.config?.dryRun}
+			<hr class="divider" />
+			<p class="error" role="alert">Nie udało się wczytać stanu konta SMSAPI.</p>
 		{/if}
 	</section>
 
@@ -258,5 +278,11 @@
 	.points-ok {
 		color: #1a7f37;
 		font-weight: 600;
+	}
+	.badge-test {
+		font-size: 0.8em;
+		font-weight: normal;
+		color: #666;
+		margin-left: 0.25rem;
 	}
 </style>

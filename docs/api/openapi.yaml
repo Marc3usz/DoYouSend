@@ -605,7 +605,8 @@ paths:
       summary: Stan konta i saldo punktow operatora SMS (SMSAPI)
       description: |
         Pobiera aktualny profil i saldo punktow bezposrednio z SMSAPI (GET https://api.smsapi.pl/profile).
-        W srodowisku fake zwraca zasymulowane wartosci (500 punktow). Wymaga roli administratora.
+        W srodowisku testowym (fake) zwraca atrape salda. W trybie DRY_RUN dla zewnetrznego operatora zwraca 501
+        not_supported, by nie wykonywac polaczen do operatora (CLAUDE.md niezmiennik 5). Wymaga roli administratora.
       responses:
         "200":
           description: OK
@@ -1030,6 +1031,8 @@ components:
             - email_taken          # POST /users: e-mail ma juz inne konto
             - last_admin           # PATCH /users/{id}: ostatni aktywny administrator
             - self_lockout         # PATCH /users/{id}: administrator nie zablokuje ani nie zdegraduje siebie
+            - not_supported        # operacja nieobslugiwana przez skonfigurowanego operatora (501)
+            - provider_error       # blad komunikacji z zewnetrznym operatorem (502)
             - internal
         message: { type: string, description: "Szczegol diagnostyczny po angielsku, nie do wyswietlania wprost" }
         fields:

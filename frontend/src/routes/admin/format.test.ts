@@ -6,6 +6,7 @@ import {
 	actorText,
 	currentMonth,
 	detailsText,
+	LOW_POINTS_THRESHOLD,
 	plnText,
 	pointsText,
 	setupChecks
@@ -46,6 +47,10 @@ describe('pointsText', () => {
 		[1234.56, '1 234,56 pkt']
 	])('formats %d points as %s', (points, want) => {
 		expect(spaces(pointsText(points))).toBe(want);
+	});
+
+	it('defines warning threshold at 50 points', () => {
+		expect(LOW_POINTS_THRESHOLD).toBe(50);
 	});
 });
 
