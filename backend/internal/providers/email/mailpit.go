@@ -235,3 +235,10 @@ func classifySMTPError(recipientID string, err error) error {
 	// Default: treat unknown errors as transient to allow retry.
 	return providers.TransientError(wrap(err))
 }
+
+// GetProfile implements Profiler for Mailpit (local development / testing).
+func (m *Mailpit) GetProfile(_ context.Context) (Profile, error) {
+	return Profile{
+		Provider: "mailpit",
+	}, nil
+}

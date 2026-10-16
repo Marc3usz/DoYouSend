@@ -361,3 +361,25 @@ func TestMailpit_Send_LocalListenerSuccess(t *testing.T) {
 		t.Errorf("ProviderMessageID %q is not a valid Message-ID header format", res.ProviderMessageID)
 	}
 }
+
+func TestMailpit_GetProfile(t *testing.T) {
+	t.Parallel()
+
+	m := NewMailpit(MailpitConfig{
+		Host: "localhost",
+		Port: "1025",
+	}, nil)
+
+	profile, err := m.GetProfile(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected GetProfile error: %v", err)
+	}
+
+	if profile.Provider != "mailpit" {
+		t.Errorf("Provider = %q, want 'mailpit'", profile.Provider)
+	}
+	if profile.RemainCredits != nil {
+		t.Errorf("RemainCredits = %v, want nil", profile.RemainCredits)
+	}
+}
+

@@ -617,6 +617,24 @@ paths:
         "501": { $ref: "#/components/responses/Error" }
         "502": { $ref: "#/components/responses/Error" }
 
+  /admin/providers/email/profile:
+    get:
+      tags: [admin]
+      summary: Stan konta i limit wysylki operatora e-mail (SendGrid)
+      description: |
+        Pobiera aktualny profil i stan limitu kredytow z API SendGrid (GET https://api.sendgrid.com/v3/user/credits).
+        W srodowisku testowym (mailpit) zwraca informacje o trybie lokalnym. W trybie DRY_RUN dla zewnetrznego operatora zwraca 501
+        not_supported, by nie wykonywac polaczen do operatora (CLAUDE.md niezmiennik 5). Wymaga roli administratora.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmailProfile" }
+        "403": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+
   /stats/sms:
     get:
       tags: [admin]
@@ -812,6 +830,43 @@ components:
           type: string
           description: Typ uzytkownika w SMSAPI (np. developer, client)
           example: developer
+
+    EmailProfile:
+      type: object
+      required: [provider]
+      properties:
+        provider:
+          type: string
+          description: Identyfikator operatora e-mail (np. sendgrid, mailpit)
+          example: sendgrid
+        remainCredits:
+          type: integer
+          format: int64
+          nullable: true
+          description: Liczba pozostalych kredytow w biezacym okresie
+          example: 95
+        totalCredits:
+          type: integer
+          format: int64
+          nullable: true
+          description: Calkowity limit kredytow w biezacym okresie
+          example: 100
+        usedCredits:
+          type: integer
+          format: int64
+          nullable: true
+          description: Liczba wykorzystanych kredytow w biezacym okresie
+          example: 5
+        resetFrequency:
+          type: string
+          nullable: true
+          description: Czestotliwosc odnawiania limitu (np. day, month)
+          example: day
+        nextReset:
+          type: string
+          nullable: true
+          description: Data nastepnego odnowienia limitu
+          example: "2026-10-17"
 
     RecipientType:
       type: string

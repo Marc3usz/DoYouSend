@@ -31,6 +31,18 @@ export function pointsText(points: number): string {
 /** Points balance below which the admin dashboard shows a low balance warning. */
 export const LOW_POINTS_THRESHOLD = 50;
 
+/** Email credit limit below which the admin dashboard shows a low credits warning. */
+export const LOW_EMAIL_CREDITS_THRESHOLD = 20;
+
+/** Formats email credits (e.g. 95 / 100 -> "95 / 100 kredytów" or 95 -> "95 kredytów"). */
+export function creditsText(remain?: number, total?: number): string {
+	if (remain === undefined) return '—';
+	if (total !== undefined) {
+		return `${remain} / ${total} kredytów`;
+	}
+	return `${remain} kredytów`;
+}
+
 const dateTime = new Intl.DateTimeFormat('pl-PL', {
 	dateStyle: 'medium',
 	timeStyle: 'short',
