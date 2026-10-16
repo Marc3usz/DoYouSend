@@ -35,6 +35,7 @@ func TestRouteAccess(t *testing.T) {
 		{http.MethodGet, "/api/stats/sms", AccessAdmin},
 		{http.MethodGet, "/api/stats/email", AccessAdmin},
 		{http.MethodGet, "/api/admin/config", AccessAdmin},
+		{http.MethodGet, "/api/admin/providers/sms/profile", AccessAdmin},
 
 		// Segment matching, not a bare string prefix.
 		{http.MethodGet, "/api/usersfoo", AccessUser},
