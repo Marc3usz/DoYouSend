@@ -31,6 +31,10 @@ func main() {
 }
 
 func run() error {
+	// Before anything reads the environment: ADMIN_PASSWORD may come from .env.
+	if _, _, err := config.LoadDevEnv(); err != nil {
+		return fmt.Errorf("load env file: %w", err)
+	}
 	email := flag.String("email", "", "e-mail of the administrator (required)")
 	name := flag.String("name", "", "full name, required for a new account")
 	flag.Parse()
