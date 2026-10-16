@@ -436,7 +436,7 @@ func TestProviders_EmailProfiler_DryRunRealSendGridReturnsNil(t *testing.T) {
 	cfg := Config{
 		EmailProvider:  "sendgrid",
 		SendGridAPIKey: "test-key",
-		SendGridSender: "school@example.test",
+		EmailFrom:      "school@example.test",
 		SMSProvider:    "fake",
 		DryRun:         true,
 	}
@@ -484,7 +484,7 @@ func TestProviders_EmailProfiler_LiveSendGridReturnsSendGrid(t *testing.T) {
 	cfg := Config{
 		EmailProvider:  "sendgrid",
 		SendGridAPIKey: "test-key",
-		SendGridSender: "school@example.test",
+		EmailFrom:      "school@example.test",
 		SMSProvider:    "fake",
 		DryRun:         false,
 	}
