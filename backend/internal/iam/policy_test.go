@@ -31,6 +31,7 @@ func TestRouteAccess(t *testing.T) {
 		{http.MethodGet, "/api/recipients/lookup", AccessUser},
 		{http.MethodPost, "/api/recipients/lookup", AccessAdmin},
 		{http.MethodGet, "/api/recipients/lookup/x", AccessAdmin},
+		{http.MethodGet, "/api/recipients/stats", AccessAdmin},
 		{http.MethodPost, "/api/recipients/import", AccessAdmin},
 		{http.MethodGet, "/api/users", AccessAdmin},
 		{http.MethodPatch, "/api/users/1", AccessAdmin},
