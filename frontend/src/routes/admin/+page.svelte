@@ -3,7 +3,9 @@
 	import {
 		actionText,
 		actorText,
+		creditsText,
 		dateTimeText,
+		LOW_EMAIL_CREDITS_THRESHOLD,
 		LOW_POINTS_THRESHOLD,
 		plnText,
 		pointsText,
@@ -101,6 +103,61 @@
 			</dl>
 		{:else}
 			<p class="error" role="alert">Nie udało się wczytać statystyk e-mail.</p>
+		{/if}
+
+		{#if data.emailProfile}
+			<hr class="divider" />
+			<div class="profile-box">
+				<div class="profile-header">
+					<strong
+						>Stan konta {data.emailProfile.provider === 'sendgrid'
+							? 'SendGrid'
+							: data.emailProfile.provider}
+						{#if data.emailProfile.provider === 'mailpit' || data.config?.email.provider === 'mailpit'}<span
+								class="badge-test">(tryb testowy)</span
+							>{/if}</strong
+					>
+					{#if data.emailProfile.remainCredits !== undefined && data.emailProfile.remainCredits < LOW_EMAIL_CREDITS_THRESHOLD}
+						<span class="badge-warn" title="Niski limit kredytów SendGrid — sprawdź stan konta"
+							>Niski limit</span
+						>
+					{/if}
+				</div>
+				<dl>
+					{#if data.emailProfile.remainCredits !== undefined}
+						<dt>Dostępne kredyty</dt>
+						<dd
+							class={data.emailProfile.remainCredits < LOW_EMAIL_CREDITS_THRESHOLD
+								? 'points-low'
+								: 'points-ok'}
+						>
+							{creditsText(data.emailProfile.remainCredits, data.emailProfile.totalCredits)}
+						</dd>
+					{/if}
+					{#if data.emailProfile.usedCredits !== undefined}
+						<dt>Wykorzystane</dt>
+						<dd>{data.emailProfile.usedCredits}</dd>
+					{/if}
+					{#if data.emailProfile.resetFrequency}
+						<dt>Odnowienie limitu</dt>
+						<dd>
+							{data.emailProfile.resetFrequency === 'day'
+								? 'Codziennie'
+								: data.emailProfile.resetFrequency}
+							{#if data.emailProfile.nextReset}
+								({data.emailProfile.nextReset})
+							{/if}
+						</dd>
+					{/if}
+					{#if data.emailProfile.provider === 'mailpit'}
+						<dt>Tryb</dt>
+						<dd>Lokalna skrzynka Mailpit (brak limitów)</dd>
+					{/if}
+				</dl>
+			</div>
+		{:else if data.config?.email.provider === 'sendgrid' && !data.config?.dryRun}
+			<hr class="divider" />
+			<p class="error" role="alert">Nie udało się wczytać stanu konta SendGrid.</p>
 		{/if}
 	</section>
 

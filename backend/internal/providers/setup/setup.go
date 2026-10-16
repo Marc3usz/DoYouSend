@@ -173,6 +173,28 @@ func (p *Providers) SMSProfiler() sms.Profiler {
 	return nil
 }
 
+// EmailProfiler returns an email.Profiler if the configured email provider supports it.
+// In accordance with CLAUDE.md invariant 5 ("DRY_RUN=true must short-circuit every real provider call"),
+// when dryRun is enabled, real external provider APIs (such as SendGrid) are never called.
+// Only local in-memory sandbox providers (such as email.Mailpit) remain accessible.
+func (p *Providers) EmailProfiler() email.Profiler {
+	if p == nil || p.Email == nil {
+		return nil
+	}
+	if p.dryRun {
+		if unwrapper, ok := p.Email.(interface{ Unwrap() providers.Provider }); ok {
+			if mailpit, ok := unwrapper.Unwrap().(*email.Mailpit); ok {
+				return mailpit
+			}
+		}
+		return nil
+	}
+	if prof, ok := p.Email.(email.Profiler); ok {
+		return prof
+	}
+	return nil
+}
+
 // newEmailProvider creates the email provider selected by cfg.EmailProvider.
 func newEmailProvider(cfg Config, logger *slog.Logger) (providers.Provider, error) {
 	switch cfg.EmailProvider {

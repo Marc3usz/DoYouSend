@@ -117,6 +117,7 @@ func main() {
 		)
 
 		mux.Handle("GET /api/admin/providers/sms/profile", sms.HandleProfile(provs.SMSProfiler(), logger))
+		mux.Handle("GET /api/admin/providers/email/profile", email.HandleProfile(provs.EmailProfiler(), logger))
 
 		dispatcher, err := provs.Dispatcher(delivery.DefaultRetryPolicy(), logger)
 		if err != nil {
