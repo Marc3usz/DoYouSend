@@ -111,6 +111,24 @@ paths:
               schema: { $ref: "#/components/schemas/RecipientLookupPage" }
         "400": { $ref: "#/components/responses/Error" }
 
+  /recipients/stats:
+    get:
+      tags: [recipients]
+      summary: Statystyki bazy odbiorcow (liczby, braki danych kontaktowych)
+      description: |
+        Jedno wywolanie zamiast kilku `GET /recipients?limit=1` czytanych tylko po `total`.
+        Braki liczone ta sama regula co `issues` w `Recipient` (brak albo bledna wartosc).
+        `unreachable` to osoby bez dzialajacego e-maila **i** telefonu, czyli takie, ktore nie
+        dostana wiadomosci zadnym kanalem; liczba jest dokladna, w przeciwienstwie do sumowania
+        wynikow `issue=email` i `issue=sms`. Dla `recipientsWithoutEmail` i `recipientsWithoutPhone`
+        zachodzi `unreachable <= min(...)`. Wymaga roli administratora.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RecipientStats" }
+
   /recipients/{id}:
     parameters:
       - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
@@ -901,6 +919,17 @@ components:
           type: array
           items: { $ref: "#/components/schemas/Recipient" }
         total: { type: integer, description: "Liczba wszystkich pasujacych, nie tylko na tej stronie" }
+
+    RecipientStats:
+      type: object
+      required: [total, parents, students, withoutEmail, withoutPhone, unreachable]
+      properties:
+        total:        { type: integer, description: "Wszyscy odbiorcy; parents + students = total" }
+        parents:      { type: integer }
+        students:     { type: integer }
+        withoutEmail: { type: integer, description: "Bez dzialajacego e-maila (brak lub bledny), jak issue=email" }
+        withoutPhone: { type: integer, description: "Bez dzialajacego telefonu (brak lub bledny), jak issue=sms" }
+        unreachable:  { type: integer, description: "Bez dzialajacego e-maila i telefonu jednoczesnie" }
 
     Channel:
       type: string
