@@ -56,6 +56,13 @@ describe('pickCandidates', () => {
 		expect(got.moreCandidates).toBe(true);
 	});
 
+	it('does not claim everyone is a member when the result was cut off', () => {
+		const members = new Set(people(200).map((r) => r.id));
+		const got = pickCandidates(people(200), 1000, members);
+		expect(got.candidates).toEqual([]);
+		expect(got.moreCandidates).toBe(true);
+	});
+
 	it('reports nothing for an empty result', () => {
 		expect(pickCandidates([], 0, new Set())).toEqual({
 			candidates: [],

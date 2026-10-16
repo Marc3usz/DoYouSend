@@ -104,7 +104,9 @@
 	{#if data.q !== ''}
 		{#if data.candidates.length === 0}
 			<p>
-				{#if data.alreadyMembers > 0}
+				{#if data.moreCandidates}
+					Pasuje zbyt wiele osób, a pierwsze wyniki są już w grupie. Zawęź wyszukiwanie.
+				{:else if data.alreadyMembers > 0}
 					Wszystkie pasujące osoby ({data.alreadyMembers}) są już w grupie.
 				{:else}
 					Nie znaleziono nikogo spoza grupy dla „{data.q}”.
@@ -123,7 +125,7 @@
 						</li>
 					{/each}
 				</ul>
-				{#if data.alreadyMembers > 0}
+				{#if data.alreadyMembers > 0 && !data.moreCandidates}
 					<p class="note">Pominięto osoby, które już są w grupie: {data.alreadyMembers}.</p>
 				{/if}
 				{#if data.moreCandidates}
