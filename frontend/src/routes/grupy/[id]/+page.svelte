@@ -103,7 +103,13 @@
 
 	{#if data.q !== ''}
 		{#if data.candidates.length === 0}
-			<p>Nie znaleziono nikogo spoza grupy dla „{data.q}”.</p>
+			<p>
+				{#if data.alreadyMembers > 0}
+					Wszystkie pasujące osoby ({data.alreadyMembers}) są już w grupie.
+				{:else}
+					Nie znaleziono nikogo spoza grupy dla „{data.q}”.
+				{/if}
+			</p>
 		{:else}
 			<form method="POST" action="?/add" use:enhance>
 				<ul class="candidates">
@@ -117,6 +123,9 @@
 						</li>
 					{/each}
 				</ul>
+				{#if data.alreadyMembers > 0}
+					<p class="note">Pominięto osoby, które już są w grupie: {data.alreadyMembers}.</p>
+				{/if}
 				{#if data.moreCandidates}
 					<p class="note">Pokazano pierwsze wyniki — zawęź wyszukiwanie, jeśli brakuje osoby.</p>
 				{/if}
