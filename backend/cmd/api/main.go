@@ -120,6 +120,8 @@ func main() {
 			"dryRun", provCfg.DryRun,
 		)
 
+		mux.Handle("GET /api/admin/providers/sms/profile", sms.HandleProfile(provs.SMSProfiler(), logger))
+
 		dispatcher, err := provs.Dispatcher(delivery.DefaultRetryPolicy(), logger)
 		if err != nil {
 			logger.Error("initialize delivery dispatcher", "err", err)
