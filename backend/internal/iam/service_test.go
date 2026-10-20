@@ -448,3 +448,15 @@ func mapsEqual(a, b map[string]string) bool {
 	}
 	return true
 }
+
+func TestRecordAddsAnEntryForAnotherDomain(t *testing.T) {
+	svc, store, _, _, sender := testService(t)
+	svc.Record(context.Background(), sender.ID, ActionBatchSent, "batch", "00000000-0000-4000-8000-0000000000b1",
+		map[string]string{"recipients": "2"})
+
+	last := store.audit[len(store.audit)-1]
+	if last.UserID != sender.ID || last.Action != ActionBatchSent || last.Entity != "batch" ||
+		last.EntityID != "00000000-0000-4000-8000-0000000000b1" || last.Details["recipients"] != "2" {
+		t.Errorf("audit entry = %+v", last)
+	}
+}
