@@ -209,8 +209,14 @@ func TestHTTPRetryBatch(t *testing.T) {
 	env := newHTTPEnv(t, twoRecipients())
 	// Create batch where id2 fails on SMS (scripted in newHTTPEnv: id2 has errPermanent).
 	created := decode[batchDetailJSON](t, env.do(t, http.MethodPost, "/api/batches", batchJSON, map[string]string{headerKey: testKey}))
-	if created.Status != BatchDoneWithErrors {
-		t.Fatalf("created status = %s; want done_with_errors", created.Status)
+	if created.Status != BatchRunning {
+		t.Fatalf("created status = %s; want running", created.Status)
+	}
+
+	// Verify that once background dispatch finishes, batch status is done_with_errors.
+	finished := decode[batchDetailJSON](t, env.do(t, http.MethodGet, "/api/batches/"+created.ID, "", nil))
+	if finished.Status != BatchDoneWithErrors {
+		t.Fatalf("finished status = %s; want done_with_errors", finished.Status)
 	}
 
 	// Reset error for id2 so retry succeeds.
@@ -230,6 +236,12 @@ func TestHTTPRetryBatch(t *testing.T) {
 	// Verify only recipient 2 was resent.
 	if len(env.sms.sent) != 1 || env.sms.sent[0].RecipientID != id2 {
 		t.Errorf("sent during retry = %v, want only recipient 2", env.sms.sent)
+	}
+
+	// Verify batch status after retry dispatch finishes is done.
+	afterRetry := decode[batchDetailJSON](t, env.do(t, http.MethodGet, "/api/batches/"+created.ID, "", nil))
+	if afterRetry.Status != BatchDone {
+		t.Errorf("after retry status = %s; want done", afterRetry.Status)
 	}
 
 	// When all failed deliveries have succeeded, a second retry returns 400 no_failed_deliveries.
