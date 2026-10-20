@@ -290,7 +290,7 @@ func (s *PGStore) ResetFailedDeliveries(ctx context.Context, batchID string) (Ba
 			return ErrNoFailedDeliveries
 		}
 
-		_, err = tx.Exec(ctx, `UPDATE message_batches SET status = 'running', updated_at = now() WHERE id = $1`, id)
+		_, err = tx.Exec(ctx, `UPDATE message_batches SET status = 'running', finished_at = NULL WHERE id = $1`, id)
 		if err != nil {
 			return fmt.Errorf("set batch running: %w", err)
 		}
