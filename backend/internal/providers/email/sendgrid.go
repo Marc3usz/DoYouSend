@@ -173,10 +173,11 @@ func classifyHTTPError(recipientID string, status int, detail string, header htt
 
 	switch {
 	case status == 429:
+		retryAfter, _ := providers.ParseRetryAfter(header.Get("Retry-After"), time.Now())
 		if ra := header.Get("Retry-After"); ra != "" {
 			err = fmt.Errorf("%w (Retry-After: %s)", err, ra)
 		}
-		return providers.TransientError(err)
+		return providers.RateLimitError(err, retryAfter)
 	case status >= 400 && status < 500:
 		return providers.PermanentError(err)
 	case status >= 500:

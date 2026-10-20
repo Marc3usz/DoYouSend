@@ -124,3 +124,24 @@ func (p Plan) clone() Plan {
 	}
 	return out
 }
+
+// RetryPlan returns a copy of p where all deliveries currently in StatusFailed are reset
+// to StatusPending with their error cleared, ready to be dispatched again. Deliveries that
+// are already StatusSent or StatusDelivered remain untouched to prevent duplicate sends
+// and duplicate billing (CLAUDE.md rule 5). Deliveries in StatusSending are left as-is
+// because their outcome at the gateway is unknown.
+// It returns the new Plan and the number of deliveries reset to pending.
+func (p Plan) RetryPlan() (Plan, int) {
+	out := p.clone()
+	retried := 0
+	for i := range out.Recipients {
+		for j := range out.Recipients[i].Deliveries {
+			if out.Recipients[i].Deliveries[j].Status == StatusFailed {
+				out.Recipients[i].Deliveries[j].Status = StatusPending
+				out.Recipients[i].Deliveries[j].Error = ""
+				retried++
+			}
+		}
+	}
+	return out, retried
+}

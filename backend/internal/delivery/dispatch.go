@@ -85,13 +85,30 @@ func NewDispatcher(senders []Sender, policy RetryPolicy, logger *slog.Logger) (*
 // instead of being sent again.
 func (d *Dispatcher) Dispatch(ctx context.Context, plan Plan) (Plan, error) {
 	out := plan.clone()
+	var channelPause map[providers.Channel]time.Time
 	for i := range out.Recipients {
 		r := &out.Recipients[i]
 		for j := range r.Deliveries {
 			if r.Deliveries[j].Status != StatusPending {
 				continue
 			}
-			r.Deliveries[j] = d.send(ctx, out.Subject, r.RecipientID, r.Body, r.Deliveries[j])
+			ch := r.Deliveries[j].Channel
+			if pauseUntil, paused := channelPause[ch]; paused {
+				if wait := time.Until(pauseUntil); wait > 0 {
+					if err := d.sleep(ctx, wait); err != nil {
+						return out, fmt.Errorf("dispatch batch: %w", err)
+					}
+				}
+				delete(channelPause, ch)
+			}
+			var pauseDur time.Duration
+			r.Deliveries[j], pauseDur = d.sendWithPause(ctx, out.Subject, r.RecipientID, r.Body, r.Deliveries[j])
+			if pauseDur > 0 {
+				if channelPause == nil {
+					channelPause = make(map[providers.Channel]time.Time)
+				}
+				channelPause[ch] = time.Now().Add(pauseDur)
+			}
 			if err := ctx.Err(); err != nil {
 				return out, fmt.Errorf("dispatch batch: %w", err)
 			}
@@ -102,9 +119,14 @@ func (d *Dispatcher) Dispatch(ctx context.Context, plan Plan) (Plan, error) {
 
 // send tries one delivery until it succeeds, fails for good or runs out of attempts.
 func (d *Dispatcher) send(ctx context.Context, subject, recipientID, body string, del Delivery) Delivery {
+	del, _ = d.sendWithPause(ctx, subject, recipientID, body, del)
+	return del
+}
+
+func (d *Dispatcher) sendWithPause(ctx context.Context, subject, recipientID, body string, del Delivery) (Delivery, time.Duration) {
 	sender, ok := d.senders[del.Channel]
 	if !ok {
-		return failed(del, fmt.Errorf("%w: %s", errNoSender, del.Channel))
+		return failed(del, fmt.Errorf("%w: %s", errNoSender, del.Channel)), 0
 	}
 	msg := providers.Message{RecipientID: recipientID, To: del.To, Subject: subject, Body: body}
 
@@ -115,24 +137,33 @@ func (d *Dispatcher) send(ctx context.Context, subject, recipientID, body string
 			del.Status = StatusSent
 			del.ProviderMessageID = res.ProviderMessageID
 			del.Error = ""
-			return del
+			return del, 0
 		}
 		if ctx.Err() != nil {
 			// Outcome unknown: the gateway may have the message already.
 			del.Status = StatusSending
 			del.Error = describe(err)
-			return del
+			return del, 0
 		}
+		retryAfter, hasRetryAfter := providers.RetryAfter(err)
 		if !providers.IsTransient(err) || del.Attempts >= d.policy.MaxAttempts {
 			d.logger.Warn("delivery failed",
 				"recipient_id", recipientID, "channel", del.Channel,
 				"attempts", del.Attempts, "reason", describe(err))
-			return failed(del, err)
+			if hasRetryAfter {
+				return failed(del, err), retryAfter
+			}
+			return failed(del, err), 0
 		}
-		if err := d.sleep(ctx, d.policy.backoff(del.Attempts)); err != nil {
+
+		backoff := d.policy.backoff(del.Attempts)
+		if hasRetryAfter && retryAfter > backoff {
+			backoff = retryAfter
+		}
+		if err := d.sleep(ctx, backoff); err != nil {
 			// The last try failed for sure; nothing is in flight, so it may be sent again.
 			del.Error = describe(err)
-			return del
+			return del, 0
 		}
 	}
 }
@@ -163,6 +194,9 @@ func describe(err error) string {
 		kind = "permanent"
 	case providers.IsTransient(err):
 		kind = "transient"
+	}
+	if _, ok := providers.RetryAfter(err); ok {
+		return "transient: rate limit exceeded"
 	}
 	for _, cause := range knownCauses {
 		if errors.Is(err, cause) {

@@ -231,7 +231,9 @@ func classifySMSAPIError(recipientID string, code int, message string) error {
 	// 201: Internal system error (wewnętrzny błąd systemu)
 	// 202: Too many simultaneous requests (zbyt wiele jednoczesnych zapytań / rate limit)
 	// 999: Internal system error (wewnętrzny błąd systemu)
-	case 8, 103, 201, 202, 999:
+	case 202:
+		return providers.RateLimitError(err, 0)
+	case 8, 103, 201, 999:
 		return providers.TransientError(err)
 
 	// Permanent errors (all other codes, including unknown codes):
@@ -264,10 +266,11 @@ func classifyHTTPStatus(recipientID string, status int, header http.Header) erro
 
 	switch {
 	case status == http.StatusTooManyRequests:
+		retryAfter, _ := providers.ParseRetryAfter(header.Get("Retry-After"), time.Now())
 		if ra := header.Get("Retry-After"); ra != "" {
 			err = fmt.Errorf("%w (Retry-After: %s)", err, ra)
 		}
-		return providers.TransientError(err)
+		return providers.RateLimitError(err, retryAfter)
 	case status >= 400 && status < 500:
 		return providers.PermanentError(err)
 	case status >= 500:

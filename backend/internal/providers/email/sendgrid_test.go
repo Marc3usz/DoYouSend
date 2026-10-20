@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
 )
@@ -352,6 +353,12 @@ func TestSendGrid_ErrorClassification(t *testing.T) {
 			}
 			if tc.wantSubstring != "" && !strings.Contains(sendErr.Error(), tc.wantSubstring) {
 				t.Errorf("HTTP %d: error = %v, want substring %q", tc.statusCode, sendErr, tc.wantSubstring)
+			}
+			if tc.statusCode == http.StatusTooManyRequests {
+				ra, ok := providers.RetryAfter(sendErr)
+				if !ok || ra != 60*time.Second {
+					t.Errorf("expected RetryAfter = 60s, got (%v, %v)", ra, ok)
+				}
 			}
 		})
 	}

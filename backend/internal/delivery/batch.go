@@ -8,8 +8,15 @@ import (
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
 )
 
-// ErrBatchNotFound is returned when a batch ID matches no stored batch.
-var ErrBatchNotFound = errors.New("batch not found")
+// Sentinel errors for batch operations.
+var (
+	// ErrBatchNotFound is returned when a batch ID matches no stored batch.
+	ErrBatchNotFound = errors.New("batch not found")
+	// ErrBatchRunning is returned when attempting to retry a batch that is currently running.
+	ErrBatchRunning = errors.New("batch is already running")
+	// ErrNoFailedDeliveries is returned when a batch has no failed deliveries to retry.
+	ErrNoFailedDeliveries = errors.New("batch has no failed deliveries to retry")
+)
 
 // GroupRef is a selected group as it was named when the batch was sent. History keeps
 // the name because a class group disappears once its class is empty (ADR-0009), and a
@@ -53,6 +60,9 @@ type Store interface {
 	SaveOutcome(ctx context.Context, batchID string, plan Plan) error
 	// Batch returns one batch, or ErrBatchNotFound.
 	Batch(ctx context.Context, id string) (Batch, error)
+	// ResetFailedDeliveries resets all failed deliveries in batchID back to pending,
+	// marks the batch as running, and returns the updated batch with its plan ready to dispatch.
+	ResetFailedDeliveries(ctx context.Context, batchID string) (Batch, error)
 }
 
 // smsParts sums the SMS parts the plan will send: deliveries that failed while
