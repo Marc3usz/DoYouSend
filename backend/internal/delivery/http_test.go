@@ -204,3 +204,71 @@ func TestHTTPListAndGetAccess(t *testing.T) {
 		}
 	}
 }
+
+func TestHTTPRetryBatch(t *testing.T) {
+	env := newHTTPEnv(t, twoRecipients())
+	// Create batch where id2 fails on SMS (scripted in newHTTPEnv: id2 has errPermanent).
+	created := decode[batchDetailJSON](t, env.do(t, http.MethodPost, "/api/batches", batchJSON, map[string]string{headerKey: testKey}))
+	if created.Status != BatchDoneWithErrors {
+		t.Fatalf("created status = %s; want done_with_errors", created.Status)
+	}
+
+	// Reset error for id2 so retry succeeds.
+	env.sms.errs = nil
+	env.sms.sent = nil
+
+	// Successful retry by the sender.
+	rec := env.do(t, http.MethodPost, "/api/batches/"+created.ID+"/retry", "", nil)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("POST /batches/{id}/retry = %d %s, want 202", rec.Code, rec.Body)
+	}
+	retried := decode[batchDetailJSON](t, rec)
+	if retried.ID != created.ID || retried.Status != BatchRunning {
+		t.Errorf("retried response = %+v; want ID %s and status running", retried, created.ID)
+	}
+
+	// Verify only recipient 2 was resent.
+	if len(env.sms.sent) != 1 || env.sms.sent[0].RecipientID != id2 {
+		t.Errorf("sent during retry = %v, want only recipient 2", env.sms.sent)
+	}
+
+	// When all failed deliveries have succeeded, a second retry returns 400 no_failed_deliveries.
+	recAgain := env.do(t, http.MethodPost, "/api/batches/"+created.ID+"/retry", "", nil)
+	if got := decode[httpx.ErrorBody](t, recAgain); recAgain.Code != http.StatusBadRequest || got.Code != "no_failed_deliveries" {
+		t.Errorf("retry on completed batch = %d %+v; want 400 no_failed_deliveries", recAgain.Code, got)
+	}
+}
+
+func TestHTTPRetryBatchAccessAndErrors(t *testing.T) {
+	env := newHTTPEnv(t, twoRecipients())
+	admins := decode[batchDetailJSON](t, env.do(t, http.MethodPost, "/api/batches", batchJSON,
+		map[string]string{headerKey: testKey, callerHdr: "admin"}))
+
+	// Sender cannot retry admin's batch -> 404
+	if rec := env.do(t, http.MethodPost, "/api/batches/"+admins.ID+"/retry", "", nil); rec.Code != http.StatusNotFound {
+		t.Errorf("sender retry admin's batch = %d; want 404", rec.Code)
+	}
+
+	// Invalid UUID -> 404
+	if rec := env.do(t, http.MethodPost, "/api/batches/not-a-uuid/retry", "", nil); rec.Code != http.StatusNotFound {
+		t.Errorf("retry invalid UUID = %d; want 404", rec.Code)
+	}
+
+	// Unauthenticated -> 401
+	if rec := env.do(t, http.MethodPost, "/api/batches/"+admins.ID+"/retry", "", map[string]string{callerHdr: callerNone}); rec.Code != http.StatusUnauthorized {
+		t.Errorf("unauthenticated retry = %d; want 401", rec.Code)
+	}
+
+	// Running batch -> 409 batch_running
+	runningBatch, err := env.store.CreateBatch(context.Background(), Batch{
+		CreatedBy: userID,
+		Status:    BatchRunning,
+		Plan:      NewPlan("S", "B", []groups.Resolved{resolved(id1, "A", "", "+48500100101")}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := env.do(t, http.MethodPost, "/api/batches/"+runningBatch.ID+"/retry", "", nil); rec.Code != http.StatusConflict {
+		t.Errorf("retry running batch = %d; want 409", rec.Code)
+	}
+}

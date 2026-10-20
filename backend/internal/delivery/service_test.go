@@ -483,3 +483,64 @@ func TestMemStoreSaveDelivery(t *testing.T) {
 		t.Errorf("status = %s, want sent (must not downgrade)", d.Status)
 	}
 }
+
+func TestServiceStartRetry(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemStore()
+	transientErr := providers.TransientError(errors.New("gateway unavailable"))
+	sms := &scriptedSender{
+		channel: providers.ChannelSMS,
+		errs: map[string][]error{
+			id2: {transientErr, transientErr, transientErr},
+		},
+	}
+	svc := newTestService(t, twoRecipients(), store, sms)
+
+	batch, err := svc.Send(ctx, validDraft())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if batch.Status != BatchDoneWithErrors {
+		t.Fatalf("first run status = %s, want done_with_errors", batch.Status)
+	}
+
+	sms.errs = nil
+	sms.sent = nil
+
+	retried, err := svc.StartRetry(ctx, batch.ID)
+	if err != nil {
+		t.Fatalf("unexpected StartRetry error: %v", err)
+	}
+	if retried.Status != BatchRunning {
+		t.Errorf("immediate status = %s, want running", retried.Status)
+	}
+
+	// Wait for background dispatch to finish
+	svc.running.Wait()
+
+	finalBatch, err := store.Batch(ctx, batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finalBatch.Status != BatchDone {
+		t.Errorf("final status = %s, want done", finalBatch.Status)
+	}
+	if len(sms.sent) != 1 || sms.sent[0].RecipientID != id2 {
+		t.Errorf("sent during retry = %v, want only recipient 2", sms.sent)
+	}
+}
+
+func TestServiceStartRetry_ShuttingDown(t *testing.T) {
+	svc := newTestService(t, twoRecipients(), NewMemStore(), &scriptedSender{channel: providers.ChannelSMS})
+	done := make(chan struct{})
+	go func() {
+		svc.Wait()
+		close(done)
+	}()
+	<-done
+
+	_, err := svc.StartRetry(context.Background(), id1)
+	if !errors.Is(err, ErrShuttingDown) {
+		t.Errorf("StartRetry while shutting down error = %v, want ErrShuttingDown", err)
+	}
+}

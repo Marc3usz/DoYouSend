@@ -489,11 +489,22 @@ paths:
     post:
       tags: [batches]
       summary: Ponawia nieudane wiadomosci we wsadzie
-      description: Do zdefiniowania osobnym PR-em razem z implementacja ponownej wysylki.
+      description: |
+        Resetuje status nieudanych wysylek (failed) z powrotem do pending i uruchamia ponowna wysylke w tle.
+        Wiadomosci juz doreczone lub wyslane (sent/delivered) nie sa wysylane ponownie (brak podwojnych kosztow).
+        Wymaga uprawnien administratora lub bycia autorem wsadu.
       parameters:
         - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
       responses:
-        "202": { description: Ponowienie uruchomione }
+        "202":
+          description: Ponowienie uruchomione w tle
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BatchDetail" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
 
   /auth/login:
     post:
