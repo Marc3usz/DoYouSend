@@ -70,7 +70,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, err)
 		return
 	}
-	http.SetCookie(w, h.cookies.session(session.Token, session.ExpiresAt))
+	http.SetCookie(w, h.cookies.session(session.Token, session.ExpiresAt, h.svc.now()))
 	httpx.JSON(w, http.StatusOK, toUserJSON(session.User))
 }
 

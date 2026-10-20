@@ -27,6 +27,8 @@ type Delivery struct {
 // rendered for them and one Delivery per usable channel.
 type PlannedRecipient struct {
 	RecipientID string
+	// FirstName and LastName are for the history. PGStore reads the current ones.
+	FirstName, LastName string
 	// Body is sent byte for byte over every channel (CLAUDE.md rule 4).
 	Body string
 	// Partial is true when only one channel can be used (batch_recipients.is_partial).
@@ -63,6 +65,8 @@ func NewPlan(subject, body string, list []groups.Resolved) Plan {
 func planRecipient(body string, r groups.Resolved) PlannedRecipient {
 	pr := PlannedRecipient{
 		RecipientID: r.Recipient.ID,
+		FirstName:   r.Recipient.FirstName,
+		LastName:    r.Recipient.LastName,
 		Partial:     r.Partial(),
 		Unreachable: r.Unreachable(),
 	}

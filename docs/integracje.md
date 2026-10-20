@@ -42,8 +42,16 @@ type Provider interface {
                      ┌─────────────────────────────┐
                      │ PGDeliveryReportConsumer    │
                      │ (UPDATE deliveries status)  │
+                     └──────────────┬──────────────┘
+                                    │ brak dopasowania (w trakcie dispatch)
+                                    ▼
+                     ┌─────────────────────────────┐
+                     │ unmatched_delivery_reports  │
+                     │ (bufor do chwili zapisu ID) │
                      └─────────────────────────────┘
 ```
+
+> **Odporność na wyścigi DLR (ADR-0011):** Gdy raport doręczenia przychodzi w trakcie wysyłki wsadu (zanim wiersz w `deliveries` otrzyma `provider_message_id`), konsument buforuje go w tabeli `unmatched_delivery_reports`. W momencie zapisu identyfikatora przez dyspozytora wyzwalacz bazodanowy natychmiast uzgadnia statusy (z zachowaniem reguły *forward-only*), dzięki czemu raporty nie giną.
 
 Fabryka providerów znajduje się w pakiecie `backend/internal/providers/setup` i jest inicjalizowana automatycznie na podstawie konfiguracji ze zmiennych środowiskowych (`setup.ConfigFromEnv()`).
 

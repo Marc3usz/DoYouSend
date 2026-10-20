@@ -80,6 +80,37 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  /recipients/lookup:
+    get:
+      tags: [recipients]
+      summary: Wyszukiwarka odbiorcow do kreatora wiadomosci (bez danych kontaktowych)
+      description: |
+        Dla kazdego zalogowanego (rowniez roli sender): wybor pojedynczych osob i wykluczen
+        w kreatorze (RecipientSelection.recipientIds / excludedRecipientIds, ADR-0007).
+        Zwraca tylko to, co potrzebne do wyboru: imie, nazwisko, typ, klasy i problemy
+        z kanalami. Adresow e-mail i numerow nie zwraca, a q szuka wylacznie po imieniu
+        i nazwisku, zeby po kontakcie nie dalo sie ustalic, do kogo nalezy (ADR-0010:
+        wysylajacy nie ma dostepu do bazy odbiorcow). Kolejnosc jak w GET /recipients.
+      parameters:
+        - in: query
+          name: q
+          description: Fragment imienia i/lub nazwiska (bez wzgledu na wielkosc liter)
+          schema: { type: string, maxLength: 100 }
+        - { in: query, name: type, schema: { $ref: "#/components/schemas/RecipientType" } }
+        - in: query
+          name: class
+          description: Tylko odbiorcy przypisani do tej klasy (normalizowana jak ClassName)
+          schema: { $ref: "#/components/schemas/ClassName" }
+        - { in: query, name: limit,  schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { in: query, name: offset, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RecipientLookupPage" }
+        "400": { $ref: "#/components/responses/Error" }
+
   /recipients/{id}:
     parameters:
       - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
@@ -874,6 +905,32 @@ components:
     Channel:
       type: string
       enum: [email, sms]
+
+    RecipientLookup:
+      type: object
+      description: Odbiorca w wyszukiwarce kreatora (GET /recipients/lookup), bez e-maila i telefonu.
+      required: [id, firstName, lastName, type, classes, issues]
+      properties:
+        id:        { type: string, format: uuid }
+        firstName: { type: string }
+        lastName:  { type: string }
+        type:      { $ref: "#/components/schemas/RecipientType" }
+        classes:
+          type: array
+          items: { $ref: "#/components/schemas/ClassName" }
+        issues:
+          type: array
+          description: Kanaly, ktorymi nie da sie dotrzec do odbiorcy (jak Recipient.issues)
+          items: { $ref: "#/components/schemas/ContactIssue" }
+
+    RecipientLookupPage:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/RecipientLookup" }
+        total: { type: integer, description: "Liczba wszystkich pasujacych, nie tylko na tej stronie" }
 
     ContactIssue:
       type: object
