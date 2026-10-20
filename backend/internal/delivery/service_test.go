@@ -319,7 +319,7 @@ func TestServiceRetryBatch(t *testing.T) {
 	}
 	svc := newTestService(t, twoRecipients(), store, sms)
 
-	batch, err := svc.Send(ctx, sampleDraft())
+	batch, err := svc.Send(ctx, validDraft())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +369,7 @@ func TestServiceRetryBatch_NothingToRetry(t *testing.T) {
 	sms := &scriptedSender{channel: providers.ChannelSMS}
 	svc := newTestService(t, twoRecipients(), store, sms)
 
-	batch, err := svc.Send(ctx, sampleDraft())
+	batch, err := svc.Send(ctx, validDraft())
 	if err != nil {
 		t.Fatal(err)
 	}
