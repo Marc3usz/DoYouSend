@@ -80,7 +80,8 @@ func main() {
 		mux.Handle("POST /api/recipients/import/check", recipients.HandleImportFile(importer.Check, logger))
 		mux.Handle("POST /api/recipients/import", recipients.HandleImportFile(importer.Import, logger))
 
-		reportConsumer := providers.NewPGDeliveryReportConsumer(pool)
+		reportConsumer := providers.NewPGDeliveryReportConsumer(pool, logger)
+		reportConsumer.StartCleaner(ctx, 24*time.Hour, 7*24*time.Hour)
 
 		smsToken := strings.TrimSpace(os.Getenv("SMSAPI_DLR_TOKEN"))
 		if smsToken != "" {

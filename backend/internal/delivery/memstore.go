@@ -125,6 +125,41 @@ func (s *MemStore) SaveOutcome(_ context.Context, batchID string, plan Plan) err
 	return nil
 }
 
+// SaveDelivery implements Store.
+func (s *MemStore) SaveDelivery(_ context.Context, batchID string, recipientID string, d Delivery) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, ok := s.batches[batchID]
+	if !ok {
+		return fmt.Errorf("save delivery of batch %s: %w", batchID, ErrBatchNotFound)
+	}
+
+	updated := b.Plan.clone()
+	for i, r := range updated.Recipients {
+		if r.RecipientID != recipientID {
+			continue
+		}
+		for j, cur := range r.Deliveries {
+			if cur.Channel != d.Channel {
+				continue
+			}
+			if Advance(cur.Status, d.Status) != d.Status {
+				continue
+			}
+			cur.Status = d.Status
+			cur.Attempts = d.Attempts
+			if d.ProviderMessageID != "" {
+				cur.ProviderMessageID = d.ProviderMessageID
+			}
+			cur.Error = d.Error
+			updated.Recipients[i].Deliveries[j] = cur
+		}
+	}
+	b.Plan = updated
+	s.batches[batchID] = b
+	return nil
+}
+
 // Batch implements Store.
 func (s *MemStore) Batch(_ context.Context, id string) (Batch, error) {
 	s.mu.Lock()
