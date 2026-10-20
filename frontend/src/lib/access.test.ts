@@ -18,6 +18,8 @@ describe('canOpen', () => {
 		['/', null, 'login'],
 		['/wiadomosci', null, 'login'],
 		['/wiadomosci', 'sender', 'ok'],
+		['/historia', null, 'login'],
+		['/historia/1', 'sender', 'ok'],
 		['/odbiorcy', 'sender', 'forbidden'],
 		['/odbiorcy/import', 'sender', 'forbidden'],
 		['/grupy/1', 'sender', 'forbidden'],
@@ -45,7 +47,7 @@ describe('nextPath', () => {
 
 describe('navLinks', () => {
 	it('shows a sender only the composer', () => {
-		expect(navLinks(user('sender')).map((l) => l.href)).toEqual(['/wiadomosci']);
+		expect(navLinks(user('sender')).map((l) => l.href)).toEqual(['/wiadomosci', '/historia']);
 	});
 	it('shows an admin the panel', () => {
 		expect(navLinks(user('admin')).map((l) => l.href)).toContain('/admin');

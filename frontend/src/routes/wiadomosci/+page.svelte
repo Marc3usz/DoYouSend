@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { sendBatch } from '$lib/api/batches';
 	import { previewMessage, type SendEstimate } from '$lib/api/messages';
 	import type { PageProps } from './$types';
 	import {
@@ -10,6 +12,7 @@
 		recipientsText,
 		smsText
 	} from './estimate';
+	import { canConfirm, confirmText, newIdempotencyKey, sendFailureText } from './send';
 
 	// Wait for a pause in typing before asking the backend again.
 	const PREVIEW_DELAY_MS = 300;
@@ -25,6 +28,44 @@
 	let failure = $state<string | null>(null);
 	let counting = $state(false);
 	let latestRequest = 0;
+
+	// The final confirmation (POST /batches). While it is open the draft is frozen,
+	// so the sender confirms exactly what the summary shows.
+	let confirming = $state(false);
+	let sending = $state(false);
+	let sendFailure = $state<string | null>(null);
+	// A new key for every opening of the confirmation; a retry after a network error
+	// reuses it, so the backend returns the same batch instead of sending twice.
+	let idempotencyKey = '';
+
+	const ready = $derived(canConfirm(subject, estimate, counting) && failure === null);
+
+	function openConfirmation() {
+		idempotencyKey = newIdempotencyKey();
+		sendFailure = null;
+		confirming = true;
+	}
+
+	function closeConfirmation() {
+		confirming = false;
+		sendFailure = null;
+	}
+
+	async function send() {
+		sending = true;
+		sendFailure = null;
+		try {
+			const batch = await sendBatch(
+				{ subject, body, selection: { groupIds: [...selectedGroupIds] } },
+				idempotencyKey
+			);
+			await goto(`/historia/${batch.id}`);
+		} catch (err) {
+			sendFailure = sendFailureText(err);
+		} finally {
+			sending = false;
+		}
+	}
 
 	const warnings = $derived(estimate ? estimateWarnings(estimate) : []);
 	const hasRecipients = $derived((estimate?.recipientCount ?? 0) > 0);
@@ -72,39 +113,43 @@
 
 <div class="composer">
 	<form class="draft" onsubmit={(e) => e.preventDefault()}>
-		<label for="subject">Temat e-maila</label>
-		<input id="subject" name="subject" type="text" bind:value={subject} autocomplete="off" />
+		<fieldset class="frozen" disabled={confirming}>
+			<label for="subject">Temat e-maila</label>
+			<input id="subject" name="subject" type="text" bind:value={subject} autocomplete="off" />
 
-		<label for="body">Treść wiadomości</label>
-		<textarea id="body" name="body" rows="8" bind:value={body} aria-describedby="body-hint"
-		></textarea>
-		<p id="body-hint" class="hint">
-			Możesz wstawić <code>{'{{imie}}'}</code> i <code>{'{{nazwisko}}'}</code> — każdy odbiorca dostanie
-			swoje dane, tak samo w e-mailu i w SMS-ie.
-		</p>
+			<label for="body">Treść wiadomości</label>
+			<textarea id="body" name="body" rows="8" bind:value={body} aria-describedby="body-hint"
+			></textarea>
+			<p id="body-hint" class="hint">
+				Możesz wstawić <code>{'{{imie}}'}</code> i <code>{'{{nazwisko}}'}</code> — każdy odbiorca dostanie
+				swoje dane, tak samo w e-mailu i w SMS-ie.
+			</p>
 
-		<fieldset>
-			<legend>Odbiorcy</legend>
-			{#if data.groupsFailed}
-				<p class="error" role="alert">Nie udało się wczytać listy grup. Odśwież stronę.</p>
-			{:else if data.groups.length === 0}
-				<p class="hint">Nie ma jeszcze żadnych grup.</p>
-			{:else}
-				<ul class="groups">
-					{#each data.groups as group (group.id)}
-						<li>
-							<label>
-								<input type="checkbox" value={group.id} bind:group={selectedGroupIds} />
-								<span class="group-name">{group.name}</span>
-								<span class="group-meta">
-									{recipientsText(group.memberCount)}{group.kind === 'system' ? ' · systemowa' : ''}
-								</span>
-							</label>
-						</li>
-					{/each}
-				</ul>
-				<p class="hint">Osoba w kilku zaznaczonych grupach dostanie wiadomość tylko raz.</p>
-			{/if}
+			<fieldset>
+				<legend>Odbiorcy</legend>
+				{#if data.groupsFailed}
+					<p class="error" role="alert">Nie udało się wczytać listy grup. Odśwież stronę.</p>
+				{:else if data.groups.length === 0}
+					<p class="hint">Nie ma jeszcze żadnych grup.</p>
+				{:else}
+					<ul class="groups">
+						{#each data.groups as group (group.id)}
+							<li>
+								<label>
+									<input type="checkbox" value={group.id} bind:group={selectedGroupIds} />
+									<span class="group-name">{group.name}</span>
+									<span class="group-meta">
+										{recipientsText(group.memberCount)}{group.kind === 'system'
+											? ' · systemowa'
+											: ''}
+									</span>
+								</label>
+							</li>
+						{/each}
+					</ul>
+					<p class="hint">Osoba w kilku zaznaczonych grupach dostanie wiadomość tylko raz.</p>
+				{/if}
+			</fieldset>
 		</fieldset>
 	</form>
 
@@ -170,8 +215,34 @@
 			<p class="hint">Liczę…</p>
 		{/if}
 
-		<button type="button" disabled>Dalej: zatwierdź wysyłkę</button>
-		<p class="hint">Zatwierdzanie i wysyłka pojawią się w kolejnej wersji.</p>
+		{#if confirming && estimate}
+			<section class="confirm" aria-labelledby="confirm-heading">
+				<h3 id="confirm-heading">Zatwierdź wysyłkę</h3>
+				<p>{confirmText(estimate)}</p>
+				<p>Szacowany koszt SMS: <strong>{costText(estimate.costMilli)}</strong></p>
+				<p class="hint">
+					Wysyłki nie da się cofnąć. Każdy odbiorca dostanie tę samą treść e-mailem i SMS-em.
+				</p>
+				{#if sendFailure}
+					<p class="error" role="alert">{sendFailure}</p>
+				{/if}
+				<div class="actions">
+					<button type="button" class="primary" onclick={send} disabled={sending}>
+						{sending ? 'Wysyłam…' : 'Wyślij teraz'}
+					</button>
+					<button type="button" onclick={closeConfirmation} disabled={sending}>
+						Wróć do edycji
+					</button>
+				</div>
+			</section>
+		{:else}
+			<button type="button" onclick={openConfirmation} disabled={!ready}>
+				Dalej: zatwierdź wysyłkę
+			</button>
+			{#if !ready && estimate && hasRecipients && subject.trim() === ''}
+				<p class="hint">Uzupełnij temat e-maila, żeby zatwierdzić wysyłkę.</p>
+			{/if}
+		{/if}
 	</aside>
 </div>
 
@@ -292,5 +363,36 @@
 		margin-top: 1rem;
 		font: inherit;
 		padding: 0.5rem 1rem;
+	}
+	.frozen {
+		border: 0;
+		margin: 0;
+		padding: 0;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+	}
+	.confirm {
+		margin-top: 1rem;
+		padding-top: 0.75rem;
+		border-top: 1px solid #ddd;
+	}
+	.confirm h3 {
+		margin: 0 0 0.5rem;
+	}
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+	}
+	.primary {
+		background: #1d4ed8;
+		color: #fff;
+		border: 1px solid #1d4ed8;
+		border-radius: 4px;
+	}
+	.primary:disabled {
+		opacity: 0.6;
 	}
 </style>
