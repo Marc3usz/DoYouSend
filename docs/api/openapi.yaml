@@ -120,7 +120,7 @@ paths:
         Braki liczone ta sama regula co `issues` w `Recipient` (brak albo bledna wartosc).
         `unreachable` to osoby bez dzialajacego e-maila **i** telefonu, czyli takie, ktore nie
         dostana wiadomosci zadnym kanalem; liczba jest dokladna, w przeciwienstwie do sumowania
-        wynikow `issue=email` i `issue=sms`. Dla `recipientsWithoutEmail` i `recipientsWithoutPhone`
+        wynikow `issue=email` i `issue=sms`. Dla `withoutEmail` i `withoutPhone`
         zachodzi `unreachable <= min(...)`. Wymaga roli administratora.
       responses:
         "200":
