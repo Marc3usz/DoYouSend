@@ -69,6 +69,8 @@ type Filter struct {
 	Type Type
 	// Class, when set, keeps only recipients assigned to this normalized class.
 	Class string
+	// NamesOnly makes Query match the name only, not the e-mail or phone.
+	NamesOnly bool
 }
 
 // ListQuery is a page request of GET /recipients.
@@ -185,6 +187,16 @@ func (s *Service) List(ctx context.Context, q ListQuery) (Page, error) {
 		page.Items = all[q.Offset:min(q.Offset+q.Limit, len(all))]
 	}
 	return page, nil
+}
+
+// Lookup is List for the message composer (GET /recipients/lookup): senders
+// pick individual people and exclusions by name. The query matches names only,
+// so a sender cannot find out whose an address or a number is, and the issue
+// filter, which is about fixing contact data, does not apply.
+func (s *Service) Lookup(ctx context.Context, q ListQuery) (Page, error) {
+	q.Issue = ""
+	q.NamesOnly = true
+	return s.List(ctx, q)
 }
 
 func checkListQuery(q ListQuery) (ListQuery, error) {

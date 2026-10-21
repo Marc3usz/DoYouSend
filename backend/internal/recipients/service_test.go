@@ -43,7 +43,11 @@ func (m *memRecipients) ListRecipients(_ context.Context, f Filter) ([]Recipient
 		if f.Class != "" && !slices.Contains(r.Classes, f.Class) {
 			continue
 		}
-		if q := strings.ToLower(f.Query); q != "" && !strings.Contains(strings.ToLower(r.FirstName+" "+r.LastName+" "+r.Email+" "+r.Phone), q) {
+		searched := r.FirstName + " " + r.LastName
+		if !f.NamesOnly {
+			searched += " " + r.Email + " " + r.Phone
+		}
+		if q := strings.ToLower(f.Query); q != "" && !strings.Contains(strings.ToLower(searched), q) {
 			continue
 		}
 		out = append(out, r)
@@ -174,6 +178,37 @@ func TestServiceList(t *testing.T) {
 				t.Errorf("List() = %v (total %d), want %v (total %d)", got, page.Total, tt.want, tt.total)
 			}
 		})
+	}
+}
+
+func TestServiceLookup(t *testing.T) {
+	tests := []struct {
+		name  string
+		query ListQuery
+		want  []string
+		total int
+	}{
+		{"by name", ListQuery{Filter: Filter{Query: "kowal"}}, []string{"Maria", "Jan"}, 2},
+		{"e-mail does not match", ListQuery{Filter: Filter{Query: "pawel.lewandowski@"}}, []string{}, 0},
+		{"phone does not match", ListQuery{Filter: Filter{Query: "500100103"}}, []string{}, 0},
+		{"issue filter ignored", ListQuery{Issue: ChannelEmail}, []string{"Maria", "Jan", "Pawel", "Lena"}, 4},
+		{"type and page", ListQuery{Filter: Filter{Type: TypeParent}, Limit: 1, Offset: 1}, []string{"Jan"}, 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			page, err := NewService(serviceFixture()).Lookup(context.Background(), tt.query)
+			if err != nil {
+				t.Fatalf("Lookup() error = %v", err)
+			}
+			if got := firstNames(page.Items); !reflect.DeepEqual(got, tt.want) || page.Total != tt.total {
+				t.Errorf("Lookup() = %v (total %d), want %v (total %d)", got, page.Total, tt.want, tt.total)
+			}
+		})
+	}
+
+	_, err := NewService(serviceFixture()).Lookup(context.Background(), ListQuery{Limit: MaxPageSize + 1})
+	if !errors.Is(err, ErrInvalidParams) {
+		t.Errorf("Lookup(limit too big) error = %v, want ErrInvalidParams", err)
 	}
 }
 

@@ -68,6 +68,12 @@ type PlanDispatcher interface {
 	Dispatch(ctx context.Context, plan Plan) (Plan, error)
 }
 
+// ObservablePlanDispatcher sends a plan while notifying an observer of delivery progress.
+// *Dispatcher satisfies it.
+type ObservablePlanDispatcher interface {
+	DispatchWithObserver(ctx context.Context, plan Plan, obs DeliveryObserver) (Plan, error)
+}
+
 // Draft is the message the sender confirms in the composer.
 type Draft struct {
 	Subject   string
@@ -263,7 +269,20 @@ func requestHash(d Draft) (string, error) {
 // dispatch sends a recorded batch and saves the outcome. ctx must not be cancelled
 // by the caller going away.
 func (s *Service) dispatch(ctx context.Context, batch Batch) (Batch, error) {
-	sent, dispatchErr := s.dispatcher.Dispatch(ctx, batch.Plan)
+	// Each delivery is saved as soon as it is sent (ADR-0011): a delivery report that
+	// arrives mid-batch finds its provider_message_id, and a restart keeps the progress.
+	obs := DeliveryObserverFunc(func(obsCtx context.Context, recipientID string, del Delivery) error {
+		return s.store.SaveDelivery(context.WithoutCancel(obsCtx), batch.ID, recipientID, del)
+	})
+	var (
+		sent        Plan
+		dispatchErr error
+	)
+	if observable, ok := s.dispatcher.(ObservablePlanDispatcher); ok {
+		sent, dispatchErr = observable.DispatchWithObserver(ctx, batch.Plan, obs)
+	} else {
+		sent, dispatchErr = s.dispatcher.Dispatch(ctx, batch.Plan)
+	}
 	batch.Plan = sent
 	batch.Status = sent.Status()
 	batch.Counts = sent.Counts()

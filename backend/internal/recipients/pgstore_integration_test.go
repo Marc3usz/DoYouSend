@@ -191,6 +191,9 @@ func TestPGStoreListRecipients(t *testing.T) {
 		{"LIKE wildcards are literal", Filter{Query: "%"}, nil},
 		{"only dashes does not match every phone", Filter{Query: " - - "}, nil},
 		{"query and type", Filter{Query: "kowal", Type: TypeStudent}, nil},
+		{"names only: name", Filter{Query: "kowal", NamesOnly: true}, []string{"Maria Kowalska", "Jan Kowalski"}},
+		{"names only: e-mail", Filter{Query: "maria.kowalska@", NamesOnly: true}, nil},
+		{"names only: phone", Filter{Query: "500 100 103", NamesOnly: true}, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
