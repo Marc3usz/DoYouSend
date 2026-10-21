@@ -194,7 +194,6 @@ func (p *Providers) EmailProfiler() email.Profiler {
 	}
 	return nil
 }
-
 // newEmailProvider creates the email provider selected by cfg.EmailProvider.
 func newEmailProvider(cfg Config, logger *slog.Logger) (providers.Provider, error) {
 	switch cfg.EmailProvider {

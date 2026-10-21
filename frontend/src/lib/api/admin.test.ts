@@ -54,7 +54,6 @@ describe('smsProfile', () => {
 		expect(got).toEqual(expected);
 	});
 });
-
 describe('emailProfile', () => {
 	it('calls GET /api/admin/providers/email/profile', async () => {
 		const expected = {

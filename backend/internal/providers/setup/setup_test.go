@@ -429,7 +429,6 @@ func TestProviders_SMSProfiler_LiveSMSAPIReturnsSMSAPI(t *testing.T) {
 		t.Errorf("profiler type = %T, want *sms.SMSAPI", profiler)
 	}
 }
-
 func TestProviders_EmailProfiler_DryRunRealSendGridReturnsNil(t *testing.T) {
 	t.Parallel()
 

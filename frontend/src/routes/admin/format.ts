@@ -42,7 +42,6 @@ export function creditsText(remain?: number, total?: number): string {
 	}
 	return `${remain} kredytów`;
 }
-
 const dateTime = new Intl.DateTimeFormat('pl-PL', {
 	dateStyle: 'medium',
 	timeStyle: 'short',

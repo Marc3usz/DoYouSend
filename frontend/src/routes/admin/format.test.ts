@@ -4,6 +4,8 @@ import type { AuditEntry } from '$lib/api/admin';
 import {
 	actionText,
 	actorText,
+	actionText,
+	actorText,
 	creditsText,
 	currentMonth,
 	detailsText,
@@ -73,7 +75,6 @@ describe('creditsText', () => {
 		expect(LOW_EMAIL_CREDITS_THRESHOLD).toBe(20);
 	});
 });
-
 describe('currentMonth', () => {
 	it('uses the Warsaw calendar', () => {
 		// 30 Sep 23:30 UTC is already 1 October in Warsaw.

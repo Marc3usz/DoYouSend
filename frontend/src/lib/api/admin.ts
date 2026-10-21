@@ -105,7 +105,6 @@ export type EmailProviderProfile = {
 export function emailProfile(fetch?: typeof globalThis.fetch): Promise<EmailProviderProfile> {
 	return api<EmailProviderProfile>('/admin/providers/email/profile', { fetch });
 }
-
 /** The SMSUsageStats schema (GET /stats/sms); costs in thousandths of a złoty. */
 export type SmsUsage = {
 	pricePerPartMilli: number;

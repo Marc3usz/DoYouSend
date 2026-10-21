@@ -40,8 +40,9 @@ type rule struct {
 
 // rules is the route policy of the whole API (docs/bezpieczenstwo.md
 // "Uprawnienia", ADR-0010). Senders compose and send messages: they read the
-// group list, resolve a selection and preview. Everything about the recipient
-// base, users, configuration and statistics is for administrators.
+// group list, look recipients up by name (without contact data), resolve a
+// selection and preview. Everything else about the recipient base, users,
+// configuration and statistics is for administrators.
 var rules = []rule{
 	{path: "/healthz", exact: true, access: AccessPublic},
 	{method: http.MethodPost, path: "/api/auth/login", exact: true, access: AccessPublic},
@@ -51,6 +52,8 @@ var rules = []rule{
 	{method: http.MethodGet, path: "/api/groups", exact: true, access: AccessUser},
 	{method: http.MethodPost, path: "/api/groups/resolve", exact: true, access: AccessUser},
 	{path: "/api/groups", access: AccessAdmin},
+	// The composer's search, without contact data (GET /recipients/lookup).
+	{method: http.MethodGet, path: "/api/recipients/lookup", exact: true, access: AccessUser},
 	{path: "/api/recipients", access: AccessAdmin},
 	{path: "/api/users", access: AccessAdmin},
 	{path: "/api/audit", access: AccessAdmin},

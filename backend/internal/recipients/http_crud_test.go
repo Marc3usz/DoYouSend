@@ -58,6 +58,43 @@ func TestHandlerList(t *testing.T) {
 	}
 }
 
+func TestHandlerLookup(t *testing.T) {
+	mux := crudServer(serviceFixture())
+
+	rec, body := do(t, mux, http.MethodGet, "/api/recipients/lookup?q=MARIA", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %v", rec.Code, body)
+	}
+	items, _ := body["items"].([]any)
+	if body["total"] != 1.0 || len(items) != 1 {
+		t.Fatalf("lookup = %v, want Maria only", body)
+	}
+	maria, _ := items[0].(map[string]any)
+	for _, field := range []string{"email", "phone", "createdAt", "updatedAt", "groupIds"} {
+		if _, ok := maria[field]; ok {
+			t.Errorf("lookup item carries %q: %v", field, maria)
+		}
+	}
+	issues, _ := maria["issues"].([]any)
+	if maria["firstName"] != "Maria" || maria["type"] != "parent" || len(issues) != 1 {
+		t.Errorf("item = %v, want Maria, parent, the missing phone", maria)
+	}
+	if classes, ok := maria["classes"].([]any); !ok || len(classes) != 0 {
+		t.Errorf("classes = %v, want []", maria["classes"])
+	}
+
+	// Searching by contact data must not reveal whose it is.
+	rec, _ = do(t, mux, http.MethodGet, "/api/recipients/lookup?q=maria.kowalska%40example.test", "")
+	if got := strings.TrimSpace(rec.Body.String()); got != `{"items":[],"total":0}` {
+		t.Errorf("lookup by e-mail = %s, want nothing", got)
+	}
+
+	rec, body = do(t, mux, http.MethodGet, "/api/recipients/lookup?limit=abc", "")
+	if rec.Code != http.StatusBadRequest || body["code"] != "invalid_request" {
+		t.Errorf("bad limit = %d %v, want 400", rec.Code, body)
+	}
+}
+
 func TestHandlerListEmptyIsArray(t *testing.T) {
 	rec, _ := do(t, crudServer(serviceFixture()), http.MethodGet, "/api/recipients?q=nikt", "")
 	if got := strings.TrimSpace(rec.Body.String()); got != `{"items":[],"total":0}` {
