@@ -20,6 +20,19 @@ const answer =
 	async () =>
 		new Response(body === undefined ? null : JSON.stringify(body), { status });
 
+type Call = { method: string; url: string; body: unknown };
+
+/** answer() that also records each request, to check what the action sent. */
+function recording(status: number, body?: unknown) {
+	const calls: Call[] = [];
+	const fetch: typeof globalThis.fetch = async (input, init) => {
+		const sent = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+		calls.push({ method: init?.method ?? 'GET', url: String(input), body: sent });
+		return answer(status, body)(input, init);
+	};
+	return { fetch, calls };
+}
+
 const notFound = { code: 'not_found', message: 'not found' };
 
 const noCall: typeof fetch = async () => {
@@ -42,13 +55,16 @@ describe('grupy/[id] add', () => {
 	});
 
 	it('reports how many people were added', async () => {
+		const jan = '00000000-0000-4000-8000-000000000002';
 		const fields: [string, string][] = [
 			['recipientId', anna],
-			['recipientId', '00000000-0000-4000-8000-000000000002']
+			['recipientId', jan]
 		];
-		await expect(action('add')(event(fields, answer(200, { changed: 2 })))).resolves.toEqual({
-			added: 2
-		});
+		const api = recording(200, { changed: 2 });
+		await expect(action('add')(event(fields, api.fetch))).resolves.toEqual({ added: 2 });
+		expect(api.calls).toEqual([
+			{ method: 'POST', url: `/api/groups/${id}/members`, body: { recipientIds: [anna, jan] } }
+		]);
 	});
 
 	it('keeps the API status when adding fails', async () => {
@@ -66,18 +82,24 @@ describe('grupy/[id] remove', () => {
 	});
 
 	it('reports how many people were removed', async () => {
-		await expect(
-			action('remove')(event([['recipientId', anna]], answer(200, { changed: 1 })))
-		).resolves.toEqual({ removed: 1 });
+		const api = recording(200, { changed: 1 });
+		await expect(action('remove')(event([['recipientId', anna]], api.fetch))).resolves.toEqual({
+			removed: 1
+		});
+		expect(api.calls).toEqual([
+			{ method: 'POST', url: `/api/groups/${id}/members/remove`, body: { recipientIds: [anna] } }
+		]);
 	});
 });
 
 describe('grupy/[id] delete', () => {
 	it('redirects to the list after deleting', async () => {
-		await expect(action('delete')(event([], answer(204)))).rejects.toMatchObject({
+		const api = recording(204);
+		await expect(action('delete')(event([], api.fetch))).rejects.toMatchObject({
 			status: 303,
 			location: '/grupy?usunieto'
 		});
+		expect(api.calls).toEqual([{ method: 'DELETE', url: `/api/groups/${id}`, body: undefined }]);
 	});
 
 	it('answers 503 when the API is unreachable', async () => {

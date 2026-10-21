@@ -51,10 +51,16 @@ describe('odbiorcy/[id] load', () => {
 
 describe('odbiorcy/[id] delete', () => {
 	it('redirects to the list after deleting', async () => {
-		await expect(action('delete')(actionEvent(answer(204)))).rejects.toMatchObject({
+		const calls: string[] = [];
+		const fetch: typeof globalThis.fetch = async (input, init) => {
+			calls.push(`${init?.method} ${String(input)}`);
+			return answer(204)(input, init);
+		};
+		await expect(action('delete')(actionEvent(fetch))).rejects.toMatchObject({
 			status: 303,
 			location: '/odbiorcy?usunieto'
 		});
+		expect(calls).toEqual([`DELETE /api/recipients/${id}`]);
 	});
 
 	it('keeps the API status when deleting fails', async () => {
