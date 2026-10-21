@@ -27,6 +27,8 @@ type Fake struct {
 	messages    []providers.Message
 	maxMessages int
 	counter     uint64
+	profile     *Profile
+	profileErr  error
 	logger      *slog.Logger
 }
 
@@ -106,11 +108,50 @@ func (f *Fake) Sent() []providers.Message {
 	return out
 }
 
-// Reset clears all recorded messages and resets the counter. Useful between test runs.
+// Reset clears all recorded messages, custom profile, and resets the counter. Useful between test runs.
 func (f *Fake) Reset() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	f.messages = nil
 	f.counter = 0
+	f.profile = nil
+	f.profileErr = nil
+}
+
+// GetProfile returns simulated account profile details and points balance.
+func (f *Fake) GetProfile(ctx context.Context) (Profile, error) {
+	if ctx.Err() != nil {
+		return Profile{}, ctx.Err()
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.profileErr != nil {
+		return Profile{}, f.profileErr
+	}
+	if f.profile != nil {
+		return *f.profile, nil
+	}
+	return Profile{
+		Points:   500.0,
+		Name:     "Fake SMS Sandbox",
+		UserType: "developer",
+	}, nil
+}
+
+// SetProfile overrides the profile returned by GetProfile.
+func (f *Fake) SetProfile(p Profile) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.profile = &p
+	f.profileErr = nil
+}
+
+// SetProfileError sets an error to be returned by GetProfile.
+func (f *Fake) SetProfileError(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.profileErr = err
 }
