@@ -108,6 +108,8 @@ const (
 	ActionUserUpdated    = "user_updated"
 	ActionPasswordReset  = "password_reset"
 	ActionPasswordChange = "password_changed"
+	// ActionBatchSent is a sender confirming a batch (POST /batches); entity "batch".
+	ActionBatchSent = "batch_sent"
 )
 
 // Store is the storage the Service needs; PGStore implements it.

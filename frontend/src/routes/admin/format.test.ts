@@ -70,7 +70,15 @@ describe('currentMonth', () => {
 describe('audit texts', () => {
 	it('names known actions and passes others through', () => {
 		expect(actionText('user_created')).toBe('Utworzenie konta');
-		expect(actionText('batch_confirmed')).toBe('batch_confirmed');
+		expect(actionText('batch_sent')).toBe('Zatwierdzenie wysyłki');
+		expect(actionText('group_deleted')).toBe('group_deleted');
+	});
+	it('describes a confirmed batch by its size only', () => {
+		expect(
+			detailsText(
+				entry({ action: 'batch_sent', details: { recipients: '9', groups: '1', smsParts: '7' } })
+			)
+		).toBe('odbiorcy: 9, grupy: 1, części SMS: 7');
 	});
 	it('describes details in Polish', () => {
 		expect(detailsText(entry({ details: { role: 'admin', disabled: 'true' } }))).toBe(

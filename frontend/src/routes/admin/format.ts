@@ -72,7 +72,8 @@ const actionTexts: Record<string, string> = {
 	user_created: 'Utworzenie konta',
 	user_updated: 'Zmiana konta',
 	password_reset: 'Nadanie nowego hasła',
-	password_changed: 'Zmiana własnego hasła'
+	password_changed: 'Zmiana własnego hasła',
+	batch_sent: 'Zatwierdzenie wysyłki'
 };
 
 /** A Polish name for an audit action; actions of other domains show as they are. */
@@ -96,6 +97,15 @@ export function detailsText(entry: AuditEntry): string {
 				break;
 			case 'via':
 				out.push(`przez ${value}`);
+				break;
+			case 'recipients':
+				out.push(`odbiorcy: ${value}`);
+				break;
+			case 'groups':
+				out.push(`grupy: ${value}`);
+				break;
+			case 'smsParts':
+				out.push(`części SMS: ${value}`);
 				break;
 			default:
 				out.push(`${key}: ${value}`);

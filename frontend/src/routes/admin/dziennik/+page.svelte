@@ -14,8 +14,8 @@
 <p><a href="/admin">← Panel administratora</a></p>
 <h1>Dziennik zdarzeń</h1>
 <p class="lead">
-	Kto się logował, kto zakładał i zmieniał konta, a w kolejnych wersjach także kto przygotował i
-	zatwierdził każdą wysyłkę. Wpisów nie da się zmienić ani usunąć z panelu.
+	Kto się logował, kto zakładał i zmieniał konta oraz kto zatwierdził i uruchomił każdą wysyłkę.
+	Wpisów nie da się zmienić ani usunąć z panelu.
 </p>
 
 {#if data.failed}
