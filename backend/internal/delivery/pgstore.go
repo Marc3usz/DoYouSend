@@ -409,6 +409,81 @@ func (s *PGStore) ListBatches(ctx context.Context, f BatchFilter) ([]Batch, int,
 	return out, total, nil
 }
 
+// ResetFailedDeliveries implements Store.
+func (s *PGStore) ResetFailedDeliveries(ctx context.Context, batchID string) (Batch, error) {
+	id := strings.ToLower(batchID)
+	if !groups.IsValidID(id) {
+		return Batch{}, fmt.Errorf("reset failed deliveries for batch %s: %w", batchID, ErrBatchNotFound)
+	}
+	var (
+		b          Batch
+		groupsJSON []byte
+		status     string
+		finishedAt *time.Time
+	)
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var currentStatus string
+		err := tx.QueryRow(ctx, `SELECT status::text FROM message_batches WHERE id = $1 FOR UPDATE`, id).Scan(&currentStatus)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrBatchNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("lock batch: %w", err)
+		}
+		if currentStatus == string(BatchRunning) {
+			return ErrBatchRunning
+		}
+
+		res, err := tx.Exec(ctx, `
+			UPDATE deliveries d
+			SET status = 'pending', error = NULL, attempts = 0, updated_at = now()
+			FROM batch_recipients br
+			WHERE br.batch_id = $1 
+				AND d.batch_recipient_id = br.id 
+				AND d.status = 'failed' 
+				AND d.error LIKE 'transient%'`, id)
+		if err != nil {
+			return fmt.Errorf("reset deliveries: %w", err)
+		}
+		if res.RowsAffected() == 0 {
+			return ErrNoFailedDeliveries
+		}
+
+		_, err = tx.Exec(ctx, `UPDATE message_batches SET status = 'running', finished_at = NULL WHERE id = $1`, id)
+		if err != nil {
+			return fmt.Errorf("set batch running: %w", err)
+		}
+
+		err = tx.QueryRow(ctx, `
+			SELECT b.id::text, b.subject, b.body, b.created_by::text, u.full_name, b.selected_groups,
+				b.selected_recipient_ids::text[], b.status::text, b.sms_part_count,
+				(b.estimated_cost * 1000)::bigint, b.created_at, b.finished_at,
+				coalesce(b.idempotency_key::text, ''), coalesce(b.request_hash, '')
+			FROM message_batches b JOIN users u ON u.id = b.created_by
+			WHERE b.id = $1`, id,
+		).Scan(&b.ID, &b.Subject, &b.Body, &b.CreatedBy, &b.CreatedByName, &groupsJSON, &b.RecipientIDs,
+			&status, &b.SMSParts, &b.CostMilli, &b.CreatedAt, &finishedAt, &b.IdempotencyKey, &b.RequestHash)
+		if err != nil {
+			return fmt.Errorf("query batch: %w", err)
+		}
+
+		b.Plan, err = loadPlan(ctx, tx, id)
+		return err
+	})
+	if err != nil {
+		return Batch{}, fmt.Errorf("reset failed deliveries for batch %s: %w", batchID, err)
+	}
+	if err := json.Unmarshal(groupsJSON, &b.Groups); err != nil {
+		return Batch{}, fmt.Errorf("batch %s: decode groups: %w", id, err)
+	}
+	b.Status = BatchStatus(status)
+	b.Counts = b.Plan.Counts()
+	if finishedAt != nil {
+		b.FinishedAt = *finishedAt
+	}
+	return b, nil
+}
+
 // loadPlan reads the recipients of a batch in plan order, each with its deliveries
 // e-mail before SMS (the channel enum order). A recipient without deliveries had no
 // usable channel when the batch was planned.

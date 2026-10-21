@@ -8,12 +8,17 @@ import (
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
 )
 
+// Sentinel errors for batch operations.
 var (
 	// ErrBatchNotFound is returned when a batch ID matches no stored batch.
 	ErrBatchNotFound = errors.New("batch not found")
 	// ErrDuplicateKey is returned by CreateBatch when the sender already has a batch
 	// with the same idempotency key.
 	ErrDuplicateKey = errors.New("idempotency key already used")
+	// ErrBatchRunning is returned when attempting to retry a batch that is currently running.
+	ErrBatchRunning = errors.New("batch is already running")
+	// ErrNoFailedDeliveries is returned when a batch has no failed deliveries to retry.
+	ErrNoFailedDeliveries = errors.New("batch has no failed deliveries to retry")
 )
 
 // GroupRef is a selected group as it was named when the batch was sent. History keeps
@@ -95,6 +100,9 @@ type Store interface {
 	// ListBatches returns one page of batches without their plans, newest first,
 	// and how many batches match f in total.
 	ListBatches(ctx context.Context, f BatchFilter) ([]Batch, int, error)
+	// ResetFailedDeliveries resets all failed deliveries in batchID back to pending,
+	// marks the batch as running, and returns the updated batch with its plan ready to dispatch.
+	ResetFailedDeliveries(ctx context.Context, batchID string) (Batch, error)
 }
 
 // Counts summarises the plan for the history list.

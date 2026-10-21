@@ -166,3 +166,71 @@ func TestAdvance(t *testing.T) {
 		}
 	}
 }
+
+func TestRetryPlan(t *testing.T) {
+	plan := Plan{
+		Subject: "Ogloszenie",
+		Recipients: []PlannedRecipient{
+			{
+				RecipientID: "rec-1",
+				Deliveries: []Delivery{
+					{Channel: providers.ChannelEmail, Status: StatusSent, ProviderMessageID: "msg-1"},
+					{Channel: providers.ChannelSMS, Status: StatusFailed, Error: "transient: gateway timeout", Attempts: 3},
+					{Channel: providers.ChannelEmail, Status: StatusFailed, Error: "unclassified provider error", Attempts: 1},
+					{Channel: providers.ChannelEmail, Status: StatusFailed, Error: "permanent: invalid recipient address or number", Attempts: 1},
+				},
+			},
+			{
+				RecipientID: "rec-2",
+				Deliveries: []Delivery{
+					{Channel: providers.ChannelEmail, Status: StatusDelivered, ProviderMessageID: "msg-2"},
+					{Channel: providers.ChannelSMS, Status: StatusSending, Attempts: 1},
+				},
+			},
+			{
+				RecipientID: "rec-3",
+				Unreachable: true,
+			},
+		},
+	}
+
+	retriedPlan, count := plan.RetryPlan()
+	if count != 1 {
+		t.Fatalf("count = %d, want 1", count)
+	}
+
+	// rec-1: email is still sent, transient SMS is now pending with cleared error and reset attempts
+	del0 := retriedPlan.Recipients[0].Deliveries[0]
+	if del0.Status != StatusSent || del0.ProviderMessageID != "msg-1" {
+		t.Errorf("del0 = %+v, want StatusSent", del0)
+	}
+	del1 := retriedPlan.Recipients[0].Deliveries[1]
+	if del1.Status != StatusPending || del1.Error != "" || del1.Attempts != 0 {
+		t.Errorf("del1 = %+v, want StatusPending with empty error and 0 attempts", del1)
+	}
+
+	// rec-1: unclassified and permanent errors remain failed (not retried)
+	delUnclass := retriedPlan.Recipients[0].Deliveries[2]
+	if delUnclass.Status != StatusFailed || delUnclass.Error != "unclassified provider error" {
+		t.Errorf("delUnclass = %+v, want StatusFailed", delUnclass)
+	}
+	delPerm := retriedPlan.Recipients[0].Deliveries[3]
+	if delPerm.Status != StatusFailed || delPerm.Error != "permanent: invalid recipient address or number" {
+		t.Errorf("delPerm = %+v, want StatusFailed", delPerm)
+	}
+
+	// rec-2: delivered is untouched, sending is untouched
+	del2 := retriedPlan.Recipients[1].Deliveries[0]
+	if del2.Status != StatusDelivered {
+		t.Errorf("del2 = %+v, want StatusDelivered", del2)
+	}
+	del3 := retriedPlan.Recipients[1].Deliveries[1]
+	if del3.Status != StatusSending {
+		t.Errorf("del3 = %+v, want StatusSending", del3)
+	}
+
+	// Original plan was untouched
+	if plan.Recipients[0].Deliveries[1].Status != StatusFailed {
+		t.Errorf("original plan modified: %+v", plan.Recipients[0].Deliveries[1])
+	}
+}

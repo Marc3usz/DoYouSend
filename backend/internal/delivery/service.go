@@ -318,6 +318,20 @@ func (s *Service) dispatch(ctx context.Context, batch Batch) (Batch, error) {
 	return batch, nil
 }
 
+// RetryBatch re-sends only the failed deliveries of batchID. Succeeded deliveries
+// (sent or delivered) are never retried, preventing duplicate messages and duplicate
+// costs (CLAUDE.md rule 5). If the batch is currently running or has no failed deliveries,
+// it returns an error.
+func (s *Service) RetryBatch(ctx context.Context, batchID string) (Batch, error) {
+	batch, err := s.store.ResetFailedDeliveries(ctx, batchID)
+	if err != nil {
+		return Batch{}, fmt.Errorf("retry batch: %w", err)
+	}
+
+	detached := context.WithoutCancel(ctx)
+	return s.dispatch(detached, batch)
+}
+
 func checkDraft(d Draft) error {
 	switch {
 	case strings.TrimSpace(d.Subject) == "":
