@@ -311,10 +311,11 @@ func TestSMSPartsSkipsFailedDeliveries(t *testing.T) {
 func TestServiceRetryBatch(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemStore()
+	transientErr := providers.TransientError(errors.New("gateway unavailable"))
 	sms := &scriptedSender{
 		channel: providers.ChannelSMS,
 		errs: map[string][]error{
-			id2: {providers.TransientError(errors.New("gateway unavailable"))},
+			id2: {transientErr, transientErr, transientErr},
 		},
 	}
 	svc := newTestService(t, twoRecipients(), store, sms)
