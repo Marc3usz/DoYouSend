@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -31,6 +32,19 @@ import (
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	// The shell and Make do not load .env, and `go run` is started from backend/.
+	envFile, fromExample, err := config.LoadDevEnv()
+	if err != nil {
+		logger.Error("load env file", "err", err)
+		os.Exit(1)
+	}
+	switch {
+	case fromExample:
+		logger.Warn("no .env file, using .env.example (test data, DRY_RUN=true); copy it to .env to change settings", "file", envFile)
+	case envFile != "":
+		logger.Info("loaded env file", "file", envFile)
+	}
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -148,6 +162,7 @@ func main() {
 			SMSPricePerPartMilli: smsPrice,
 		}
 		iamSvc := iam.NewService(iam.NewPGStore(pool))
+		batchService.SetAuditor(batchAudit{log: iamSvc})
 		iam.NewHandler(iamSvc, iam.CookieOptions{Secure: cfg.SessionCookieSecure}, sending, logger).Register(mux)
 		handler = iam.Middleware(iamSvc, logger, mux)
 	}
@@ -176,6 +191,18 @@ func main() {
 	// A confirmed batch is sent to the end, not cut off by a restart (CLAUDE.md rule 5).
 	logger.Info("waiting for batches still being sent")
 	waitBatches()
+}
+
+// batchAudit writes a confirmed batch to the iam audit log: who launched it and
+// how big it was. Counts only, no names, addresses or the message body.
+type batchAudit struct{ log *iam.Service }
+
+func (a batchAudit) BatchConfirmed(ctx context.Context, b delivery.Batch) {
+	a.log.Record(ctx, b.CreatedBy, iam.ActionBatchSent, "batch", b.ID, map[string]string{
+		"recipients": strconv.Itoa(b.Counts.Recipients),
+		"groups":     strconv.Itoa(len(b.Groups)),
+		"smsParts":   strconv.Itoa(b.SMSParts),
+	})
 }
 
 // currentCaller adapts the iam session user to what the batch endpoints need.
