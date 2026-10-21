@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emailUsage, smsProfile, smsUsage } from './admin';
+import { emailProfile, emailUsage, smsProfile, smsUsage } from './admin';
 
 describe('emailUsage', () => {
 	it('calls GET /api/stats/email with query params', async () => {
@@ -51,6 +51,24 @@ describe('smsProfile', () => {
 			return new Response(JSON.stringify(expected), { status: 200 });
 		};
 		const got = await smsProfile(fakeFetch);
+		expect(got).toEqual(expected);
+	});
+});
+describe('emailProfile', () => {
+	it('calls GET /api/admin/providers/email/profile', async () => {
+		const expected = {
+			provider: 'sendgrid',
+			remainCredits: 95,
+			totalCredits: 100,
+			usedCredits: 5,
+			resetFrequency: 'day',
+			nextReset: '2026-10-17'
+		};
+		const fakeFetch: typeof fetch = async (input) => {
+			expect(String(input)).toBe('/api/admin/providers/email/profile');
+			return new Response(JSON.stringify(expected), { status: 200 });
+		};
+		const got = await emailProfile(fakeFetch);
 		expect(got).toEqual(expected);
 	});
 });

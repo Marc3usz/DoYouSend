@@ -4,8 +4,10 @@ import type { AuditEntry } from '$lib/api/admin';
 import {
 	actionText,
 	actorText,
+	creditsText,
 	currentMonth,
 	detailsText,
+	LOW_EMAIL_CREDITS_THRESHOLD,
 	LOW_POINTS_THRESHOLD,
 	plnText,
 	pointsText,
@@ -54,6 +56,23 @@ describe('pointsText', () => {
 	});
 });
 
+describe('creditsText', () => {
+	it('formats remain and total credits', () => {
+		expect(creditsText(95, 100)).toBe('95 / 100 kredytów');
+	});
+
+	it('formats only remain credits', () => {
+		expect(creditsText(95)).toBe('95 kredytów');
+	});
+
+	it('returns dash when undefined', () => {
+		expect(creditsText(undefined)).toBe('—');
+	});
+
+	it('defines warning threshold at 20 credits', () => {
+		expect(LOW_EMAIL_CREDITS_THRESHOLD).toBe(20);
+	});
+});
 describe('currentMonth', () => {
 	it('uses the Warsaw calendar', () => {
 		// 30 Sep 23:30 UTC is already 1 October in Warsaw.
