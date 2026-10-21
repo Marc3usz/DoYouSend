@@ -208,7 +208,9 @@ func TestHTTPListAndGetAccess(t *testing.T) {
 
 func TestHTTPRetryBatch(t *testing.T) {
 	env := newHTTPEnv(t, twoRecipients())
-	// Create batch where id2 fails on SMS (scripted in newHTTPEnv: id2 has errPermanent).
+	// Set transient errors for id2 so that it fails with a transient (retryable) error.
+	transientErr := providers.TransientError(errors.New("gateway unavailable"))
+	env.sms.errs = map[string][]error{id2: {transientErr, transientErr, transientErr}}
 	created := decode[batchDetailJSON](t, env.do(t, http.MethodPost, "/api/batches", batchJSON, map[string]string{headerKey: testKey}))
 	if created.Status != BatchRunning {
 		t.Fatalf("created status = %s; want running", created.Status)
