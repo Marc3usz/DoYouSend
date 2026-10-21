@@ -147,6 +147,30 @@ export function listRecipients(
 	return api<RecipientPage>(`/recipients${search}`, { fetch });
 }
 
+/** The RecipientLookup schema: a recipient without e-mail or phone. */
+export type RecipientLookup = Pick<
+	Recipient,
+	'id' | 'firstName' | 'lastName' | 'type' | 'classes' | 'issues'
+>;
+
+export type RecipientLookupPage = { items: RecipientLookup[]; total: number };
+
+/**
+ * GET /recipients/lookup: the composer's search for picking individual people
+ * and exclusions. Open to senders; q matches names only.
+ */
+export function lookupRecipients(
+	query: Omit<RecipientListQuery, 'issue'>,
+	fetch?: typeof globalThis.fetch
+): Promise<RecipientLookupPage> {
+	const params = new URLSearchParams();
+	for (const [key, value] of Object.entries(query)) {
+		if (value !== undefined && value !== '') params.set(key, String(value));
+	}
+	const search = params.size > 0 ? `?${params}` : '';
+	return api<RecipientLookupPage>(`/recipients/lookup${search}`, { fetch });
+}
+
 export function getRecipient(id: string, fetch?: typeof globalThis.fetch): Promise<Recipient> {
 	return api<Recipient>(`/recipients/${encodeURIComponent(id)}`, { fetch });
 }

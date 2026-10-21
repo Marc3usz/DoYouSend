@@ -181,10 +181,10 @@ func (s *PGStore) ListRecipients(ctx context.Context, f Filter) ([]Recipient, er
 		WHERE ($1 = '' OR type::text = $1)
 		  AND ($2 = '' OR first_name ILIKE $2 OR last_name ILIKE $2
 		       OR first_name || ' ' || last_name ILIKE $2 OR last_name || ' ' || first_name ILIKE $2
-		       OR email ILIKE $2 OR ($3 <> '' AND phone LIKE $3))
+		       OR (NOT $5 AND (email ILIKE $2 OR ($3 <> '' AND phone LIKE $3))))
 		  AND ($4 = '' OR EXISTS (SELECT 1 FROM recipient_classes c WHERE c.recipient_id = recipients.id AND c.class_name = $4))
 		ORDER BY lower(last_name), lower(first_name), id`,
-		string(f.Type), pattern, phonePattern, f.Class)
+		string(f.Type), pattern, phonePattern, f.Class, f.NamesOnly)
 }
 
 // GetRecipient implements RecipientStore.

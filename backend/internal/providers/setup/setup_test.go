@@ -8,6 +8,7 @@ import (
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/delivery"
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
+	"github.com/Marc3usz/DoYouSend/backend/internal/providers/sms"
 )
 
 func TestConfigFromEnv_Defaults(t *testing.T) {
@@ -353,5 +354,77 @@ func TestProviders_NilMethods(t *testing.T) {
 	_, err := p.Dispatcher(delivery.DefaultRetryPolicy(), nil)
 	if err == nil {
 		t.Error("expected error calling Dispatcher on nil Providers")
+	}
+}
+
+func TestProviders_SMSProfiler_DryRunRealSMSAPIReturnsNil(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		EmailProvider: "mailpit",
+		SMSProvider:   "smsapi",
+		SMSAPIKey:     "test-key",
+		DryRun:        true,
+	}
+
+	p, err := New(cfg, nil)
+	if err != nil {
+		t.Fatalf("unexpected New error: %v", err)
+	}
+
+	// CLAUDE.md invariant 5: DRY_RUN=true must short-circuit every real provider call.
+	// SMSProfiler() must return nil in dry-run mode for real SMSAPI to prevent any outbound calls.
+	profiler := p.SMSProfiler()
+	if profiler != nil {
+		t.Errorf("SMSProfiler() = %v, want nil in DryRun mode for real smsapi", profiler)
+	}
+}
+
+func TestProviders_SMSProfiler_DryRunFakeReturnsFake(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		EmailProvider: "mailpit",
+		SMSProvider:   "fake",
+		DryRun:        true,
+	}
+
+	p, err := New(cfg, nil)
+	if err != nil {
+		t.Fatalf("unexpected New error: %v", err)
+	}
+
+	profiler := p.SMSProfiler()
+	if profiler == nil {
+		t.Fatal("expected non-nil SMSProfiler for fake provider in DryRun mode")
+	}
+
+	if _, ok := profiler.(*sms.Fake); !ok {
+		t.Errorf("profiler type = %T, want *sms.Fake", profiler)
+	}
+}
+
+func TestProviders_SMSProfiler_LiveSMSAPIReturnsSMSAPI(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		EmailProvider: "mailpit",
+		SMSProvider:   "smsapi",
+		SMSAPIKey:     "test-key",
+		DryRun:        false,
+	}
+
+	p, err := New(cfg, nil)
+	if err != nil {
+		t.Fatalf("unexpected New error: %v", err)
+	}
+
+	profiler := p.SMSProfiler()
+	if profiler == nil {
+		t.Fatal("expected non-nil SMSProfiler for live smsapi provider")
+	}
+
+	if _, ok := profiler.(*sms.SMSAPI); !ok {
+		t.Errorf("profiler type = %T, want *sms.SMSAPI", profiler)
 	}
 }
