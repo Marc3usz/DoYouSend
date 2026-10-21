@@ -4,8 +4,10 @@ import type { AuditEntry } from '$lib/api/admin';
 import {
 	actionText,
 	actorText,
+	creditsText,
 	currentMonth,
 	detailsText,
+	LOW_EMAIL_CREDITS_THRESHOLD,
 	LOW_POINTS_THRESHOLD,
 	plnText,
 	pointsText,
@@ -54,6 +56,23 @@ describe('pointsText', () => {
 	});
 });
 
+describe('creditsText', () => {
+	it('formats remain and total credits', () => {
+		expect(creditsText(95, 100)).toBe('95 / 100 kredytów');
+	});
+
+	it('formats only remain credits', () => {
+		expect(creditsText(95)).toBe('95 kredytów');
+	});
+
+	it('returns dash when undefined', () => {
+		expect(creditsText(undefined)).toBe('—');
+	});
+
+	it('defines warning threshold at 20 credits', () => {
+		expect(LOW_EMAIL_CREDITS_THRESHOLD).toBe(20);
+	});
+});
 describe('currentMonth', () => {
 	it('uses the Warsaw calendar', () => {
 		// 30 Sep 23:30 UTC is already 1 October in Warsaw.
@@ -70,7 +89,15 @@ describe('currentMonth', () => {
 describe('audit texts', () => {
 	it('names known actions and passes others through', () => {
 		expect(actionText('user_created')).toBe('Utworzenie konta');
-		expect(actionText('batch_confirmed')).toBe('batch_confirmed');
+		expect(actionText('batch_sent')).toBe('Zatwierdzenie wysyłki');
+		expect(actionText('group_deleted')).toBe('group_deleted');
+	});
+	it('describes a confirmed batch by its size only', () => {
+		expect(
+			detailsText(
+				entry({ action: 'batch_sent', details: { recipients: '9', groups: '1', smsParts: '7' } })
+			)
+		).toBe('odbiorcy: 9, grupy: 1, części SMS: 7');
 	});
 	it('describes details in Polish', () => {
 		expect(detailsText(entry({ details: { role: 'admin', disabled: 'true' } }))).toBe(

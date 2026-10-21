@@ -12,11 +12,9 @@ import (
 )
 
 // Handler serves the group endpoints of docs/api/openapi.yaml, including
-// POST /groups/resolve (shape per ADR-0007).
-//
-// TODO(iam): group management needs the admin role and resolve the sender
-// role once the iam middleware lands (DEV D). Until then the API is meant for
-// local, fictional data only (CLAUDE.md rules 2 and 3).
+// POST /groups/resolve (shape per ADR-0007). iam.Middleware lets any signed-in
+// user list groups and resolve a selection; managing groups is for
+// administrators (iam/policy.go).
 type Handler struct {
 	svc      *Service
 	resolver *Resolver

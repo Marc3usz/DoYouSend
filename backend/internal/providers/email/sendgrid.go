@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -50,11 +51,12 @@ type SendGridConfig struct {
 // Click tracking and open tracking are disabled in every request so the
 // message body stays identical to the SMS body (CLAUDE.md, rule 4).
 type SendGrid struct {
-	cfg      SendGridConfig
-	client   *http.Client
-	url      string
-	fromAddr sgAddress // parsed once in NewSendGrid
-	logger   *slog.Logger
+	cfg        SendGridConfig
+	client     *http.Client
+	url        string
+	creditsURL string
+	fromAddr   sgAddress // parsed once in NewSendGrid
+	logger     *slog.Logger
 }
 
 // NewSendGrid creates a SendGrid email provider.
@@ -80,11 +82,12 @@ func NewSendGrid(cfg SendGridConfig, logger *slog.Logger) (*SendGrid, error) {
 	}
 
 	return &SendGrid{
-		cfg:      cfg,
-		client:   client,
-		url:      base + "/v3/mail/send",
-		fromAddr: from,
-		logger:   logger,
+		cfg:        cfg,
+		client:     client,
+		url:        base + "/v3/mail/send",
+		creditsURL: base + "/v3/user/credits",
+		fromAddr:   from,
+		logger:     logger,
 	}, nil
 }
 
@@ -273,4 +276,67 @@ func (sg *SendGrid) buildRequestBody(msg providers.Message) ([]byte, error) {
 	}
 
 	return json.Marshal(payload)
+}
+
+// GetProfile fetches the SendGrid account credit limits from GET /v3/user/credits.
+func (sg *SendGrid) GetProfile(ctx context.Context) (Profile, error) {
+	if ctx.Err() != nil {
+		return Profile{}, ctx.Err()
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sg.creditsURL, nil)
+	if err != nil {
+		return Profile{}, fmt.Errorf("sendgrid get profile: create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+sg.cfg.APIKey)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := sg.client.Do(req)
+	if err != nil {
+		return Profile{}, fmt.Errorf("sendgrid get profile: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	if err != nil {
+		return Profile{}, fmt.Errorf("sendgrid get profile: read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		var apiErr struct {
+			Errors []struct {
+				Message string `json:"message"`
+				Field   string `json:"field"`
+			} `json:"errors"`
+		}
+		if json.Unmarshal(body, &apiErr) == nil && len(apiErr.Errors) > 0 {
+			return Profile{}, fmt.Errorf("sendgrid get profile: api error: %s", apiErr.Errors[0].Message)
+		}
+		return Profile{}, fmt.Errorf("sendgrid get profile: unexpected status %d", resp.StatusCode)
+	}
+
+	var data struct {
+		Remain         *int64 `json:"remain"`
+		Total          *int64 `json:"total"`
+		Used           *int64 `json:"used"`
+		ResetFrequency string `json:"reset_frequency"`
+		NextReset      string `json:"next_reset"`
+	}
+	if err := json.Unmarshal(body, &data); err != nil {
+		return Profile{}, fmt.Errorf("sendgrid get profile: decode response: %w", err)
+	}
+
+	if data.Remain == nil {
+		return Profile{}, errors.New("sendgrid get profile: missing remain field in response")
+	}
+
+	return Profile{
+		Provider:       "sendgrid",
+		RemainCredits:  data.Remain,
+		TotalCredits:   data.Total,
+		UsedCredits:    data.Used,
+		ResetFrequency: data.ResetFrequency,
+		NextReset:      data.NextReset,
+	}, nil
 }

@@ -8,12 +8,10 @@ import {
 	removeGroupMembers,
 	updateGroup
 } from '$lib/api/groups';
-import { listRecipients, type Recipient } from '$lib/api/recipients';
+import { listRecipients } from '$lib/api/recipients';
 import type { Actions, PageServerLoad } from './$types';
+import { pickCandidates, searchLimit } from '../candidates';
 import { errorTexts, failureText, groupSaveFailure, isNotFound, readGroupForm } from '../messages';
-
-/** How many search results to offer when adding members. */
-const CANDIDATE_LIMIT = 20;
 
 export const load: PageServerLoad = async ({ params, url, fetch }) => {
 	const q = (url.searchParams.get('q') ?? '').trim().slice(0, 100);
@@ -22,15 +20,12 @@ export const load: PageServerLoad = async ({ params, url, fetch }) => {
 			getGroup(params.id, fetch),
 			listGroupMembers(params.id, fetch)
 		]);
-		let candidates: Recipient[] = [];
-		let moreCandidates = false;
+		let found = pickCandidates([], 0, new Set());
 		if (group.kind === 'custom' && q !== '') {
-			const page = await listRecipients({ q, limit: CANDIDATE_LIMIT }, fetch);
-			const memberIds = new Set(members.map((m) => m.id));
-			candidates = page.items.filter((r) => !memberIds.has(r.id));
-			moreCandidates = page.total > page.items.length;
+			const page = await listRecipients({ q, limit: searchLimit(members.length) }, fetch);
+			found = pickCandidates(page.items, page.total, new Set(members.map((m) => m.id)));
 		}
-		return { group, members, q, candidates, moreCandidates };
+		return { group, members, q, ...found };
 	} catch (err) {
 		// A malformed ID is a 400 invalid_request: for the user, no such group.
 		if (isNotFound(err) || (err instanceof ApiError && err.status === 400)) {

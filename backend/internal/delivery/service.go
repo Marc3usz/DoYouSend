@@ -87,6 +87,13 @@ type Draft struct {
 	IdempotencyKey string
 }
 
+// BatchAuditor records who confirmed a batch in the audit log (description.md:
+// the system records who prepared and launched each send). main adapts the
+// iam audit log to it, so delivery does not depend on iam.
+type BatchAuditor interface {
+	BatchConfirmed(ctx context.Context, b Batch)
+}
+
 // Service turns a confirmed draft into a sent, recorded batch.
 type Service struct {
 	resolver          Resolver
@@ -95,6 +102,7 @@ type Service struct {
 	store             Store
 	pricePerPartMilli int64
 	logger            *slog.Logger
+	auditor           BatchAuditor
 	// running tracks Start calls and the dispatches they leave in the background, for
 	// Wait. closing, guarded by mu, stops new ones once Wait has begun.
 	mu      sync.Mutex
@@ -114,6 +122,12 @@ func NewService(resolver Resolver, lookup GroupLookup, dispatcher PlanDispatcher
 		resolver: resolver, groups: lookup, dispatcher: dispatcher, store: store,
 		pricePerPartMilli: pricePerPartMilli, logger: logger,
 	}
+}
+
+// SetAuditor makes every newly recorded batch reach a. A repeated idempotency key
+// records nothing: the confirmation was logged the first time.
+func (s *Service) SetAuditor(a BatchAuditor) {
+	s.auditor = a
 }
 
 // Send checks the draft, resolves its recipients, records the batch and dispatches it.
@@ -234,6 +248,9 @@ func (s *Service) record(ctx context.Context, d Draft) (Batch, bool, error) {
 	}
 	if err != nil {
 		return Batch{}, false, fmt.Errorf("send batch: record: %w", err)
+	}
+	if s.auditor != nil {
+		s.auditor.BatchConfirmed(ctx, batch)
 	}
 	return batch, false, nil
 }
