@@ -40,6 +40,8 @@ func (d directory) Classes(context.Context) ([]string, error) { return nil, nil 
 
 // TestServiceSendWithRealResolver runs a batch through groups.Resolver instead of a
 // fixed Resolution: the ADR-0007 contract between groups and delivery, end to end.
+// NewPlan deduplicates again, so this guards the outcome (one message per person),
+// not the resolver's own deduplication; groups/resolve_test.go covers that.
 func TestServiceSendWithRealResolver(t *testing.T) {
 	const idOla = "00000000-0000-4000-8000-000000000004"
 	dir := directory{
