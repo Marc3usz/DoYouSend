@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -64,6 +65,8 @@ func main() {
 	// Logging in needs the database too, so only then is every route behind
 	// the iam middleware.
 	var handler http.Handler = mux
+	// waitBatches blocks until batches still being dispatched in the background are done.
+	waitBatches := func() {}
 	pool, err := database.Open(ctx, cfg.DatabaseURL)
 	switch {
 	case errors.Is(err, database.ErrNoURL):
@@ -78,7 +81,8 @@ func main() {
 		recipients.NewHandler(recipients.NewService(recipientStore), logger).Register(mux)
 		groupStore := groups.NewPGStore(pool)
 		resolver := groups.NewResolver(groupStore, recipientStore)
-		groups.NewHandler(groups.NewService(groupStore, recipientStore), resolver, logger).Register(mux)
+		groupService := groups.NewService(groupStore, recipientStore)
+		groups.NewHandler(groupService, resolver, logger).Register(mux)
 		smsPrice, err := messaging.ParsePrice(os.Getenv("SMS_PRICE_PER_PART_PLN"))
 		if err != nil {
 			logger.Error("invalid SMS_PRICE_PER_PART_PLN (see .env.example)", "err", err)
@@ -90,7 +94,8 @@ func main() {
 		mux.Handle("POST /api/recipients/import/check", recipients.HandleImportFile(importer.Check, logger))
 		mux.Handle("POST /api/recipients/import", recipients.HandleImportFile(importer.Import, logger))
 
-		reportConsumer := providers.NewPGDeliveryReportConsumer(pool)
+		reportConsumer := providers.NewPGDeliveryReportConsumer(pool, logger)
+		reportConsumer.StartCleaner(ctx, 24*time.Hour, 7*24*time.Hour)
 
 		smsToken := strings.TrimSpace(os.Getenv("SMSAPI_DLR_TOKEN"))
 		if smsToken != "" {
@@ -129,12 +134,18 @@ func main() {
 			"dryRun", provCfg.DryRun,
 		)
 
+		mux.Handle("GET /api/admin/providers/sms/profile", sms.HandleProfile(provs.SMSProfiler(), logger))
+
 		dispatcher, err := provs.Dispatcher(delivery.DefaultRetryPolicy(), logger)
 		if err != nil {
 			logger.Error("initialize delivery dispatcher", "err", err)
 			os.Exit(1)
 		}
-		_ = dispatcher // ready for delivery.Service when batch HTTP endpoints land (M3)
+		batchStore := delivery.NewPGStore(pool)
+		batchService := delivery.NewService(resolver, groupService, dispatcher, batchStore, smsPrice, logger)
+		delivery.NewHandler(batchService, batchStore, currentCaller, logger).Register(mux)
+		waitBatches = batchService.Wait
+
 		sending := iam.SendingConfig{
 			DryRun:               cfg.DryRun,
 			EmailProvider:        provCfg.EmailProvider,
@@ -150,6 +161,7 @@ func main() {
 			SMSPricePerPartMilli: smsPrice,
 		}
 		iamSvc := iam.NewService(iam.NewPGStore(pool))
+		batchService.SetAuditor(batchAudit{log: iamSvc})
 		iam.NewHandler(iamSvc, iam.CookieOptions{Secure: cfg.SessionCookieSecure}, sending, logger).Register(mux)
 		handler = iam.Middleware(iamSvc, logger, mux)
 	}
@@ -169,9 +181,34 @@ func main() {
 	}()
 
 	<-ctx.Done()
+	stop() // a second Ctrl-C now kills the process, even while batches are still being sent
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("graceful shutdown failed", "err", err)
 	}
+	// A confirmed batch is sent to the end, not cut off by a restart (CLAUDE.md rule 5).
+	logger.Info("waiting for batches still being sent")
+	waitBatches()
+}
+
+// batchAudit writes a confirmed batch to the iam audit log: who launched it and
+// how big it was. Counts only, no names, addresses or the message body.
+type batchAudit struct{ log *iam.Service }
+
+func (a batchAudit) BatchConfirmed(ctx context.Context, b delivery.Batch) {
+	a.log.Record(ctx, b.CreatedBy, iam.ActionBatchSent, "batch", b.ID, map[string]string{
+		"recipients": strconv.Itoa(b.Counts.Recipients),
+		"groups":     strconv.Itoa(len(b.Groups)),
+		"smsParts":   strconv.Itoa(b.SMSParts),
+	})
+}
+
+// currentCaller adapts the iam session user to what the batch endpoints need.
+func currentCaller(ctx context.Context) (delivery.Caller, bool) {
+	u, ok := iam.UserFrom(ctx)
+	if !ok {
+		return delivery.Caller{}, false
+	}
+	return delivery.Caller{ID: u.ID, FullName: u.FullName, IsAdmin: u.IsAdmin()}, true
 }
