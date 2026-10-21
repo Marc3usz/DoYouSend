@@ -334,6 +334,12 @@ func (s *Service) ListAudit(ctx context.Context, limit, offset int) (AuditPage, 
 	return AuditPage{Items: items, Total: total}, nil
 }
 
+// Record adds an entry for an action of another domain, e.g. a confirmed batch
+// (ActionBatchSent). Like every audit write it never fails the action itself.
+func (s *Service) Record(ctx context.Context, userID, action, entity, entityID string, details map[string]string) {
+	s.audit(ctx, userID, action, entity, entityID, details)
+}
+
 // audit records an action. A failed audit write must not undo the action the
 // user already completed, so it is not returned; the store error is lost
 // only if the database is down, in which case the action failed too.
