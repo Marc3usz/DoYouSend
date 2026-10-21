@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page as pageState } from '$app/state';
 	import type { PageProps } from './$types';
+	import HealthPanel from './HealthPanel.svelte';
 	import { listHref, pageCount } from './list';
 	import { issueHint, issueText, recipientTypeLabel } from './messages';
 
@@ -25,8 +26,13 @@
 <p class="actions">
 	<a href="/odbiorcy/nowy">Dodaj odbiorcę</a>
 	<a href="/odbiorcy/import">Import z pliku</a>
+	<a href="/odbiorcy/do-poprawy">Do poprawy</a>
 	<a href="/grupy">Grupy</a>
 </p>
+
+{#if data.counts && !filtered}
+	<HealthPanel counts={data.counts} />
+{/if}
 
 {#if deleted}
 	<p class="notice" role="status">Odbiorca został usunięty.</p>
