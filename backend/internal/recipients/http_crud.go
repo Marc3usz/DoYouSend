@@ -11,10 +11,8 @@ import (
 )
 
 // Handler serves the recipient CRUD endpoints of docs/api/openapi.yaml.
-//
-// TODO(iam): every route returns personal data and must require the admin
-// role once the iam middleware lands (DEV D). Until then the API is meant for
-// local, fictional data only (CLAUDE.md rules 2 and 3).
+// Every route but GET /recipients/lookup returns contact data, so iam.Middleware
+// lets only administrators through (iam/policy.go).
 type Handler struct {
 	svc    *Service
 	logger *slog.Logger

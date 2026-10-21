@@ -1,6 +1,8 @@
 # ADR-0007: Kształt `Resolve()` i sygnalizowanie braków danych kontaktowych
 
-- **Status:** propozycja — czeka na akceptację S1D0R-10 (DEV B) przed spięciem wysyłki w M3
+- **Status:** przyjęta (2026-10-21) — zaproponowana przez Marc3usz (DEV A); `messaging` (podgląd)
+  i `delivery` (wysyłka wsadu, #41) zbudowane na tym kształcie; akceptacja S1D0R-10 (DEV B)
+  w review PR z tą zmianą statusu
 - **Data:** 2026-09-30
 - **Uczestnicy:** Marc3usz (DEV A) proponuje, S1D0R-10 (DEV B) konsumuje wynik
 
@@ -89,3 +91,8 @@ Grup systemowych nie da się edytować ani usunąć, a ich nazwy są zarezerwowa
   Mapowanie pól na placeholdery nadal rozstrzyga ADR-0005.
 - Deduplikacja jest po ID odbiorcy. Dwie różne osoby z tym samym e-mailem blokują unikalne
   indeksy w bazie (`0001_init.sql`), więc `Resolve` tego przypadku nie obsługuje.
+- Konsumenci po przyjęciu: `messaging` (`POST /messages/preview`) i `delivery`
+  (`POST /batches`) deklarują własny wąski interfejs
+  `Resolve(ctx, groups.Selection) (groups.Resolution, error)` i przyjmują wybór w kształcie
+  `RecipientSelection` z `openapi.yaml`. Dostęp: `POST /groups/resolve` ma każdy zalogowany,
+  zarządzanie grupami tylko administrator (`iam/policy.go`, ADR-0010).
