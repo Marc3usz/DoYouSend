@@ -483,7 +483,6 @@ func (s *PGStore) ResetFailedDeliveries(ctx context.Context, batchID string) (Ba
 	}
 	return b, nil
 }
-}
 
 // loadPlan reads the recipients of a batch in plan order, each with its deliveries
 // e-mail before SMS (the channel enum order). A recipient without deliveries had no
