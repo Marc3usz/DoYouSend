@@ -1,9 +1,11 @@
 package delivery
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -32,11 +34,54 @@ func (s *MemStore) CreateBatch(_ context.Context, b Batch) (Batch, error) {
 	b = cloneBatch(b)
 	b.ID = id
 	b.CreatedAt = s.now()
+	b.Counts = b.Plan.Counts()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if b.IdempotencyKey != "" {
+		if _, err := s.byKey(b.CreatedBy, b.IdempotencyKey); err == nil {
+			return Batch{}, fmt.Errorf("create batch: %w", ErrDuplicateKey)
+		}
+	}
 	s.batches[id] = b
 	return cloneBatch(b), nil
+}
+
+// BatchByKey implements Store.
+func (s *MemStore) BatchByKey(_ context.Context, createdBy, key string) (Batch, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.byKey(createdBy, key)
+}
+
+func (s *MemStore) byKey(createdBy, key string) (Batch, error) {
+	for _, b := range s.batches {
+		if b.CreatedBy == createdBy && b.IdempotencyKey == key {
+			return cloneBatch(b), nil
+		}
+	}
+	return Batch{}, fmt.Errorf("batch with key %s: %w", key, ErrBatchNotFound)
+}
+
+// ListBatches implements Store.
+func (s *MemStore) ListBatches(_ context.Context, f BatchFilter) ([]Batch, int, error) {
+	s.mu.Lock()
+	var matching []Batch
+	for _, b := range s.batches {
+		if (f.CreatedBy == "" || b.CreatedBy == f.CreatedBy) && (f.Status == "" || b.Status == f.Status) {
+			b.Plan = Plan{}
+			matching = append(matching, cloneBatch(b))
+		}
+	}
+	s.mu.Unlock()
+
+	slices.SortFunc(matching, func(a, b Batch) int {
+		return cmp.Or(b.CreatedAt.Compare(a.CreatedAt), cmp.Compare(b.ID, a.ID))
+	})
+	total := len(matching)
+	start := min(f.Offset, total)
+	end := min(start+f.Limit, total)
+	return matching[start:end], total, nil
 }
 
 // SaveOutcome implements Store.
@@ -71,10 +116,46 @@ func (s *MemStore) SaveOutcome(_ context.Context, batchID string, plan Plan) err
 		}
 	}
 	b.Plan = updated
+	b.Counts = updated.Counts()
 	b.Status = updated.Status()
 	if b.Status != BatchRunning && b.FinishedAt.IsZero() {
 		b.FinishedAt = s.now()
 	}
+	s.batches[batchID] = b
+	return nil
+}
+
+// SaveDelivery implements Store.
+func (s *MemStore) SaveDelivery(_ context.Context, batchID string, recipientID string, d Delivery) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, ok := s.batches[batchID]
+	if !ok {
+		return fmt.Errorf("save delivery of batch %s: %w", batchID, ErrBatchNotFound)
+	}
+
+	updated := b.Plan.clone()
+	for i, r := range updated.Recipients {
+		if r.RecipientID != recipientID {
+			continue
+		}
+		for j, cur := range r.Deliveries {
+			if cur.Channel != d.Channel {
+				continue
+			}
+			if Advance(cur.Status, d.Status) != d.Status {
+				continue
+			}
+			cur.Status = d.Status
+			cur.Attempts = d.Attempts
+			if d.ProviderMessageID != "" {
+				cur.ProviderMessageID = d.ProviderMessageID
+			}
+			cur.Error = d.Error
+			updated.Recipients[i].Deliveries[j] = cur
+		}
+	}
+	b.Plan = updated
 	s.batches[batchID] = b
 	return nil
 }
@@ -107,6 +188,7 @@ func (s *MemStore) ResetFailedDeliveries(_ context.Context, batchID string) (Bat
 	}
 	b.Plan = retriedPlan
 	b.Status = BatchRunning
+	b.FinishedAt = time.Time{}
 	s.batches[batchID] = b
 	return cloneBatch(b), nil
 }

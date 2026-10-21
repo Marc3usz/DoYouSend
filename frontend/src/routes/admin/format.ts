@@ -17,6 +17,20 @@ export function plnText(milli: number): string {
 	return pln.format(milli / 1000);
 }
 
+const pointsFormat = new Intl.NumberFormat('pl-PL', {
+	minimumFractionDigits: 2,
+	maximumFractionDigits: 2,
+	useGrouping: true
+});
+
+/** Formats a points balance (e.g. 125.5 -> "125,50 pkt"). */
+export function pointsText(points: number): string {
+	return `${pointsFormat.format(points)} pkt`;
+}
+
+/** Points balance below which the admin dashboard shows a low balance warning. */
+export const LOW_POINTS_THRESHOLD = 50;
+
 const dateTime = new Intl.DateTimeFormat('pl-PL', {
 	dateStyle: 'medium',
 	timeStyle: 'short',

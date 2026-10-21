@@ -3,6 +3,7 @@ package sms
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -565,5 +566,185 @@ func TestSMSAPI_Channel(t *testing.T) {
 	}
 	if p.Channel() != providers.ChannelSMS {
 		t.Errorf("Channel() = %v, want %v", p.Channel(), providers.ChannelSMS)
+	}
+}
+
+func TestSMSAPI_GetProfile_Success(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("Method = %q, want %q", r.Method, http.MethodGet)
+		}
+		if r.URL.Path != "/profile" {
+			t.Errorf("Path = %q, want %q", r.URL.Path, "/profile")
+		}
+		if auth := r.Header.Get("Authorization"); auth != "Bearer test-key" {
+			t.Errorf("Authorization = %q, want Bearer test-key", auth)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"points": 142.50,
+			"name": "Szkola Podstawowa",
+			"user_type": "developer"
+		}`))
+	}))
+	defer srv.Close()
+
+	p, err := NewSMSAPI(SMSAPIConfig{
+		APIKey:     "test-key",
+		BaseURL:    srv.URL,
+		HTTPClient: srv.Client(),
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected NewSMSAPI error: %v", err)
+	}
+
+	profile, err := p.GetProfile(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected GetProfile error: %v", err)
+	}
+
+	if profile.Points != 142.50 {
+		t.Errorf("Points = %f, want 142.50", profile.Points)
+	}
+	if profile.Name != "Szkola Podstawowa" {
+		t.Errorf("Name = %q, want 'Szkola Podstawowa'", profile.Name)
+	}
+	if profile.UserType != "developer" {
+		t.Errorf("UserType = %q, want 'developer'", profile.UserType)
+	}
+}
+
+func TestSMSAPI_GetProfile_APIError(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error": 101, "message": "Niepoprawny token autoryzacyjny"}`))
+	}))
+	defer srv.Close()
+
+	p, err := NewSMSAPI(SMSAPIConfig{
+		APIKey:     "invalid-key",
+		BaseURL:    srv.URL,
+		HTTPClient: srv.Client(),
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected NewSMSAPI error: %v", err)
+	}
+
+	_, err = p.GetProfile(context.Background())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "101") {
+		t.Errorf("error = %v, want mentioning error code 101", err)
+	}
+}
+
+func TestSMSAPI_GetProfile_5xxNoJSON(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("Internal Server Error"))
+	}))
+	defer srv.Close()
+
+	p, err := NewSMSAPI(SMSAPIConfig{
+		APIKey:     "test-key",
+		BaseURL:    srv.URL,
+		HTTPClient: srv.Client(),
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected NewSMSAPI error: %v", err)
+	}
+
+	_, err = p.GetProfile(context.Background())
+	if err == nil {
+		t.Fatal("expected error for 500 status without JSON, got nil")
+	}
+	if !strings.Contains(err.Error(), "500") {
+		t.Errorf("error = %v, want mentioning status 500", err)
+	}
+}
+
+func TestSMSAPI_GetProfile_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("not-valid-json"))
+	}))
+	defer srv.Close()
+
+	p, err := NewSMSAPI(SMSAPIConfig{
+		APIKey:     "test-key",
+		BaseURL:    srv.URL,
+		HTTPClient: srv.Client(),
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected NewSMSAPI error: %v", err)
+	}
+
+	_, err = p.GetProfile(context.Background())
+	if err == nil {
+		t.Fatal("expected error for invalid JSON, got nil")
+	}
+	if !strings.Contains(err.Error(), "parse json") {
+		t.Errorf("error = %v, want parse json error", err)
+	}
+}
+
+func TestSMSAPI_GetProfile_MissingPoints(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"name": "test account", "user_type": "developer"}`))
+	}))
+	defer srv.Close()
+
+	p, err := NewSMSAPI(SMSAPIConfig{
+		APIKey:     "test-key",
+		BaseURL:    srv.URL,
+		HTTPClient: srv.Client(),
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected NewSMSAPI error: %v", err)
+	}
+
+	_, err = p.GetProfile(context.Background())
+	if err == nil {
+		t.Fatal("expected error for missing points field, got nil")
+	}
+	if !strings.Contains(err.Error(), "missing points") {
+		t.Errorf("error = %v, want mentioning missing points", err)
+	}
+}
+
+func TestSMSAPI_GetProfile_ContextCancelled(t *testing.T) {
+	t.Parallel()
+
+	p, err := NewSMSAPI(SMSAPIConfig{APIKey: "key"}, nil)
+	if err != nil {
+		t.Fatalf("unexpected NewSMSAPI error: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err = p.GetProfile(ctx)
+	if err == nil {
+		t.Fatal("expected error for cancelled context, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want context.Canceled", err)
 	}
 }

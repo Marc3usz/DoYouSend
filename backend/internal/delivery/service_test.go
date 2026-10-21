@@ -314,7 +314,7 @@ func TestServiceRetryBatch(t *testing.T) {
 	sms := &scriptedSender{
 		channel: providers.ChannelSMS,
 		errs: map[string][]error{
-			id2: {providers.PermanentError(errors.New("gateway rejected"))},
+			id2: {providers.TransientError(errors.New("gateway unavailable"))},
 		},
 	}
 	svc := newTestService(t, twoRecipients(), store, sms)
@@ -363,6 +363,32 @@ func TestServiceRetryBatch(t *testing.T) {
 	}
 }
 
+func TestServiceRetryBatch_DoesNotRetryUnclassifiedOrPermanentErrors(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemStore()
+	sms := &scriptedSender{
+		channel: providers.ChannelSMS,
+		errs: map[string][]error{
+			id1: {errors.New("unclassified error")},
+			id2: {providers.PermanentError(errors.New("permanent error"))},
+		},
+	}
+	svc := newTestService(t, twoRecipients(), store, sms)
+
+	batch, err := svc.Send(ctx, validDraft())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if batch.Status != BatchDoneWithErrors {
+		t.Fatalf("first run status = %s, want done_with_errors", batch.Status)
+	}
+
+	_, err = svc.RetryBatch(ctx, batch.ID)
+	if !errors.Is(err, ErrNoFailedDeliveries) {
+		t.Errorf("RetryBatch err = %v, want ErrNoFailedDeliveries (no transient failures)", err)
+	}
+}
+
 func TestServiceRetryBatch_NothingToRetry(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemStore()
@@ -406,5 +432,53 @@ func TestServiceRetryBatch_NotFound(t *testing.T) {
 	_, err := svc.RetryBatch(context.Background(), id1)
 	if !errors.Is(err, ErrBatchNotFound) {
 		t.Errorf("err = %v, want ErrBatchNotFound", err)
+	}
+}
+
+func TestMemStoreSaveDelivery(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemStore()
+	b, _ := s.CreateBatch(ctx, Batch{Plan: NewPlan("S", "x", []groups.Resolved{resolved(id1, "A", "", "+48500100101")})})
+
+	// 1. Advance to sending
+	err := s.SaveDelivery(ctx, b.ID, id1, Delivery{
+		Channel: providers.ChannelSMS,
+		Status:  StatusSending,
+	})
+	if err != nil {
+		t.Fatalf("SaveDelivery sending err = %v", err)
+	}
+	got, _ := s.Batch(ctx, b.ID)
+	if got.Plan.Recipients[0].Deliveries[0].Status != StatusSending {
+		t.Errorf("status = %s, want sending", got.Plan.Recipients[0].Deliveries[0].Status)
+	}
+
+	// 2. Advance to sent with provider_message_id
+	err = s.SaveDelivery(ctx, b.ID, id1, Delivery{
+		Channel:           providers.ChannelSMS,
+		Status:            StatusSent,
+		ProviderMessageID: "sms-msg-1",
+	})
+	if err != nil {
+		t.Fatalf("SaveDelivery sent err = %v", err)
+	}
+	got, _ = s.Batch(ctx, b.ID)
+	d := got.Plan.Recipients[0].Deliveries[0]
+	if d.Status != StatusSent || d.ProviderMessageID != "sms-msg-1" {
+		t.Errorf("delivery = %+v, want sent with sms-msg-1", d)
+	}
+
+	// 3. Stale pending update must not downgrade sent
+	err = s.SaveDelivery(ctx, b.ID, id1, Delivery{
+		Channel: providers.ChannelSMS,
+		Status:  StatusPending,
+	})
+	if err != nil {
+		t.Fatalf("SaveDelivery stale err = %v", err)
+	}
+	got, _ = s.Batch(ctx, b.ID)
+	d = got.Plan.Recipients[0].Deliveries[0]
+	if d.Status != StatusSent {
+		t.Errorf("status = %s, want sent (must not downgrade)", d.Status)
 	}
 }

@@ -34,6 +34,12 @@ func RateLimitError(err error, retryAfter time.Duration) error {
 	return TransientError(&rateLimitError{err: err, retryAfter: retryAfter})
 }
 
+// IsRateLimit reports whether err (or any error in its chain) was caused by rate limiting.
+func IsRateLimit(err error) bool {
+	var rle interface{ RetryAfter() time.Duration }
+	return errors.As(err, &rle)
+}
+
 // RetryAfter extracts the suggested retry-after duration from err (or any error in its chain)
 // if it implements interface{ RetryAfter() time.Duration }. Returns 0, false if not specified.
 func RetryAfter(err error) (time.Duration, bool) {
