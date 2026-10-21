@@ -100,7 +100,7 @@ func TestDeliveryPipeline_EndToEnd_Integration(t *testing.T) {
 	}
 
 	// 5. Simulate incoming delivery reports via PGDeliveryReportConsumer
-	reportConsumer := providers.NewPGDeliveryReportConsumer(pool)
+	reportConsumer := providers.NewPGDeliveryReportConsumer(pool, nil)
 
 	smsReports := []providers.DeliveryReport{
 		{
