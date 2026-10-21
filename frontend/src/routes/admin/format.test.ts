@@ -4,8 +4,6 @@ import type { AuditEntry } from '$lib/api/admin';
 import {
 	actionText,
 	actorText,
-	actionText,
-	actorText,
 	creditsText,
 	currentMonth,
 	detailsText,
