@@ -10,7 +10,15 @@ const batch = {
 	id: '00000000-0000-4000-8000-000000000001',
 	subject: 'Zebranie rodziców',
 	body: 'Wiadomość testowa dla {{imie}}',
-	groups: [{ id: 'g1', name: 'Rada rodziców' }]
+	groups: [{ id: 'g1', name: 'Rada rodziców' }],
+	recipientIds: ['00000000-0000-4000-8000-000000000002'],
+	recipients: [
+		{
+			recipientId: '00000000-0000-4000-8000-000000000002',
+			firstName: 'Jan',
+			lastName: 'Kowalski'
+		}
+	]
 };
 
 function fakeEvent(urlStr: string, answers: Record<string, Response>): LoadEvent {
@@ -51,7 +59,17 @@ describe('wiadomosci load', () => {
 			initialDraft: {
 				subject: 'Zebranie rodziców',
 				body: 'Wiadomość testowa dla {{imie}}',
-				groupIds: ['g1']
+				groupIds: ['g1'],
+				recipients: [
+					{
+						id: '00000000-0000-4000-8000-000000000002',
+						firstName: 'Jan',
+						lastName: 'Kowalski',
+						type: 'parent',
+						classes: [],
+						issues: []
+					}
+				]
 			}
 		});
 	});
