@@ -235,6 +235,9 @@ func TestHTTPRetryBatch(t *testing.T) {
 	if retried.ID != created.ID || retried.Status != BatchRunning {
 		t.Errorf("retried response = %+v; want ID %s and status running", retried, created.ID)
 	}
+	if retried.CreatedBy.FullName == "" {
+		t.Errorf("retried CreatedBy.FullName is empty; want non-empty sender name")
+	}
 
 	// Verify only recipient 2 was resent.
 	if len(env.sms.sent) != 1 || env.sms.sent[0].RecipientID != id2 {
@@ -247,10 +250,10 @@ func TestHTTPRetryBatch(t *testing.T) {
 		t.Errorf("after retry status = %s; want done", afterRetry.Status)
 	}
 
-	// When all failed deliveries have succeeded, a second retry returns 400 no_failed_deliveries.
+	// When all failed deliveries have succeeded, a second retry returns 409 no_failed_deliveries.
 	recAgain := env.do(t, http.MethodPost, "/api/batches/"+created.ID+"/retry", "", nil)
-	if got := decode[httpx.ErrorBody](t, recAgain); recAgain.Code != http.StatusBadRequest || got.Code != "no_failed_deliveries" {
-		t.Errorf("retry on completed batch = %d %+v; want 400 no_failed_deliveries", recAgain.Code, got)
+	if got := decode[httpx.ErrorBody](t, recAgain); recAgain.Code != http.StatusConflict || got.Code != "no_failed_deliveries" {
+		t.Errorf("retry on completed batch = %d %+v; want 409 no_failed_deliveries", recAgain.Code, got)
 	}
 }
 

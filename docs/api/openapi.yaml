@@ -490,9 +490,10 @@ paths:
       tags: [batches]
       summary: Ponawia nieudane wiadomosci we wsadzie
       description: |
-        Resetuje status nieudanych wysylek (failed) z powrotem do pending i uruchamia ponowna wysylke w tle.
-        Wiadomosci juz doreczone lub wyslane (sent/delivered) nie sa wysylane ponownie (brak podwojnych kosztow).
-        Wymaga uprawnien administratora lub bycia autorem wsadu.
+        Resetuje status nieudanych wysylek (failed z bledem przejsciowym) z powrotem do pending i uruchamia ponowna wysylke w tle.
+        Wiadomosci juz doreczone lub wyslane (sent/delivered) nie sa wysylane ponownie (ochrona przed duplikatami i podwojnym kosztem).
+        Wsad ze statusem done_with_errors wraca do stanu running na czas trwania ponowienia w tle (wyjatek od niemutowalnosci wyslanego wsadu).
+        Wymaga uprawnien administratora lub bycia autorem wsadu (dla cudzego wsadu zwraca 404).
       parameters:
         - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
       responses:
@@ -501,9 +502,13 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BatchDetail" }
-        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
-        "409": { $ref: "#/components/responses/Error" }
+        "409":
+          description: Konflikt stanu wsadu (batch_running lub no_failed_deliveries)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorBody" }
         "503": { $ref: "#/components/responses/Error" }
 
   /auth/login:
@@ -1183,6 +1188,8 @@ components:
             - self_lockout         # PATCH /users/{id}: administrator nie zablokuje ani nie zdegraduje siebie
             - not_supported        # operacja nieobslugiwana przez skonfigurowanego operatora (501)
             - provider_error       # blad komunikacji z zewnetrznym operatorem (502)
+            - batch_running        # POST /batches/{id}/retry: wsad jest obecnie w trakcie wysylki (409)
+            - no_failed_deliveries # POST /batches/{id}/retry: wsad nie ma nieudanych dostaw do ponowienia (409)
             - internal
         message: { type: string, description: "Szczegol diagnostyczny po angielsku, nie do wyswietlania wprost" }
         fields:

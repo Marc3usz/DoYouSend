@@ -227,7 +227,7 @@ func (h *Handler) retry(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, ErrBatchRunning):
 			httpx.Error(w, http.StatusConflict, httpx.ErrorBody{Code: "batch_running", Message: "batch is currently running"})
 		case errors.Is(err, ErrNoFailedDeliveries):
-			httpx.Error(w, http.StatusBadRequest, httpx.ErrorBody{Code: "no_failed_deliveries", Message: "batch has no failed deliveries to retry"})
+			httpx.Error(w, http.StatusConflict, httpx.ErrorBody{Code: "no_failed_deliveries", Message: "batch has no failed deliveries to retry"})
 		case errors.Is(err, ErrShuttingDown):
 			httpx.Error(w, http.StatusServiceUnavailable, httpx.ErrorBody{Code: "internal", Message: ErrShuttingDown.Error()})
 		case errors.Is(err, ErrBatchNotFound):
