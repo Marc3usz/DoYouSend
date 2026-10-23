@@ -21,6 +21,8 @@ export const errorCodes = [
 	'email_taken',
 	'last_admin',
 	'self_lockout',
+	'batch_running',
+	'no_failed_deliveries',
 	'internal'
 ] as const;
 

@@ -97,3 +97,11 @@ export function listBatches(
 export function getBatch(id: string, fetch?: typeof globalThis.fetch): Promise<BatchDetail> {
 	return api<BatchDetail>(`/batches/${encodeURIComponent(id)}`, { fetch });
 }
+
+/** POST /batches/{id}/retry: re-sends only failed deliveries of a batch. */
+export function retryBatch(id: string, fetch?: typeof globalThis.fetch): Promise<BatchDetail> {
+	return api<BatchDetail>(`/batches/${encodeURIComponent(id)}/retry`, {
+		method: 'POST',
+		fetch
+	});
+}

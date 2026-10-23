@@ -19,10 +19,10 @@
 
 	let { data }: PageProps = $props();
 
-	let subject = $state('');
+	let subject = $state(untrack(() => data.initialDraft?.subject ?? ''));
 	// Sent exactly as typed: the composer never trims or reformats the body.
-	let body = $state('');
-	let selectedGroupIds = $state<string[]>([]);
+	let body = $state(untrack(() => data.initialDraft?.body ?? ''));
+	let selectedGroupIds = $state<string[]>(untrack(() => data.initialDraft?.groupIds ?? []));
 
 	let estimate = $state<SendEstimate | null>(null);
 	let failure = $state<string | null>(null);
