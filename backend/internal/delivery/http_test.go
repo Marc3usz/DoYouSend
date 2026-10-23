@@ -3,6 +3,7 @@ package delivery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -202,5 +203,90 @@ func TestHTTPListAndGetAccess(t *testing.T) {
 		if rec := env.do(t, http.MethodGet, "/api/batches?"+q, "", nil); rec.Code != http.StatusBadRequest {
 			t.Errorf("GET ?%s = %d; want 400", q, rec.Code)
 		}
+	}
+}
+
+func TestHTTPRetryBatch(t *testing.T) {
+	env := newHTTPEnv(t, twoRecipients())
+	// Set transient errors for id2 so that it fails with a transient (retryable) error.
+	transientErr := providers.TransientError(errors.New("gateway unavailable"))
+	env.sms.errs = map[string][]error{id2: {transientErr, transientErr, transientErr}}
+	created := decode[batchDetailJSON](t, env.do(t, http.MethodPost, "/api/batches", batchJSON, map[string]string{headerKey: testKey}))
+	if created.Status != BatchRunning {
+		t.Fatalf("created status = %s; want running", created.Status)
+	}
+
+	// Verify that once background dispatch finishes, batch status is done_with_errors.
+	finished := decode[batchDetailJSON](t, env.do(t, http.MethodGet, "/api/batches/"+created.ID, "", nil))
+	if finished.Status != BatchDoneWithErrors {
+		t.Fatalf("finished status = %s; want done_with_errors", finished.Status)
+	}
+
+	// Reset error for id2 so retry succeeds.
+	env.sms.errs = nil
+	env.sms.sent = nil
+
+	// Successful retry by the sender.
+	rec := env.do(t, http.MethodPost, "/api/batches/"+created.ID+"/retry", "", nil)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("POST /batches/{id}/retry = %d %s, want 202", rec.Code, rec.Body)
+	}
+	retried := decode[batchDetailJSON](t, rec)
+	if retried.ID != created.ID || retried.Status != BatchRunning {
+		t.Errorf("retried response = %+v; want ID %s and status running", retried, created.ID)
+	}
+	if retried.CreatedBy.FullName == "" {
+		t.Errorf("retried CreatedBy.FullName is empty; want non-empty sender name")
+	}
+
+	// Verify only recipient 2 was resent.
+	if len(env.sms.sent) != 1 || env.sms.sent[0].RecipientID != id2 {
+		t.Errorf("sent during retry = %v, want only recipient 2", env.sms.sent)
+	}
+
+	// Verify batch status after retry dispatch finishes is done.
+	afterRetry := decode[batchDetailJSON](t, env.do(t, http.MethodGet, "/api/batches/"+created.ID, "", nil))
+	if afterRetry.Status != BatchDone {
+		t.Errorf("after retry status = %s; want done", afterRetry.Status)
+	}
+
+	// When all failed deliveries have succeeded, a second retry returns 409 no_failed_deliveries.
+	recAgain := env.do(t, http.MethodPost, "/api/batches/"+created.ID+"/retry", "", nil)
+	if got := decode[httpx.ErrorBody](t, recAgain); recAgain.Code != http.StatusConflict || got.Code != "no_failed_deliveries" {
+		t.Errorf("retry on completed batch = %d %+v; want 409 no_failed_deliveries", recAgain.Code, got)
+	}
+}
+
+func TestHTTPRetryBatchAccessAndErrors(t *testing.T) {
+	env := newHTTPEnv(t, twoRecipients())
+	admins := decode[batchDetailJSON](t, env.do(t, http.MethodPost, "/api/batches", batchJSON,
+		map[string]string{headerKey: testKey, callerHdr: "admin"}))
+
+	// Sender cannot retry admin's batch -> 404
+	if rec := env.do(t, http.MethodPost, "/api/batches/"+admins.ID+"/retry", "", nil); rec.Code != http.StatusNotFound {
+		t.Errorf("sender retry admin's batch = %d; want 404", rec.Code)
+	}
+
+	// Invalid UUID -> 404
+	if rec := env.do(t, http.MethodPost, "/api/batches/not-a-uuid/retry", "", nil); rec.Code != http.StatusNotFound {
+		t.Errorf("retry invalid UUID = %d; want 404", rec.Code)
+	}
+
+	// Unauthenticated -> 401
+	if rec := env.do(t, http.MethodPost, "/api/batches/"+admins.ID+"/retry", "", map[string]string{callerHdr: callerNone}); rec.Code != http.StatusUnauthorized {
+		t.Errorf("unauthenticated retry = %d; want 401", rec.Code)
+	}
+
+	// Running batch -> 409 batch_running
+	runningBatch, err := env.store.CreateBatch(context.Background(), Batch{
+		CreatedBy: userID,
+		Status:    BatchRunning,
+		Plan:      NewPlan("S", "B", []groups.Resolved{resolved(id1, "A", "", "+48500100101")}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := env.do(t, http.MethodPost, "/api/batches/"+runningBatch.ID+"/retry", "", nil); rec.Code != http.StatusConflict {
+		t.Errorf("retry running batch = %d; want 409", rec.Code)
 	}
 }

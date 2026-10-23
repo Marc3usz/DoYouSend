@@ -30,7 +30,7 @@ Go 1.24 API + delivery worker. Read the root `CLAUDE.md` first; this file adds t
    subject is separate.
 2. A recipient selected through several groups is messaged exactly once per batch.
 3. One recipient's failure never aborts the batch; each `deliveries` row fails on its own.
-4. A sent batch is immutable — reuse means copying it into a new draft.
+4. A sent batch is immutable — reuse means copying it into a new draft (exception: `POST /api/batches/{id}/retry` re-sends only failed deliveries, temporarily returning status to `running`).
 5. `DRY_RUN=true` must short-circuit every real provider call.
 
 ## Commands

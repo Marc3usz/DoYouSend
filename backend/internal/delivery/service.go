@@ -327,9 +327,30 @@ func (s *Service) RetryBatch(ctx context.Context, batchID string) (Batch, error)
 	if err != nil {
 		return Batch{}, fmt.Errorf("retry batch: %w", err)
 	}
+	return s.dispatch(context.WithoutCancel(ctx), batch)
+}
 
-	detached := context.WithoutCancel(ctx)
-	return s.dispatch(detached, batch)
+// StartRetry resets the failed deliveries of batchID and launches their dispatch in the
+// background, returning a 202-ready Batch (Status: BatchRunning) immediately.
+func (s *Service) StartRetry(ctx context.Context, batchID string) (Batch, error) {
+	if !s.enter() {
+		return Batch{}, fmt.Errorf("retry batch: %w", ErrShuttingDown)
+	}
+	batch, err := s.store.ResetFailedDeliveries(ctx, batchID)
+	if err != nil {
+		s.running.Done()
+		return Batch{}, fmt.Errorf("retry batch: %w", err)
+	}
+	if fresh, err := s.store.Batch(ctx, batchID); err == nil {
+		batch = fresh
+	}
+	go func(b Batch) {
+		defer s.running.Done()
+		if _, err := s.dispatch(context.WithoutCancel(ctx), b); err != nil {
+			s.logger.Error("batch retry dispatch", "batch_id", b.ID, "err", err)
+		}
+	}(batch)
+	return batch, nil
 }
 
 func checkDraft(d Draft) error {

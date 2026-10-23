@@ -53,6 +53,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/batches", h.create)
 	mux.HandleFunc("GET /api/batches", h.list)
 	mux.HandleFunc("GET /api/batches/{id}", h.get)
+	mux.HandleFunc("POST /api/batches/{id}/retry", h.retry)
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -200,6 +201,44 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusOK, toDetailJSON(b))
+}
+
+func (h *Handler) retry(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.user(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	b, err := h.store.Batch(r.Context(), id)
+	// A sender learns nothing about other people's batches, not even that they exist.
+	if errors.Is(err, ErrBatchNotFound) || (err == nil && !user.IsAdmin && b.CreatedBy != user.ID) {
+		httpx.Error(w, http.StatusNotFound, httpx.ErrorBody{Code: "not_found", Message: ErrBatchNotFound.Error()})
+		return
+	}
+	if err != nil {
+		h.logger.Error("find batch for retry", "batch_id", id, "err", err)
+		internalError(w)
+		return
+	}
+
+	retried, err := h.svc.StartRetry(r.Context(), id)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrBatchRunning):
+			httpx.Error(w, http.StatusConflict, httpx.ErrorBody{Code: "batch_running", Message: "batch is currently running"})
+		case errors.Is(err, ErrNoFailedDeliveries):
+			httpx.Error(w, http.StatusConflict, httpx.ErrorBody{Code: "no_failed_deliveries", Message: "batch has no failed deliveries to retry"})
+		case errors.Is(err, ErrShuttingDown):
+			httpx.Error(w, http.StatusServiceUnavailable, httpx.ErrorBody{Code: "internal", Message: ErrShuttingDown.Error()})
+		case errors.Is(err, ErrBatchNotFound):
+			httpx.Error(w, http.StatusNotFound, httpx.ErrorBody{Code: "not_found", Message: ErrBatchNotFound.Error()})
+		default:
+			h.logger.Error("retry batch", "batch_id", id, "err", err)
+			internalError(w)
+		}
+		return
+	}
+	httpx.JSON(w, http.StatusAccepted, toDetailJSON(retried))
 }
 
 // user returns the signed-in sender. The iam middleware lets no anonymous request
