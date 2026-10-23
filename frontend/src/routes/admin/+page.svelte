@@ -1,6 +1,16 @@
 <script lang="ts">
 	import type { PageProps } from './$types';
-	import { actionText, actorText, dateTimeText, plnText, setupChecks } from './format';
+	import {
+		actionText,
+		actorText,
+		creditsText,
+		dateTimeText,
+		LOW_EMAIL_CREDITS_THRESHOLD,
+		LOW_POINTS_THRESHOLD,
+		plnText,
+		pointsText,
+		setupChecks
+	} from './format';
 
 	let { data }: PageProps = $props();
 
@@ -38,6 +48,40 @@
 		{:else}
 			<p class="error" role="alert">Nie udało się wczytać statystyk SMS.</p>
 		{/if}
+
+		{#if data.profile}
+			<hr class="divider" />
+			<div class="profile-box">
+				<div class="profile-header">
+					<strong
+						>Stan konta SMSAPI {#if data.config?.sms.provider === 'fake'}<span class="badge-test"
+								>(tryb testowy)</span
+							>{/if}</strong
+					>
+					{#if data.config?.sms.provider !== 'fake' && data.profile.points < LOW_POINTS_THRESHOLD}
+						<span class="badge-warn" title="Niski stan punktów SMSAPI — doładuj konto"
+							>Niski stan</span
+						>
+					{/if}
+				</div>
+				<dl>
+					<dt>Dostępne punkty</dt>
+					<dd
+						class={data.config?.sms.provider !== 'fake' &&
+						data.profile.points < LOW_POINTS_THRESHOLD
+							? 'points-low'
+							: 'points-ok'}
+					>
+						{pointsText(data.profile.points)}
+					</dd>
+					<dt>Konto / profil</dt>
+					<dd>{data.profile.name} ({data.profile.userType})</dd>
+				</dl>
+			</div>
+		{:else if data.config?.sms.provider === 'smsapi' && !data.config?.dryRun}
+			<hr class="divider" />
+			<p class="error" role="alert">Nie udało się wczytać stanu konta SMSAPI.</p>
+		{/if}
 	</section>
 
 	<section class="card" aria-labelledby="email-heading">
@@ -59,6 +103,61 @@
 			</dl>
 		{:else}
 			<p class="error" role="alert">Nie udało się wczytać statystyk e-mail.</p>
+		{/if}
+
+		{#if data.emailProfile}
+			<hr class="divider" />
+			<div class="profile-box">
+				<div class="profile-header">
+					<strong
+						>Stan konta {data.emailProfile.provider === 'sendgrid'
+							? 'SendGrid'
+							: data.emailProfile.provider}
+						{#if data.emailProfile.provider === 'mailpit' || data.config?.email.provider === 'mailpit'}<span
+								class="badge-test">(tryb testowy)</span
+							>{/if}</strong
+					>
+					{#if data.emailProfile.remainCredits !== undefined && data.emailProfile.remainCredits < LOW_EMAIL_CREDITS_THRESHOLD}
+						<span class="badge-warn" title="Niski limit kredytów SendGrid — sprawdź stan konta"
+							>Niski limit</span
+						>
+					{/if}
+				</div>
+				<dl>
+					{#if data.emailProfile.remainCredits !== undefined}
+						<dt>Dostępne kredyty</dt>
+						<dd
+							class={data.emailProfile.remainCredits < LOW_EMAIL_CREDITS_THRESHOLD
+								? 'points-low'
+								: 'points-ok'}
+						>
+							{creditsText(data.emailProfile.remainCredits, data.emailProfile.totalCredits)}
+						</dd>
+					{/if}
+					{#if data.emailProfile.usedCredits !== undefined}
+						<dt>Wykorzystane</dt>
+						<dd>{data.emailProfile.usedCredits}</dd>
+					{/if}
+					{#if data.emailProfile.resetFrequency}
+						<dt>Odnowienie limitu</dt>
+						<dd>
+							{data.emailProfile.resetFrequency === 'day'
+								? 'Codziennie'
+								: data.emailProfile.resetFrequency}
+							{#if data.emailProfile.nextReset}
+								({data.emailProfile.nextReset})
+							{/if}
+						</dd>
+					{/if}
+					{#if data.emailProfile.provider === 'mailpit'}
+						<dt>Tryb</dt>
+						<dd>Lokalna skrzynka Mailpit (brak limitów)</dd>
+					{/if}
+				</dl>
+			</div>
+		{:else if data.config?.email.provider === 'sendgrid' && !data.config?.dryRun}
+			<hr class="divider" />
+			<p class="error" role="alert">Nie udało się wczytać stanu konta SendGrid.</p>
 		{/if}
 	</section>
 
@@ -205,5 +304,42 @@
 	}
 	.error {
 		color: #b00020;
+	}
+	.divider {
+		border: 0;
+		border-top: 1px solid #ddd;
+		margin: 1rem 0 0.75rem 0;
+	}
+	.profile-box {
+		font-size: 0.95em;
+	}
+	.profile-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 0.5rem;
+	}
+	.badge-warn {
+		background: #fff3cd;
+		color: #8a4b00;
+		border: 1px solid #ffeeba;
+		border-radius: 4px;
+		font-size: 0.75rem;
+		font-weight: 600;
+		padding: 0.15rem 0.4rem;
+	}
+	.points-low {
+		color: #b00020;
+		font-weight: 700;
+	}
+	.points-ok {
+		color: #1a7f37;
+		font-weight: 600;
+	}
+	.badge-test {
+		font-size: 0.8em;
+		font-weight: normal;
+		color: #666;
+		margin-left: 0.25rem;
 	}
 </style>

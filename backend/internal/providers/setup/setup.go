@@ -84,8 +84,9 @@ func ConfigFromEnv() Config {
 // Providers groups the initialised email and SMS providers, ready to be
 // injected into the delivery worker or the API server.
 type Providers struct {
-	Email providers.Provider
-	SMS   providers.Provider
+	Email  providers.Provider
+	SMS    providers.Provider
+	dryRun bool
 }
 
 // New builds a Providers pair from the given Config.
@@ -119,8 +120,9 @@ func New(cfg Config, logger *slog.Logger) (*Providers, error) {
 	}
 
 	return &Providers{
-		Email: emailProvider,
-		SMS:   smsProvider,
+		Email:  emailProvider,
+		SMS:    smsProvider,
+		dryRun: cfg.DryRun,
 	}, nil
 }
 
@@ -147,6 +149,50 @@ func (p *Providers) Dispatcher(policy delivery.RetryPolicy, logger *slog.Logger)
 		return nil, errors.New("providers is nil")
 	}
 	return delivery.NewDispatcher(p.Senders(), policy, logger)
+}
+
+// SMSProfiler returns an sms.Profiler if the configured SMS provider supports it.
+// In accordance with CLAUDE.md invariant 5 ("DRY_RUN=true must short-circuit every real provider call"),
+// when dryRun is enabled, real external provider APIs (such as SMSAPI) are never called.
+// Only local in-memory sandbox providers (such as sms.Fake) remain accessible.
+func (p *Providers) SMSProfiler() sms.Profiler {
+	if p == nil || p.SMS == nil {
+		return nil
+	}
+	if p.dryRun {
+		if unwrapper, ok := p.SMS.(interface{ Unwrap() providers.Provider }); ok {
+			if fake, ok := unwrapper.Unwrap().(*sms.Fake); ok {
+				return fake
+			}
+		}
+		return nil
+	}
+	if prof, ok := p.SMS.(sms.Profiler); ok {
+		return prof
+	}
+	return nil
+}
+
+// EmailProfiler returns an email.Profiler if the configured email provider supports it.
+// In accordance with CLAUDE.md invariant 5 ("DRY_RUN=true must short-circuit every real provider call"),
+// when dryRun is enabled, real external provider APIs (such as SendGrid) are never called.
+// Only local in-memory sandbox providers (such as email.Mailpit) remain accessible.
+func (p *Providers) EmailProfiler() email.Profiler {
+	if p == nil || p.Email == nil {
+		return nil
+	}
+	if p.dryRun {
+		if unwrapper, ok := p.Email.(interface{ Unwrap() providers.Provider }); ok {
+			if mailpit, ok := unwrapper.Unwrap().(*email.Mailpit); ok {
+				return mailpit
+			}
+		}
+		return nil
+	}
+	if prof, ok := p.Email.(email.Profiler); ok {
+		return prof
+	}
+	return nil
 }
 
 // newEmailProvider creates the email provider selected by cfg.EmailProvider.

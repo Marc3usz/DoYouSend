@@ -17,6 +17,31 @@ export function plnText(milli: number): string {
 	return pln.format(milli / 1000);
 }
 
+const pointsFormat = new Intl.NumberFormat('pl-PL', {
+	minimumFractionDigits: 2,
+	maximumFractionDigits: 2,
+	useGrouping: true
+});
+
+/** Formats a points balance (e.g. 125.5 -> "125,50 pkt"). */
+export function pointsText(points: number): string {
+	return `${pointsFormat.format(points)} pkt`;
+}
+
+/** Points balance below which the admin dashboard shows a low balance warning. */
+export const LOW_POINTS_THRESHOLD = 50;
+
+/** Email credit limit below which the admin dashboard shows a low credits warning. */
+export const LOW_EMAIL_CREDITS_THRESHOLD = 20;
+
+/** Formats email credits (e.g. 95 / 100 -> "95 / 100 kredytów" or 95 -> "95 kredytów"). */
+export function creditsText(remain?: number, total?: number): string {
+	if (remain === undefined) return '—';
+	if (total !== undefined) {
+		return `${remain} / ${total} kredytów`;
+	}
+	return `${remain} kredytów`;
+}
 const dateTime = new Intl.DateTimeFormat('pl-PL', {
 	dateStyle: 'medium',
 	timeStyle: 'short',
@@ -58,7 +83,8 @@ const actionTexts: Record<string, string> = {
 	user_created: 'Utworzenie konta',
 	user_updated: 'Zmiana konta',
 	password_reset: 'Nadanie nowego hasła',
-	password_changed: 'Zmiana własnego hasła'
+	password_changed: 'Zmiana własnego hasła',
+	batch_sent: 'Zatwierdzenie wysyłki'
 };
 
 /** A Polish name for an audit action; actions of other domains show as they are. */
@@ -82,6 +108,15 @@ export function detailsText(entry: AuditEntry): string {
 				break;
 			case 'via':
 				out.push(`przez ${value}`);
+				break;
+			case 'recipients':
+				out.push(`odbiorcy: ${value}`);
+				break;
+			case 'groups':
+				out.push(`grupy: ${value}`);
+				break;
+			case 'smsParts':
+				out.push(`części SMS: ${value}`);
 				break;
 			default:
 				out.push(`${key}: ${value}`);

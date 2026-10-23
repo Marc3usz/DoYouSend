@@ -81,6 +81,30 @@ export function sendingConfig(fetch?: typeof globalThis.fetch): Promise<SendingC
 	return api<SendingConfig>('/admin/config', { fetch });
 }
 
+export type SmsProfile = {
+	points: number;
+	name: string;
+	userType: string;
+};
+
+/** GET /admin/providers/sms/profile: fetches live points balance and account info from SMSAPI. */
+export function smsProfile(fetch?: typeof globalThis.fetch): Promise<SmsProfile> {
+	return api<SmsProfile>('/admin/providers/sms/profile', { fetch });
+}
+
+export type EmailProviderProfile = {
+	provider: string;
+	remainCredits?: number;
+	totalCredits?: number;
+	usedCredits?: number;
+	resetFrequency?: string;
+	nextReset?: string;
+};
+
+/** GET /admin/providers/email/profile: fetches live credits and profile from SendGrid or sandbox info from Mailpit. */
+export function emailProfile(fetch?: typeof globalThis.fetch): Promise<EmailProviderProfile> {
+	return api<EmailProviderProfile>('/admin/providers/email/profile', { fetch });
+}
 /** The SMSUsageStats schema (GET /stats/sms); costs in thousandths of a złoty. */
 export type SmsUsage = {
 	pricePerPartMilli: number;

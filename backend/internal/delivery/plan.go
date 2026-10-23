@@ -27,6 +27,8 @@ type Delivery struct {
 // rendered for them and one Delivery per usable channel.
 type PlannedRecipient struct {
 	RecipientID string
+	// FirstName and LastName are for the history. PGStore reads the current ones.
+	FirstName, LastName string
 	// Body is sent byte for byte over every channel (CLAUDE.md rule 4).
 	Body string
 	// Partial is true when only one channel can be used (batch_recipients.is_partial).
@@ -63,6 +65,8 @@ func NewPlan(subject, body string, list []groups.Resolved) Plan {
 func planRecipient(body string, r groups.Resolved) PlannedRecipient {
 	pr := PlannedRecipient{
 		RecipientID: r.Recipient.ID,
+		FirstName:   r.Recipient.FirstName,
+		LastName:    r.Recipient.LastName,
 		Partial:     r.Partial(),
 		Unreachable: r.Unreachable(),
 	}
@@ -123,4 +127,29 @@ func (p Plan) clone() Plan {
 		out.Recipients[i] = r
 	}
 	return out
+}
+
+// RetryPlan returns a copy of p where deliveries in StatusFailed with transient, retryable
+// errors are reset to StatusPending with their error and attempts cleared, ready to be dispatched
+// again. Deliveries that are already StatusSent or StatusDelivered remain untouched to prevent
+// duplicate sends and duplicate billing (CLAUDE.md rule 5). Deliveries in StatusSending are left
+// as-is because their outcome at the gateway is unknown. Permanent errors (e.g. invalid recipient
+// or render errors) and unclassified errors are NOT retried, preventing duplicate sends if the
+// gateway accepted the message.
+// It returns the new Plan and the number of deliveries reset to pending.
+func (p Plan) RetryPlan() (Plan, int) {
+	out := p.clone()
+	retried := 0
+	for i := range out.Recipients {
+		for j := range out.Recipients[i].Deliveries {
+			d := &out.Recipients[i].Deliveries[j]
+			if d.Status == StatusFailed && IsRetryableError(d.Error) {
+				d.Status = StatusPending
+				d.Error = ""
+				d.Attempts = 0
+				retried++
+			}
+		}
+	}
+	return out, retried
 }

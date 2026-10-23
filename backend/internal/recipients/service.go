@@ -69,6 +69,8 @@ type Filter struct {
 	Type Type
 	// Class, when set, keeps only recipients assigned to this normalized class.
 	Class string
+	// NamesOnly makes Query match the name only, not the e-mail or phone.
+	NamesOnly bool
 }
 
 // ListQuery is a page request of GET /recipients.
@@ -185,6 +187,58 @@ func (s *Service) List(ctx context.Context, q ListQuery) (Page, error) {
 		page.Items = all[q.Offset:min(q.Offset+q.Limit, len(all))]
 	}
 	return page, nil
+}
+
+// Lookup is List for the message composer (GET /recipients/lookup): senders
+// pick individual people and exclusions by name. The query matches names only,
+// so a sender cannot find out whose an address or a number is, and the issue
+// filter, which is about fixing contact data, does not apply.
+func (s *Service) Lookup(ctx context.Context, q ListQuery) (Page, error) {
+	q.Issue = ""
+	q.NamesOnly = true
+	return s.List(ctx, q)
+}
+
+// Stats are the counts behind the data-quality panel (GET /recipients/stats).
+// WithoutEmail and WithoutPhone use the same rule as the "issue" filter of List.
+type Stats struct {
+	Total        int
+	Parents      int
+	Students     int
+	WithoutEmail int
+	WithoutPhone int
+	// Unreachable counts people with neither a working e-mail nor a working
+	// phone: the ones a message would not reach on any channel.
+	Unreachable int
+}
+
+// Stats counts the whole recipient base in one read. The contact rules are
+// applied here, in Go, for the same reason as in List.
+func (s *Service) Stats(ctx context.Context) (Stats, error) {
+	all, err := s.store.ListRecipients(ctx, Filter{})
+	if err != nil {
+		return Stats{}, fmt.Errorf("count recipients: %w", err)
+	}
+	st := Stats{Total: len(all)}
+	for _, r := range all {
+		switch r.Type {
+		case TypeParent:
+			st.Parents++
+		case TypeStudent:
+			st.Students++
+		}
+		noEmail, noPhone := r.HasIssue(ChannelEmail), r.HasIssue(ChannelSMS)
+		if noEmail {
+			st.WithoutEmail++
+		}
+		if noPhone {
+			st.WithoutPhone++
+		}
+		if noEmail && noPhone {
+			st.Unreachable++
+		}
+	}
+	return st, nil
 }
 
 func checkListQuery(q ListQuery) (ListQuery, error) {

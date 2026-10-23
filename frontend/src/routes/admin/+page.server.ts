@@ -1,4 +1,12 @@
-import { emailUsage, listAudit, listUsers, sendingConfig, smsUsage } from '$lib/api/admin';
+import {
+	emailProfile,
+	emailUsage,
+	listAudit,
+	listUsers,
+	sendingConfig,
+	smsProfile,
+	smsUsage
+} from '$lib/api/admin';
 import type { PageServerLoad } from './$types';
 import { currentMonth } from './format';
 
@@ -13,12 +21,23 @@ async function settle<T>(p: Promise<T>): Promise<T | null> {
 
 export const load: PageServerLoad = async ({ fetch }) => {
 	const month = currentMonth(new Date());
-	const [config, usage, emailStats, users, audit] = await Promise.all([
+	const [config, usage, emailStats, users, audit, profile, emailProfileData] = await Promise.all([
 		settle(sendingConfig(fetch)),
 		settle(smsUsage({ from: month.from, to: month.to }, fetch)),
 		settle(emailUsage({ from: month.from, to: month.to }, fetch)),
 		settle(listUsers(fetch)),
-		settle(listAudit({ limit: 8, offset: 0 }, fetch))
+		settle(listAudit({ limit: 8, offset: 0 }, fetch)),
+		settle(smsProfile(fetch)),
+		settle(emailProfile(fetch))
 	]);
-	return { month, config, usage, emailStats, users, audit };
+	return {
+		month,
+		config,
+		usage,
+		emailStats,
+		users,
+		audit,
+		profile,
+		emailProfile: emailProfileData
+	};
 };

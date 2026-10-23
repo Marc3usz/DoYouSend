@@ -8,6 +8,8 @@ import (
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/delivery"
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
+	"github.com/Marc3usz/DoYouSend/backend/internal/providers/email"
+	"github.com/Marc3usz/DoYouSend/backend/internal/providers/sms"
 )
 
 func TestConfigFromEnv_Defaults(t *testing.T) {
@@ -353,5 +355,159 @@ func TestProviders_NilMethods(t *testing.T) {
 	_, err := p.Dispatcher(delivery.DefaultRetryPolicy(), nil)
 	if err == nil {
 		t.Error("expected error calling Dispatcher on nil Providers")
+	}
+}
+
+func TestProviders_SMSProfiler_DryRunRealSMSAPIReturnsNil(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		EmailProvider: "mailpit",
+		SMSProvider:   "smsapi",
+		SMSAPIKey:     "test-key",
+		DryRun:        true,
+	}
+
+	p, err := New(cfg, nil)
+	if err != nil {
+		t.Fatalf("unexpected New error: %v", err)
+	}
+
+	// CLAUDE.md invariant 5: DRY_RUN=true must short-circuit every real provider call.
+	// SMSProfiler() must return nil in dry-run mode for real SMSAPI to prevent any outbound calls.
+	profiler := p.SMSProfiler()
+	if profiler != nil {
+		t.Errorf("SMSProfiler() = %v, want nil in DryRun mode for real smsapi", profiler)
+	}
+}
+
+func TestProviders_SMSProfiler_DryRunFakeReturnsFake(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		EmailProvider: "mailpit",
+		SMSProvider:   "fake",
+		DryRun:        true,
+	}
+
+	p, err := New(cfg, nil)
+	if err != nil {
+		t.Fatalf("unexpected New error: %v", err)
+	}
+
+	profiler := p.SMSProfiler()
+	if profiler == nil {
+		t.Fatal("expected non-nil SMSProfiler for fake provider in DryRun mode")
+	}
+
+	if _, ok := profiler.(*sms.Fake); !ok {
+		t.Errorf("profiler type = %T, want *sms.Fake", profiler)
+	}
+}
+
+func TestProviders_SMSProfiler_LiveSMSAPIReturnsSMSAPI(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		EmailProvider: "mailpit",
+		SMSProvider:   "smsapi",
+		SMSAPIKey:     "test-key",
+		DryRun:        false,
+	}
+
+	p, err := New(cfg, nil)
+	if err != nil {
+		t.Fatalf("unexpected New error: %v", err)
+	}
+
+	profiler := p.SMSProfiler()
+	if profiler == nil {
+		t.Fatal("expected non-nil SMSProfiler for live smsapi provider")
+	}
+
+	if _, ok := profiler.(*sms.SMSAPI); !ok {
+		t.Errorf("profiler type = %T, want *sms.SMSAPI", profiler)
+	}
+}
+func TestProviders_EmailProfiler_DryRunRealSendGridReturnsNil(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		EmailProvider:  "sendgrid",
+		SendGridAPIKey: "test-key",
+		EmailFrom:      "school@example.test",
+		SMSProvider:    "fake",
+		DryRun:         true,
+	}
+
+	p, err := New(cfg, nil)
+	if err != nil {
+		t.Fatalf("unexpected New error: %v", err)
+	}
+
+	// CLAUDE.md invariant 5: DRY_RUN=true must short-circuit every real provider call.
+	// EmailProfiler() must return nil in dry-run mode for real SendGrid to prevent any outbound calls.
+	profiler := p.EmailProfiler()
+	if profiler != nil {
+		t.Errorf("EmailProfiler() = %v, want nil in DryRun mode for real sendgrid", profiler)
+	}
+}
+
+func TestProviders_EmailProfiler_DryRunMailpitReturnsMailpit(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		EmailProvider: "mailpit",
+		SMSProvider:   "fake",
+		DryRun:        true,
+	}
+
+	p, err := New(cfg, nil)
+	if err != nil {
+		t.Fatalf("unexpected New error: %v", err)
+	}
+
+	profiler := p.EmailProfiler()
+	if profiler == nil {
+		t.Fatal("expected non-nil EmailProfiler for mailpit in DryRun mode")
+	}
+
+	if _, ok := profiler.(*email.Mailpit); !ok {
+		t.Errorf("profiler type = %T, want *email.Mailpit", profiler)
+	}
+}
+
+func TestProviders_EmailProfiler_LiveSendGridReturnsSendGrid(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		EmailProvider:  "sendgrid",
+		SendGridAPIKey: "test-key",
+		EmailFrom:      "school@example.test",
+		SMSProvider:    "fake",
+		DryRun:         false,
+	}
+
+	p, err := New(cfg, nil)
+	if err != nil {
+		t.Fatalf("unexpected New error: %v", err)
+	}
+
+	profiler := p.EmailProfiler()
+	if profiler == nil {
+		t.Fatal("expected non-nil EmailProfiler for live sendgrid provider")
+	}
+
+	if _, ok := profiler.(*email.SendGrid); !ok {
+		t.Errorf("profiler type = %T, want *email.SendGrid", profiler)
+	}
+}
+
+func TestProviders_EmailProfiler_NilReceiver(t *testing.T) {
+	t.Parallel()
+
+	var p *Providers
+	if prof := p.EmailProfiler(); prof != nil {
+		t.Errorf("EmailProfiler() on nil receiver = %v, want nil", prof)
 	}
 }

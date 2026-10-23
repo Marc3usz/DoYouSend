@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
 )
@@ -353,6 +354,12 @@ func TestSendGrid_ErrorClassification(t *testing.T) {
 			if tc.wantSubstring != "" && !strings.Contains(sendErr.Error(), tc.wantSubstring) {
 				t.Errorf("HTTP %d: error = %v, want substring %q", tc.statusCode, sendErr, tc.wantSubstring)
 			}
+			if tc.statusCode == http.StatusTooManyRequests {
+				ra, ok := providers.RetryAfter(sendErr)
+				if !ok || ra != 60*time.Second {
+					t.Errorf("expected RetryAfter = 60s, got (%v, %v)", ra, ok)
+				}
+			}
 		})
 	}
 }
@@ -389,5 +396,212 @@ func TestSendGrid_Channel(t *testing.T) {
 	}
 	if sg.Channel() != providers.ChannelEmail {
 		t.Errorf("Channel() = %v, want %v", sg.Channel(), providers.ChannelEmail)
+	}
+}
+
+func TestSendGrid_GetProfile_Success(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("Method = %q, want %q", r.Method, http.MethodGet)
+		}
+		if r.URL.Path != "/v3/user/credits" {
+			t.Errorf("Path = %q, want %q", r.URL.Path, "/v3/user/credits")
+		}
+		if auth := r.Header.Get("Authorization"); auth != "Bearer test-api-key" {
+			t.Errorf("Authorization = %q, want Bearer test-api-key", auth)
+		}
+		if accept := r.Header.Get("Accept"); accept != "application/json" {
+			t.Errorf("Accept = %q, want application/json", accept)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"remain": 95,
+			"total": 100,
+			"overage": 0,
+			"used": 5,
+			"reset_frequency": "day",
+			"next_reset": "2026-10-17"
+		}`))
+	}))
+	defer srv.Close()
+
+	sg, err := NewSendGrid(SendGridConfig{
+		APIKey:     "test-api-key",
+		From:       "sender@example.test",
+		BaseURL:    srv.URL,
+		HTTPClient: srv.Client(),
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected NewSendGrid error: %v", err)
+	}
+
+	profile, err := sg.GetProfile(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected GetProfile error: %v", err)
+	}
+
+	if profile.Provider != "sendgrid" {
+		t.Errorf("Provider = %q, want 'sendgrid'", profile.Provider)
+	}
+	if profile.RemainCredits == nil || *profile.RemainCredits != 95 {
+		t.Errorf("RemainCredits = %v, want 95", profile.RemainCredits)
+	}
+	if profile.TotalCredits == nil || *profile.TotalCredits != 100 {
+		t.Errorf("TotalCredits = %v, want 100", profile.TotalCredits)
+	}
+	if profile.UsedCredits == nil || *profile.UsedCredits != 5 {
+		t.Errorf("UsedCredits = %v, want 5", profile.UsedCredits)
+	}
+	if profile.ResetFrequency != "day" {
+		t.Errorf("ResetFrequency = %q, want 'day'", profile.ResetFrequency)
+	}
+	if profile.NextReset != "2026-10-17" {
+		t.Errorf("NextReset = %q, want '2026-10-17'", profile.NextReset)
+	}
+}
+
+func TestSendGrid_GetProfile_APIError(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{
+			"errors": [
+				{"message": "The provided authorization grant is invalid, expired, or revoked", "field": null}
+			]
+		}`))
+	}))
+	defer srv.Close()
+
+	sg, err := NewSendGrid(SendGridConfig{
+		APIKey:     "invalid-key",
+		From:       "sender@example.test",
+		BaseURL:    srv.URL,
+		HTTPClient: srv.Client(),
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected NewSendGrid error: %v", err)
+	}
+
+	_, err = sg.GetProfile(context.Background())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "The provided authorization grant is invalid") {
+		t.Errorf("error = %v, want containing API error message", err)
+	}
+}
+
+func TestSendGrid_GetProfile_5xxNoJSON(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("Bad Gateway"))
+	}))
+	defer srv.Close()
+
+	sg, err := NewSendGrid(SendGridConfig{
+		APIKey:     "test-key",
+		From:       "sender@example.test",
+		BaseURL:    srv.URL,
+		HTTPClient: srv.Client(),
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected NewSendGrid error: %v", err)
+	}
+
+	_, err = sg.GetProfile(context.Background())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "502") {
+		t.Errorf("error = %v, want mentioning status 502", err)
+	}
+}
+
+func TestSendGrid_GetProfile_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"remain": `))
+	}))
+	defer srv.Close()
+
+	sg, err := NewSendGrid(SendGridConfig{
+		APIKey:     "test-key",
+		From:       "sender@example.test",
+		BaseURL:    srv.URL,
+		HTTPClient: srv.Client(),
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected NewSendGrid error: %v", err)
+	}
+
+	_, err = sg.GetProfile(context.Background())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "decode response") {
+		t.Errorf("error = %v, want containing 'decode response'", err)
+	}
+}
+
+func TestSendGrid_GetProfile_MissingRemain(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"total": 100, "used": 0}`))
+	}))
+	defer srv.Close()
+
+	sg, err := NewSendGrid(SendGridConfig{
+		APIKey:     "test-key",
+		From:       "sender@example.test",
+		BaseURL:    srv.URL,
+		HTTPClient: srv.Client(),
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected NewSendGrid error: %v", err)
+	}
+
+	_, err = sg.GetProfile(context.Background())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "missing remain field") {
+		t.Errorf("error = %v, want containing 'missing remain field'", err)
+	}
+}
+
+func TestSendGrid_GetProfile_ContextCancelled(t *testing.T) {
+	t.Parallel()
+
+	sg, err := NewSendGrid(SendGridConfig{
+		APIKey: "test-key",
+		From:   "sender@example.test",
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected NewSendGrid error: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err = sg.GetProfile(ctx)
+	if err == nil {
+		t.Fatal("expected error for cancelled context, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want context.Canceled", err)
 	}
 }

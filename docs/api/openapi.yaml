@@ -80,6 +80,55 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  /recipients/lookup:
+    get:
+      tags: [recipients]
+      summary: Wyszukiwarka odbiorcow do kreatora wiadomosci (bez danych kontaktowych)
+      description: |
+        Dla kazdego zalogowanego (rowniez roli sender): wybor pojedynczych osob i wykluczen
+        w kreatorze (RecipientSelection.recipientIds / excludedRecipientIds, ADR-0007).
+        Zwraca tylko to, co potrzebne do wyboru: imie, nazwisko, typ, klasy i problemy
+        z kanalami. Adresow e-mail i numerow nie zwraca, a q szuka wylacznie po imieniu
+        i nazwisku, zeby po kontakcie nie dalo sie ustalic, do kogo nalezy (ADR-0010:
+        wysylajacy nie ma dostepu do bazy odbiorcow). Kolejnosc jak w GET /recipients.
+      parameters:
+        - in: query
+          name: q
+          description: Fragment imienia i/lub nazwiska (bez wzgledu na wielkosc liter)
+          schema: { type: string, maxLength: 100 }
+        - { in: query, name: type, schema: { $ref: "#/components/schemas/RecipientType" } }
+        - in: query
+          name: class
+          description: Tylko odbiorcy przypisani do tej klasy (normalizowana jak ClassName)
+          schema: { $ref: "#/components/schemas/ClassName" }
+        - { in: query, name: limit,  schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { in: query, name: offset, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RecipientLookupPage" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /recipients/stats:
+    get:
+      tags: [recipients]
+      summary: Statystyki bazy odbiorcow (liczby, braki danych kontaktowych)
+      description: |
+        Jedno wywolanie zamiast kilku `GET /recipients?limit=1` czytanych tylko po `total`.
+        Braki liczone ta sama regula co `issues` w `Recipient` (brak albo bledna wartosc).
+        `unreachable` to osoby bez dzialajacego e-maila **i** telefonu, czyli takie, ktore nie
+        dostana wiadomosci zadnym kanalem; liczba jest dokladna, w przeciwienstwie do sumowania
+        wynikow `issue=email` i `issue=sms`. Dla `withoutEmail` i `withoutPhone`
+        zachodzi `unreachable <= min(...)`. Wymaga roli administratora.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RecipientStats" }
+
   /recipients/{id}:
     parameters:
       - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
@@ -599,6 +648,41 @@ paths:
               schema: { $ref: "#/components/schemas/SendingConfig" }
         "403": { $ref: "#/components/responses/Error" }
 
+  /admin/providers/sms/profile:
+    get:
+      tags: [admin]
+      summary: Stan konta i saldo punktow operatora SMS (SMSAPI)
+      description: |
+        Pobiera aktualny profil i saldo punktow bezposrednio z SMSAPI (GET https://api.smsapi.pl/profile).
+        W srodowisku testowym (fake) zwraca atrape salda. W trybie DRY_RUN dla zewnetrznego operatora zwraca 501
+        not_supported, by nie wykonywac polaczen do operatora (CLAUDE.md niezmiennik 5). Wymaga roli administratora.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SMSProfile" }
+        "403": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+
+  /admin/providers/email/profile:
+    get:
+      tags: [admin]
+      summary: Stan konta i limit wysylki operatora e-mail (SendGrid)
+      description: |
+        Pobiera aktualny profil i stan limitu kredytow z API SendGrid (GET https://api.sendgrid.com/v3/user/credits).
+        W srodowisku testowym (mailpit) zwraca informacje o trybie lokalnym. W trybie DRY_RUN dla zewnetrznego operatora zwraca 501
+        not_supported, by nie wykonywac polaczen do operatora (CLAUDE.md niezmiennik 5). Wymaga roli administratora.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmailProfile" }
+        "403": { $ref: "#/components/responses/Error" }
+        "501": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
   /stats/sms:
     get:
       tags: [admin]
@@ -777,6 +861,60 @@ components:
             reportsWebhook:    { type: boolean, description: "Czy raporty doreczen SMSAPI sa wlaczone" }
             pricePerPartMilli: { type: integer, format: int64 }
 
+    SMSProfile:
+      type: object
+      required: [points, name, userType]
+      properties:
+        points:
+          type: number
+          format: double
+          description: Liczba dostepnych punktow na koncie SMSAPI
+          example: 125.5
+        name:
+          type: string
+          description: Nazwa uzytkownika/konta w SMSAPI
+          example: DoYouSend Sandbox
+        userType:
+          type: string
+          description: Typ uzytkownika w SMSAPI (np. developer, client)
+          example: developer
+
+    EmailProfile:
+      type: object
+      required: [provider]
+      properties:
+        provider:
+          type: string
+          description: Identyfikator operatora e-mail (np. sendgrid, mailpit)
+          example: sendgrid
+        remainCredits:
+          type: integer
+          format: int64
+          nullable: true
+          description: Liczba pozostalych kredytow w biezacym okresie
+          example: 95
+        totalCredits:
+          type: integer
+          format: int64
+          nullable: true
+          description: Calkowity limit kredytow w biezacym okresie
+          example: 100
+        usedCredits:
+          type: integer
+          format: int64
+          nullable: true
+          description: Liczba wykorzystanych kredytow w biezacym okresie
+          example: 5
+        resetFrequency:
+          type: string
+          nullable: true
+          description: Czestotliwosc odnawiania limitu (np. day, month)
+          example: day
+        nextReset:
+          type: string
+          nullable: true
+          description: Data nastepnego odnowienia limitu
+          example: "2026-10-17"
     RecipientType:
       type: string
       enum: [parent, student]
@@ -835,9 +973,46 @@ components:
           items: { $ref: "#/components/schemas/Recipient" }
         total: { type: integer, description: "Liczba wszystkich pasujacych, nie tylko na tej stronie" }
 
+    RecipientStats:
+      type: object
+      required: [total, parents, students, withoutEmail, withoutPhone, unreachable]
+      properties:
+        total:        { type: integer, description: "Wszyscy odbiorcy; parents + students = total" }
+        parents:      { type: integer }
+        students:     { type: integer }
+        withoutEmail: { type: integer, description: "Bez dzialajacego e-maila (brak lub bledny), jak issue=email" }
+        withoutPhone: { type: integer, description: "Bez dzialajacego telefonu (brak lub bledny), jak issue=sms" }
+        unreachable:  { type: integer, description: "Bez dzialajacego e-maila i telefonu jednoczesnie" }
+
     Channel:
       type: string
       enum: [email, sms]
+
+    RecipientLookup:
+      type: object
+      description: Odbiorca w wyszukiwarce kreatora (GET /recipients/lookup), bez e-maila i telefonu.
+      required: [id, firstName, lastName, type, classes, issues]
+      properties:
+        id:        { type: string, format: uuid }
+        firstName: { type: string }
+        lastName:  { type: string }
+        type:      { $ref: "#/components/schemas/RecipientType" }
+        classes:
+          type: array
+          items: { $ref: "#/components/schemas/ClassName" }
+        issues:
+          type: array
+          description: Kanaly, ktorymi nie da sie dotrzec do odbiorcy (jak Recipient.issues)
+          items: { $ref: "#/components/schemas/ContactIssue" }
+
+    RecipientLookupPage:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/RecipientLookup" }
+        total: { type: integer, description: "Liczba wszystkich pasujacych, nie tylko na tej stronie" }
 
     ContactIssue:
       type: object
@@ -995,6 +1170,8 @@ components:
             - email_taken          # POST /users: e-mail ma juz inne konto
             - last_admin           # PATCH /users/{id}: ostatni aktywny administrator
             - self_lockout         # PATCH /users/{id}: administrator nie zablokuje ani nie zdegraduje siebie
+            - not_supported        # operacja nieobslugiwana przez skonfigurowanego operatora (501)
+            - provider_error       # blad komunikacji z zewnetrznym operatorem (502)
             - internal
         message: { type: string, description: "Szczegol diagnostyczny po angielsku, nie do wyswietlania wprost" }
         fields:

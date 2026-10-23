@@ -53,10 +53,11 @@ type SMSAPIConfig struct {
 // It implements providers.Provider and is safe for concurrent use.
 // No vendor SDKs are used (pure net/http).
 type SMSAPI struct {
-	cfg    SMSAPIConfig
-	client *http.Client
-	url    string
-	logger *slog.Logger
+	cfg        SMSAPIConfig
+	client     *http.Client
+	url        string
+	profileURL string
+	logger     *slog.Logger
 }
 
 // NewSMSAPI creates an SMSAPI SMS provider.
@@ -83,10 +84,77 @@ func NewSMSAPI(cfg SMSAPIConfig, logger *slog.Logger) (*SMSAPI, error) {
 	base = strings.TrimRight(base, "/")
 
 	return &SMSAPI{
-		cfg:    cfg,
-		client: client,
-		url:    base + "/sms.do",
-		logger: logger,
+		cfg:        cfg,
+		client:     client,
+		url:        base + "/sms.do",
+		profileURL: base + "/profile",
+		logger:     logger,
+	}, nil
+}
+
+// Profile contains account profile details and available points balance from SMSAPI GET /profile.
+type Profile struct {
+	Points   float64 `json:"points"`
+	Name     string  `json:"name"`
+	UserType string  `json:"user_type"`
+}
+
+// Profiler provides access to provider profile and balance details.
+type Profiler interface {
+	GetProfile(ctx context.Context) (Profile, error)
+}
+
+// GetProfile fetches account profile and balance details from SMSAPI GET /profile.
+func (s *SMSAPI) GetProfile(ctx context.Context) (Profile, error) {
+	if ctx.Err() != nil {
+		return Profile{}, ctx.Err()
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.profileURL, nil)
+	if err != nil {
+		return Profile{}, fmt.Errorf("smsapi get profile: create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+s.cfg.APIKey)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return Profile{}, fmt.Errorf("smsapi get profile: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	if err != nil {
+		return Profile{}, fmt.Errorf("smsapi get profile: read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		var apiErr struct {
+			Error   int    `json:"error"`
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(body, &apiErr) == nil && apiErr.Error != 0 {
+			return Profile{}, fmt.Errorf("smsapi get profile: api error %d: %s", apiErr.Error, apiErr.Message)
+		}
+		return Profile{}, fmt.Errorf("smsapi get profile: unexpected status %d", resp.StatusCode)
+	}
+
+	var raw struct {
+		Points   *float64 `json:"points"`
+		Name     string   `json:"name"`
+		UserType string   `json:"user_type"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return Profile{}, fmt.Errorf("smsapi get profile: parse json: %w", err)
+	}
+	if raw.Points == nil {
+		return Profile{}, fmt.Errorf("smsapi get profile: missing points in response")
+	}
+	return Profile{
+		Points:   *raw.Points,
+		Name:     raw.Name,
+		UserType: raw.UserType,
 	}, nil
 }
 
@@ -231,7 +299,9 @@ func classifySMSAPIError(recipientID string, code int, message string) error {
 	// 201: Internal system error (wewnętrzny błąd systemu)
 	// 202: Too many simultaneous requests (zbyt wiele jednoczesnych zapytań / rate limit)
 	// 999: Internal system error (wewnętrzny błąd systemu)
-	case 8, 103, 201, 202, 999:
+	case 202:
+		return providers.RateLimitError(err, 0)
+	case 8, 103, 201, 999:
 		return providers.TransientError(err)
 
 	// Permanent errors (all other codes, including unknown codes):
@@ -264,10 +334,11 @@ func classifyHTTPStatus(recipientID string, status int, header http.Header) erro
 
 	switch {
 	case status == http.StatusTooManyRequests:
+		retryAfter, _ := providers.ParseRetryAfter(header.Get("Retry-After"), time.Now())
 		if ra := header.Get("Retry-After"); ra != "" {
 			err = fmt.Errorf("%w (Retry-After: %s)", err, ra)
 		}
-		return providers.TransientError(err)
+		return providers.RateLimitError(err, retryAfter)
 	case status >= 400 && status < 500:
 		return providers.PermanentError(err)
 	case status >= 500:
