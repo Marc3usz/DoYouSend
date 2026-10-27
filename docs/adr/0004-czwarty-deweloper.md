@@ -1,6 +1,6 @@
 # ADR-0004: Czwarty deweloper — podział domeny integracje/admin
 
-- **Status:** przyjęta
+- **Status:** przyjęta; przypisania osób zastąpione przez ADR-0012 (2026-10-27)
 - **Data:** 2026-09-23
 - **Uczestnicy:** zespół (4 osoby)
 

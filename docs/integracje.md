@@ -135,7 +135,7 @@ Adapter integrujący się z bramką SMSAPI przez REST API v2 (`https://api.smsap
 
 ## 5. Statystyki wykorzystania kanałów i rozliczanie kosztów
 
-Dla panelu administratora (`/admin`, domena DEV D) system udostępnia dedykowane endpointy agregujące metryki bezpośrednio z tabel `deliveries`, `batch_recipients` oraz `message_batches`. Oba endpointy podlegają kontroli dostępu IAM i wymagają uprawnień administratora (`AccessAdmin`).
+Dla panelu administratora (`/admin`, domena D) system udostępnia dedykowane endpointy agregujące metryki bezpośrednio z tabel `deliveries`, `batch_recipients` oraz `message_batches`. Oba endpointy podlegają kontroli dostępu IAM i wymagają uprawnień administratora (`AccessAdmin`).
 
 ### 5.1. Statystyki i koszty SMS (`GET /api/stats/sms`)
 * **Cena jednostkowa:** pobierana z `SMS_PRICE_PER_PART_PLN` (np. `0.08` zł / część = `80` milli-PLN).

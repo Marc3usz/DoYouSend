@@ -1,4 +1,4 @@
-// Administration endpoints (iam domain, DEV D), see docs/api/openapi.yaml:
+// Administration endpoints (iam domain D, Marc3usz), see docs/api/openapi.yaml:
 // users, the audit log, the sending setup, SMS usage and e-mail usage.
 import type { Role, User } from './auth';
 import { api } from './client';

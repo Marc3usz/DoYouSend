@@ -1,21 +1,26 @@
-# Podział pracy — 4 programistów
+# Podział pracy — 2 programistów
 
-Podział **domenowy**: każda osoba dostaje pionowy wycinek systemu (baza → backend → UI),
-dzięki czemu pracuje w swoich katalogach i rzadko koliduje z innymi w gicie.
+Podział **domenowy**: system ma cztery pionowe wycinki (baza → backend → UI), oznaczone A–D.
+Od 2026-10-27 zespół liczy dwie osoby i każda prowadzi dwie domeny (ADR-0012).
 
-| | Osoba | Domena | Katalogi | Zakres z `description.md` |
+| | Właściciel | Domena | Katalogi | Zakres z `description.md` |
 |---|---|---|---|---|
-| **DEV A** | Marc3usz | Odbiorcy i grupy | `backend/internal/recipients`, `backend/internal/groups`, `frontend/src/routes/odbiorcy`, `frontend/src/routes/grupy` | baza odbiorców, import z pliku, walidacja i duplikaty, grupy systemowe i własne, rozwinięcie wyboru do listy odbiorców bez duplikatów |
-| **DEV B** | S1D0R-10 | Wiadomości i wysyłka | `backend/internal/messaging`, `backend/internal/delivery`, `frontend/src/routes/wiadomosci`, `frontend/src/routes/historia` | tworzenie komunikatu, podgląd, liczenie części SMS i kosztu, kolejka, statusy per kanał, ponowna wysyłka, historia |
-| **DEV C** | MichalK252 | Integracje (e-mail/SMS) | `backend/internal/providers` | bramka SMS, usługa e-mail, providerzy `fake`/Mailpit za wspólnym interfejsem, klasyfikacja błędów trwałych vs. do ponowienia |
-| **DEV D** | averithefox | Admin, bezpieczeństwo, CI | `backend/internal/iam`, `frontend/src/routes/admin`, `frontend/src/routes/login`, `.github/workflows` | logowanie i role, panel administracyjny, audyt, pipeline CI |
+| **A** | Marc3usz | Odbiorcy i grupy | `backend/internal/recipients`, `backend/internal/groups`, `frontend/src/routes/odbiorcy`, `frontend/src/routes/grupy` | baza odbiorców, import z pliku, walidacja i duplikaty, grupy systemowe i własne, rozwinięcie wyboru do listy odbiorców bez duplikatów |
+| **B** | MichalK252 | Wiadomości i wysyłka | `backend/internal/messaging`, `backend/internal/delivery`, `frontend/src/routes/wiadomosci`, `frontend/src/routes/historia` | tworzenie komunikatu, podgląd, liczenie części SMS i kosztu, kolejka, statusy per kanał, ponowna wysyłka, historia |
+| **C** | MichalK252 | Integracje (e-mail/SMS) | `backend/internal/providers` | bramka SMS, usługa e-mail, providerzy `fake`/Mailpit za wspólnym interfejsem, klasyfikacja błędów trwałych vs. do ponowienia |
+| **D** | Marc3usz | Admin, bezpieczeństwo, CI | `backend/internal/iam`, `frontend/src/routes/admin`, `frontend/src/routes/login`, `.github/workflows` | logowanie i role, panel administracyjny, audyt, pipeline CI |
+
+Podsumowanie: **Marc3usz** — A + D (odbiorcy, grupy, logowanie, admin, audyt, CI, przegląd
+bezpieczeństwa). **MichalK252** — B + C (wiadomości, wysyłka, historia, integracje e-mail/SMS).
+Każdy PR recenzuje druga osoba.
 
 Własność = **odpowiedzialność za review**, nie blokada. Możesz zmienić cudzy pakiet —
 oznacz właściciela w PR.
 
 > Historia: do 2026-09-23 domena integracje+admin+CI była jedną osobą (DEV C). Przy
 > dołączeniu czwartej osoby podzielona na integracje (C) oraz admin/bezpieczeństwo/CI (D).
-> Zob. `docs/adr/0004-czwarty-deweloper.md`.
+> Zob. `docs/adr/0004-czwarty-deweloper.md`. 2026-10-27 S1D0R-10 (B) i averithefox (D)
+> odeszli z projektu; domenę B przejął MichalK252, domenę D Marc3usz (ADR-0012).
 
 ## Kolejność prac (kamienie milowe)
 
@@ -33,22 +38,24 @@ prace będą się non stop rozjeżdżać.
 Tu potrzebna jest największa koordynacja — najlepiej wspólna sesja.
 
 **M4 — domknięcie kryteriów odbioru.** Częściowe wysyłki, ponowna wysyłka nieudanych,
-historia, instrukcja uruchomienia, przegląd repo pod kątem sekretów i danych (D koordynuje
-przegląd bezpieczeństwa).
+historia, instrukcja uruchomienia, przegląd repo pod kątem sekretów i danych (Marc3usz jako właściciel D
+koordynuje przegląd bezpieczeństwa).
 
 ## Punkty styku (ustalcie przed M2)
 
 | Styk | Kto z kim | Ustalenie |
 |---|---|---|
-| `Resolve(selection) -> []Recipient` | A → B | kształt struktury odbiorcy i sygnalizowanie braków danych |
+| `Resolve(selection) -> []Recipient` | A → B (Marc3usz → MichalK252) | kształt struktury odbiorcy i sygnalizowanie braków danych |
 | `Provider.Send(ctx, msg) -> (id, error)` | C → B | wspólny interfejs, klasyfikacja błędów (trwały vs. do ponowienia) |
 | liczenie części SMS | B → C | jedna implementacja w `messaging`, provider jej używa, frontend tylko wyświetla |
 | raporty doręczeń | C → B | webhook/poll aktualizujący `deliveries.status` |
-| logowanie i role | D → wszyscy | middleware auth, kształt sesji/tokenu, role wymagane na poszczególnych endpointach |
+| logowanie i role | D → wszyscy (Marc3usz) | middleware auth, kształt sesji/tokenu, role wymagane na poszczególnych endpointach |
 | kontrakt API | wszyscy | `docs/api/openapi.yaml`, zmiana = osobny PR |
 
 ## Rytm pracy
 
 - Krótka synchronizacja na starcie dnia: co robię, co blokuje, czy ruszam wspólny plik.
-- Zmiana w `platform/`, `migrations/`, `openapi.yaml`, `go.mod`, `package.json` — uprzedź zespół.
+- Zmiana w `platform/`, `migrations/`, `openapi.yaml`, `go.mod`, `package.json` — uprzedź drugą osobę.
+- Punkty styku C → B i B → C są teraz wewnątrz domeny jednej osoby (MichalK252) — nadal trzymamy
+  je za interfejsami, żeby zmiana właściciela nie wymagała przepisywania kodu.
 - PR mniejszy niż ~400 zmienionych linii; review tego samego dnia.

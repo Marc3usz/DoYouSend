@@ -1,4 +1,4 @@
-// Batch endpoints of the delivery domain (DEV B), see docs/api/openapi.yaml.
+// Batch endpoints of the delivery domain (domain B, MichalK252), see docs/api/openapi.yaml.
 import { api } from './client';
 import type { RecipientSelection } from './groups';
 import type { Channel } from './recipients';
