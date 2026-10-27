@@ -33,7 +33,7 @@ func TestHandlePreview(t *testing.T) {
 			wantJSON: `{"template":{"encoding":"GSM7","units":18,"parts":1},"placeholders":["imie"],
 				"unknownPlaceholders":[],"recipientCount":2,"emailCount":2,"smsCount":1,"partialCount":1,
 				"unreachableCount":0,"ucs2Count":0,"minPartsPerRecipient":1,"maxPartsPerRecipient":1,
-				"totalSmsParts":1,"costMilli":80,"renderFailedIds":[]}`,
+				"totalSmsParts":1,"costMilli":80,"renderFailedIds":[],"sampleRecipientName":"Anna Nowak","sampleBody":"Witaj Anna"}`,
 		},
 		{
 			name:       "no selection still measures the body",
@@ -43,7 +43,7 @@ func TestHandlePreview(t *testing.T) {
 			wantJSON: `{"template":{"encoding":"UCS2","units":6,"parts":1},"placeholders":[],
 				"unknownPlaceholders":[],"recipientCount":0,"emailCount":0,"smsCount":0,"partialCount":0,
 				"unreachableCount":0,"ucs2Count":0,"minPartsPerRecipient":0,"maxPartsPerRecipient":0,
-				"totalSmsParts":0,"costMilli":0,"renderFailedIds":[]}`,
+				"totalSmsParts":0,"costMilli":0,"renderFailedIds":[],"sampleRecipientName":"Jan Kowalski (dane przykładowe)","sampleBody":"Zażółć"}`,
 		},
 		{
 			name:       "malformed json",

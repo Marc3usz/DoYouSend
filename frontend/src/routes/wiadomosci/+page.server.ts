@@ -8,6 +8,7 @@ export type InitialDraft = {
 	body: string;
 	groupIds: string[];
 	recipients: RecipientLookup[];
+	excludedRecipientIds?: string[];
 };
 
 export const load: PageServerLoad = async ({ url, fetch }) => {
@@ -39,7 +40,8 @@ export const load: PageServerLoad = async ({ url, fetch }) => {
 				subject: b.subject,
 				body: b.body,
 				groupIds: b.groups.map((g) => g.id),
-				recipients: manualRecipients
+				recipients: manualRecipients,
+				excludedRecipientIds: b.excludedRecipientIds ?? []
 			};
 		} catch {
 			// If copyId does not exist or caller has no access, start with empty draft.
