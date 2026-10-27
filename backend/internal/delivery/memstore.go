@@ -15,9 +15,10 @@ import (
 // MemStore keeps batches in memory. It is meant for tests and for running the API
 // without a database; everything is lost on restart.
 type MemStore struct {
-	mu      sync.Mutex
-	batches map[string]Batch
-	now     func() time.Time
+	mu          sync.Mutex
+	batches     map[string]Batch
+	now         func() time.Time
+	lastCreated time.Time
 }
 
 // NewMemStore returns an empty MemStore.
@@ -33,11 +34,18 @@ func (s *MemStore) CreateBatch(_ context.Context, b Batch) (Batch, error) {
 	}
 	b = cloneBatch(b)
 	b.ID = id
-	b.CreatedAt = s.now()
 	b.Counts = b.Plan.Counts()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	createdAt := s.now()
+	if !s.lastCreated.IsZero() && !createdAt.After(s.lastCreated) {
+		createdAt = s.lastCreated.Add(time.Millisecond)
+	}
+	s.lastCreated = createdAt
+	b.CreatedAt = createdAt
+
 	if b.IdempotencyKey != "" {
 		if _, err := s.byKey(b.CreatedBy, b.IdempotencyKey); err == nil {
 			return Batch{}, fmt.Errorf("create batch: %w", ErrDuplicateKey)
