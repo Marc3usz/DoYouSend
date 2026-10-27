@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getBatch, listBatches, sendBatch } from './batches';
+import { getBatch, listBatches, retryBatch, sendBatch } from './batches';
 
 describe('sendBatch', () => {
 	it('POSTs the request with the Idempotency-Key header and the body unchanged', async () => {
@@ -44,5 +44,17 @@ describe('getBatch', () => {
 			return new Response(JSON.stringify({ id: 'a/b' }), { status: 200 });
 		};
 		await getBatch('a/b', fakeFetch);
+	});
+});
+
+describe('retryBatch', () => {
+	it('POSTs /batches/{id}/retry and returns 202', async () => {
+		const fakeFetch: typeof fetch = async (input, init) => {
+			expect(String(input)).toBe('/api/batches/b1%2F2/retry');
+			expect(init?.method).toBe('POST');
+			return new Response(JSON.stringify({ id: 'b1/2', status: 'running' }), { status: 202 });
+		};
+		const got = await retryBatch('b1/2', fakeFetch);
+		expect(got.status).toBe('running');
 	});
 });

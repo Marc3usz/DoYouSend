@@ -3,6 +3,8 @@
 	import { goto } from '$app/navigation';
 	import { sendBatch } from '$lib/api/batches';
 	import { previewMessage, type SendEstimate } from '$lib/api/messages';
+	import { lookupRecipients, type RecipientLookup } from '$lib/api/recipients';
+	import { recipientTypeLabel } from '../odbiorcy/messages';
 	import type { PageProps } from './$types';
 	import {
 		costText,
@@ -19,10 +21,20 @@
 
 	let { data }: PageProps = $props();
 
-	let subject = $state('');
+	let subject = $state(untrack(() => data.initialDraft?.subject ?? ''));
 	// Sent exactly as typed: the composer never trims or reformats the body.
-	let body = $state('');
-	let selectedGroupIds = $state<string[]>([]);
+	let body = $state(untrack(() => data.initialDraft?.body ?? ''));
+	let selectedGroupIds = $state<string[]>(untrack(() => data.initialDraft?.groupIds ?? []));
+	let selectedRecipients = $state<RecipientLookup[]>(
+		untrack(() => data.initialDraft?.recipients ?? [])
+	);
+	const selectedRecipientIds = $derived(selectedRecipients.map((r) => r.id));
+
+	let personQuery = $state('');
+	let personSearching = $state(false);
+	let personCandidates = $state<RecipientLookup[]>([]);
+	let personSearchError = $state<string | null>(null);
+	let latestPersonSearch = 0;
 
 	let estimate = $state<SendEstimate | null>(null);
 	let failure = $state<string | null>(null);
@@ -51,12 +63,61 @@
 		sendFailure = null;
 	}
 
+	function onSearchPersonInput(e: Event) {
+		const q = (e.target as HTMLInputElement).value;
+		personQuery = q;
+		if (q.trim().length < 2) {
+			personCandidates = [];
+			personSearching = false;
+			return;
+		}
+		const req = ++latestPersonSearch;
+		personSearching = true;
+		personSearchError = null;
+		setTimeout(async () => {
+			if (req !== latestPersonSearch) return;
+			try {
+				const res = await lookupRecipients({ q: q.trim(), limit: 10 });
+				if (req === latestPersonSearch) {
+					const selSet = new Set(selectedRecipientIds);
+					personCandidates = res.items.filter((r) => !selSet.has(r.id));
+				}
+			} catch {
+				if (req === latestPersonSearch) {
+					personSearchError = 'Nie udało się wyszukać osób.';
+				}
+			} finally {
+				if (req === latestPersonSearch) {
+					personSearching = false;
+				}
+			}
+		}, 200);
+	}
+
+	function addPerson(r: RecipientLookup) {
+		if (!selectedRecipients.some((x) => x.id === r.id)) {
+			selectedRecipients = [...selectedRecipients, r];
+		}
+		personCandidates = personCandidates.filter((x) => x.id !== r.id);
+	}
+
+	function removePerson(id: string) {
+		selectedRecipients = selectedRecipients.filter((x) => x.id !== id);
+	}
+
 	async function send() {
 		sending = true;
 		sendFailure = null;
 		try {
 			const batch = await sendBatch(
-				{ subject, body, selection: { groupIds: [...selectedGroupIds] } },
+				{
+					subject,
+					body,
+					selection: {
+						groupIds: [...selectedGroupIds],
+						recipientIds: [...selectedRecipientIds]
+					}
+				},
 				idempotencyKey
 			);
 			await goto(`/historia/${batch.id}`);
@@ -79,7 +140,10 @@
 		const draft = {
 			subject: untrack(() => subject),
 			body,
-			selection: { groupIds: [...selectedGroupIds] }
+			selection: {
+				groupIds: [...selectedGroupIds],
+				recipientIds: [...selectedRecipientIds]
+			}
 		};
 		const request = ++latestRequest;
 		counting = true;
@@ -127,6 +191,8 @@
 
 			<fieldset>
 				<legend>Odbiorcy</legend>
+
+				<h4>Grupy odbiorców</h4>
 				{#if data.groupsFailed}
 					<p class="error" role="alert">Nie udało się wczytać listy grup. Odśwież stronę.</p>
 				{:else if data.groups.length === 0}
@@ -149,6 +215,58 @@
 					</ul>
 					<p class="hint">Osoba w kilku zaznaczonych grupach dostanie wiadomość tylko raz.</p>
 				{/if}
+
+				<h4 class="mt-section">Pojedynczy odbiorcy</h4>
+				{#if selectedRecipients.length > 0}
+					<div class="selected-chips">
+						<p class="hint">Wybrani odbiorcy ({selectedRecipients.length}):</p>
+						<ul class="chips">
+							{#each selectedRecipients as r (r.id)}
+								<li class="chip">
+									<span>{r.lastName} {r.firstName}</span>
+									<button
+										type="button"
+										class="chip-remove"
+										onclick={() => removePerson(r.id)}
+										aria-label={`Usuń ${r.firstName} ${r.lastName}`}>×</button
+									>
+								</li>
+							{/each}
+						</ul>
+					</div>
+				{/if}
+
+				<div class="person-search">
+					<label for="person-search-input">Dodaj pojedynczą osobę</label>
+					<input
+						id="person-search-input"
+						type="search"
+						placeholder="Wpisz nazwisko lub imię…"
+						value={personQuery}
+						oninput={onSearchPersonInput}
+						autocomplete="off"
+					/>
+					{#if personSearching}
+						<p class="hint">Szukam…</p>
+					{:else if personSearchError}
+						<p class="error" role="alert">{personSearchError}</p>
+					{:else if personQuery.trim().length >= 2 && personCandidates.length === 0}
+						<p class="hint">Brak pasujących osób.</p>
+					{:else if personCandidates.length > 0}
+						<ul class="candidates">
+							{#each personCandidates as c (c.id)}
+								<li>
+									<span>
+										<strong>{c.lastName} {c.firstName}</strong> ({recipientTypeLabel(c.type)})
+									</span>
+									<button type="button" class="btn-add-candidate" onclick={() => addPerson(c)}>
+										+ Dodaj
+									</button>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
 			</fieldset>
 		</fieldset>
 	</form>
@@ -394,5 +512,83 @@
 	}
 	.primary:disabled {
 		opacity: 0.6;
+	}
+	.mt-section {
+		margin-top: 1.25rem;
+		margin-bottom: 0.4rem;
+	}
+	.selected-chips {
+		margin-bottom: 0.75rem;
+	}
+	.chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		list-style: none;
+		padding: 0;
+		margin: 0.25rem 0 0;
+	}
+	.chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		background: #e2e8f0;
+		border: 1px solid #cbd5e1;
+		border-radius: 16px;
+		padding: 0.2rem 0.6rem;
+		font-size: 0.9em;
+	}
+	.chip-remove {
+		background: none;
+		border: none;
+		color: #64748b;
+		cursor: pointer;
+		font-weight: bold;
+		padding: 0;
+		margin: 0;
+		line-height: 1;
+		font-size: 1.1em;
+	}
+	.chip-remove:hover {
+		color: #b00020;
+	}
+	.person-search {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		margin-top: 0.5rem;
+	}
+	.candidates {
+		list-style: none;
+		padding: 0;
+		margin: 0.4rem 0 0;
+		border: 1px solid #cbd5e1;
+		border-radius: 4px;
+		background: #fff;
+		max-height: 12rem;
+		overflow-y: auto;
+	}
+	.candidates li {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.35rem 0.6rem;
+		border-bottom: 1px solid #f1f5f9;
+		gap: 0.5rem;
+	}
+	.candidates li:last-child {
+		border-bottom: none;
+	}
+	.btn-add-candidate {
+		background: #f1f5f9;
+		border: 1px solid #cbd5e1;
+		border-radius: 4px;
+		padding: 0.2rem 0.5rem;
+		font-size: 0.85em;
+		cursor: pointer;
+		margin: 0;
+	}
+	.btn-add-candidate:hover {
+		background: #e2e8f0;
 	}
 </style>
