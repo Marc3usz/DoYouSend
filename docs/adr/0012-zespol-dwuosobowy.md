@@ -1,6 +1,6 @@
 # ADR-0012: Zespół dwuosobowy — przejęcie domen B i D
 
-- **Status:** propozycja — czeka na akceptację MichalK252
+- **Status:** przyjęta (2026-10-27) — MichalK252 zaakceptował w review PR #62
 - **Data:** 2026-10-27
 - **Uczestnicy:** Marc3usz (domeny A, D), MichalK252 (domeny B, C)
 
