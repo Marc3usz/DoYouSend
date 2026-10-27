@@ -2,7 +2,7 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := help
 COMPOSE := docker compose
 
-.PHONY: help doctor up down logs migrate seed create-admin dev-api dev-web build test test-integration check fmt lint-go lint-web
+.PHONY: help doctor install up down logs migrate seed create-admin dev-api dev-web build test test-integration check fmt lint-go lint-web
 
 help: ## Lista dostepnych komend
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -10,8 +10,14 @@ help: ## Lista dostepnych komend
 doctor: ## Sprawdza wymagane narzedzia
 	@bash scripts/doctor.sh
 
-up: ## Postgres + Redis + Mailpit
-	$(COMPOSE) up -d
+install: frontend/node_modules ## Instaluje zaleznosci frontendu (npm ci)
+
+frontend/node_modules: frontend/package-lock.json
+	cd frontend && npm ci
+	@touch frontend/node_modules
+
+up: ## Postgres + Redis + Mailpit (czeka, az kontenery beda gotowe)
+	$(COMPOSE) up -d --wait
 	@echo "Mailpit UI: http://localhost:8025"
 
 down: ## Zatrzymuje kontenery
@@ -32,7 +38,7 @@ create-admin: ## Pierwszy administrator albo nowe haslo: make create-admin EMAIL
 dev-api: ## API na :8080
 	cd backend && go run ./cmd/api
 
-dev-web: ## UI na :5173
+dev-web: frontend/node_modules ## UI na :5173
 	cd frontend && npm run dev
 
 build: ## Buduje backend i frontend
