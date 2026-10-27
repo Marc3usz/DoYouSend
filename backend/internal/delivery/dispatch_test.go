@@ -263,6 +263,87 @@ func TestSleepCtx(t *testing.T) {
 	}
 }
 
+func TestDispatchRateLimitRespectsRetryAfter(t *testing.T) {
+	rateLimitErr := providers.RateLimitError(errors.New("too many requests"), 10*time.Second)
+	sms := &scriptedSender{channel: providers.ChannelSMS, errs: map[string][]error{id1: {rateLimitErr}}}
+	d, waits := newTestDispatcher(t, DefaultRetryPolicy(), sms)
+
+	got, err := d.Dispatch(context.Background(), NewPlan("S", "x", []groups.Resolved{resolved(id1, "A", "", "+48500100101")}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Recipients[0].Deliveries[0].Status != StatusSent {
+		t.Errorf("delivery status = %v, want StatusSent", got.Recipients[0].Deliveries[0].Status)
+	}
+	if len(*waits) != 1 || (*waits)[0] < 10*time.Second {
+		t.Errorf("waits = %v, want wait of at least 10s", *waits)
+	}
+}
+
+func TestDispatchRateLimitExceededMarksTransientRateLimit(t *testing.T) {
+	rateLimitErr := providers.RateLimitError(errors.New("too many requests"), 5*time.Second)
+	sms := &scriptedSender{channel: providers.ChannelSMS, errs: map[string][]error{
+		id1: {rateLimitErr, rateLimitErr, rateLimitErr},
+	}}
+	d, _ := newTestDispatcher(t, RetryPolicy{MaxAttempts: 2, BaseBackoff: time.Millisecond}, sms)
+
+	got, err := d.Dispatch(context.Background(), NewPlan("S", "x", []groups.Resolved{resolved(id1, "A", "", "+48500100101")}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	del := got.Recipients[0].Deliveries[0]
+	if del.Status != StatusFailed {
+		t.Errorf("delivery status = %v, want StatusFailed", del.Status)
+	}
+	if del.Error != "transient: rate limit exceeded" {
+		t.Errorf("delivery.Error = %q, want 'transient: rate limit exceeded'", del.Error)
+	}
+}
+
+func TestDispatchRateLimitExceedingMaxRetryAfterFailsWithoutBlocking(t *testing.T) {
+	rateLimitErr := providers.RateLimitError(errors.New("daily quota reached"), 86400*time.Second)
+	sms := &scriptedSender{channel: providers.ChannelSMS, errs: map[string][]error{
+		id1: {rateLimitErr},
+	}}
+	d, waits := newTestDispatcher(t, DefaultRetryPolicy(), sms)
+
+	got, err := d.Dispatch(context.Background(), NewPlan("S", "x", []groups.Resolved{resolved(id1, "A", "", "+48500100101")}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	del := got.Recipients[0].Deliveries[0]
+	if del.Status != StatusFailed {
+		t.Errorf("delivery status = %v, want StatusFailed", del.Status)
+	}
+	if !IsRetryableError(del.Error) {
+		t.Errorf("delivery.Error = %q, want retryable error", del.Error)
+	}
+	if len(*waits) != 0 {
+		t.Errorf("waits = %v, want 0 sleeps for retry-after exceeding max backoff", *waits)
+	}
+}
+
+func TestDispatchRateLimitWithoutRetryAfter(t *testing.T) {
+	// SMSAPI code 202 produces RateLimitError(err, 0)
+	rateLimitErr := providers.RateLimitError(errors.New("SMSAPI 202 system limit reached"), 0)
+	sms := &scriptedSender{channel: providers.ChannelSMS, errs: map[string][]error{
+		id1: {rateLimitErr, rateLimitErr, rateLimitErr},
+	}}
+	d, _ := newTestDispatcher(t, RetryPolicy{MaxAttempts: 1, BaseBackoff: time.Millisecond}, sms)
+
+	got, err := d.Dispatch(context.Background(), NewPlan("S", "x", []groups.Resolved{resolved(id1, "A", "", "+48500100101")}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	del := got.Recipients[0].Deliveries[0]
+	if del.Status != StatusFailed {
+		t.Errorf("delivery status = %v, want StatusFailed", del.Status)
+	}
+	if del.Error != "transient: rate limit exceeded" {
+		t.Errorf("delivery.Error = %q, want 'transient: rate limit exceeded'", del.Error)
+	}
+}
+
 func TestDispatchWithObserverTracksProgress(t *testing.T) {
 	sms := &scriptedSender{channel: providers.ChannelSMS}
 	d, _ := newTestDispatcher(t, DefaultRetryPolicy(), sms)

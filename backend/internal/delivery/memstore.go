@@ -171,6 +171,29 @@ func (s *MemStore) Batch(_ context.Context, id string) (Batch, error) {
 	return cloneBatch(b), nil
 }
 
+// ResetFailedDeliveries implements Store.
+func (s *MemStore) ResetFailedDeliveries(_ context.Context, batchID string) (Batch, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, ok := s.batches[batchID]
+	if !ok {
+		return Batch{}, fmt.Errorf("reset failed deliveries for batch %s: %w", batchID, ErrBatchNotFound)
+	}
+	if b.Status == BatchRunning {
+		return Batch{}, fmt.Errorf("reset failed deliveries for batch %s: %w", batchID, ErrBatchRunning)
+	}
+	retriedPlan, count := b.Plan.RetryPlan()
+	if count == 0 {
+		return Batch{}, fmt.Errorf("reset failed deliveries for batch %s: %w", batchID, ErrNoFailedDeliveries)
+	}
+	b.Plan = retriedPlan
+	b.Status = BatchRunning
+	b.FinishedAt = time.Time{}
+	b.Counts = retriedPlan.Counts()
+	s.batches[batchID] = b
+	return cloneBatch(b), nil
+}
+
 func cloneBatch(b Batch) Batch {
 	b.Groups = append([]GroupRef(nil), b.Groups...)
 	b.RecipientIDs = append([]string(nil), b.RecipientIDs...)

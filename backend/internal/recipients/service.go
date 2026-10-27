@@ -199,6 +199,48 @@ func (s *Service) Lookup(ctx context.Context, q ListQuery) (Page, error) {
 	return s.List(ctx, q)
 }
 
+// Stats are the counts behind the data-quality panel (GET /recipients/stats).
+// WithoutEmail and WithoutPhone use the same rule as the "issue" filter of List.
+type Stats struct {
+	Total        int
+	Parents      int
+	Students     int
+	WithoutEmail int
+	WithoutPhone int
+	// Unreachable counts people with neither a working e-mail nor a working
+	// phone: the ones a message would not reach on any channel.
+	Unreachable int
+}
+
+// Stats counts the whole recipient base in one read. The contact rules are
+// applied here, in Go, for the same reason as in List.
+func (s *Service) Stats(ctx context.Context) (Stats, error) {
+	all, err := s.store.ListRecipients(ctx, Filter{})
+	if err != nil {
+		return Stats{}, fmt.Errorf("count recipients: %w", err)
+	}
+	st := Stats{Total: len(all)}
+	for _, r := range all {
+		switch r.Type {
+		case TypeParent:
+			st.Parents++
+		case TypeStudent:
+			st.Students++
+		}
+		noEmail, noPhone := r.HasIssue(ChannelEmail), r.HasIssue(ChannelSMS)
+		if noEmail {
+			st.WithoutEmail++
+		}
+		if noPhone {
+			st.WithoutPhone++
+		}
+		if noEmail && noPhone {
+			st.Unreachable++
+		}
+	}
+	return st, nil
+}
+
 func checkListQuery(q ListQuery) (ListQuery, error) {
 	var errs []FieldError
 	q.Query = strings.TrimSpace(q.Query)

@@ -308,6 +308,134 @@ func TestSMSPartsSkipsFailedDeliveries(t *testing.T) {
 	}
 }
 
+func TestServiceRetryBatch(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemStore()
+	transientErr := providers.TransientError(errors.New("gateway unavailable"))
+	sms := &scriptedSender{
+		channel: providers.ChannelSMS,
+		errs: map[string][]error{
+			id2: {transientErr, transientErr, transientErr},
+		},
+	}
+	svc := newTestService(t, twoRecipients(), store, sms)
+
+	batch, err := svc.Send(ctx, validDraft())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if batch.Status != BatchDoneWithErrors {
+		t.Fatalf("first run status = %s, want done_with_errors", batch.Status)
+	}
+
+	// Verify id1 was sent and id2 failed
+	if batch.Plan.Recipients[0].Deliveries[0].Status != StatusSent {
+		t.Errorf("recipient 1 delivery = %v, want sent", batch.Plan.Recipients[0].Deliveries[0].Status)
+	}
+	if batch.Plan.Recipients[1].Deliveries[0].Status != StatusFailed {
+		t.Errorf("recipient 2 delivery = %v, want failed", batch.Plan.Recipients[1].Deliveries[0].Status)
+	}
+	firstMsgID := batch.Plan.Recipients[0].Deliveries[0].ProviderMessageID
+
+	// Reset error queue for sms sender so second try for id2 succeeds
+	sms.errs = nil
+	sms.sent = nil
+
+	retried, err := svc.RetryBatch(ctx, batch.ID)
+	if err != nil {
+		t.Fatalf("unexpected RetryBatch error: %v", err)
+	}
+	if retried.Status != BatchDone {
+		t.Fatalf("retried status = %s, want done", retried.Status)
+	}
+
+	// Verify only recipient 2 was sent on retry
+	if len(sms.sent) != 1 || sms.sent[0].RecipientID != id2 {
+		t.Errorf("sent during retry = %v, want only recipient 2", sms.sent)
+	}
+
+	// Verify recipient 1 delivery was untouched
+	if retried.Plan.Recipients[0].Deliveries[0].ProviderMessageID != firstMsgID {
+		t.Errorf("recipient 1 msg ID changed: got %q, want %q",
+			retried.Plan.Recipients[0].Deliveries[0].ProviderMessageID, firstMsgID)
+	}
+	if retried.Plan.Recipients[1].Deliveries[0].Status != StatusSent {
+		t.Errorf("recipient 2 status = %v, want sent", retried.Plan.Recipients[1].Deliveries[0].Status)
+	}
+}
+
+func TestServiceRetryBatch_DoesNotRetryUnclassifiedOrPermanentErrors(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemStore()
+	sms := &scriptedSender{
+		channel: providers.ChannelSMS,
+		errs: map[string][]error{
+			id1: {errors.New("unclassified error")},
+			id2: {providers.PermanentError(errors.New("permanent error"))},
+		},
+	}
+	svc := newTestService(t, twoRecipients(), store, sms)
+
+	batch, err := svc.Send(ctx, validDraft())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if batch.Status != BatchDoneWithErrors {
+		t.Fatalf("first run status = %s, want done_with_errors", batch.Status)
+	}
+
+	_, err = svc.RetryBatch(ctx, batch.ID)
+	if !errors.Is(err, ErrNoFailedDeliveries) {
+		t.Errorf("RetryBatch err = %v, want ErrNoFailedDeliveries (no transient failures)", err)
+	}
+}
+
+func TestServiceRetryBatch_NothingToRetry(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemStore()
+	sms := &scriptedSender{channel: providers.ChannelSMS}
+	svc := newTestService(t, twoRecipients(), store, sms)
+
+	batch, err := svc.Send(ctx, validDraft())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if batch.Status != BatchDone {
+		t.Fatalf("batch status = %s, want done", batch.Status)
+	}
+
+	_, err = svc.RetryBatch(ctx, batch.ID)
+	if !errors.Is(err, ErrNoFailedDeliveries) {
+		t.Errorf("err = %v, want ErrNoFailedDeliveries", err)
+	}
+}
+
+func TestServiceRetryBatch_AlreadyRunning(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemStore()
+	b, err := store.CreateBatch(ctx, Batch{
+		Status: BatchRunning,
+		Plan:   NewPlan("S", "B", []groups.Resolved{resolved(id1, "A", "", "+48500100101")}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	svc := newTestService(t, twoRecipients(), store, &scriptedSender{channel: providers.ChannelSMS})
+	_, err = svc.RetryBatch(ctx, b.ID)
+	if !errors.Is(err, ErrBatchRunning) {
+		t.Errorf("err = %v, want ErrBatchRunning", err)
+	}
+}
+
+func TestServiceRetryBatch_NotFound(t *testing.T) {
+	svc := newTestService(t, twoRecipients(), NewMemStore(), &scriptedSender{channel: providers.ChannelSMS})
+	_, err := svc.RetryBatch(context.Background(), id1)
+	if !errors.Is(err, ErrBatchNotFound) {
+		t.Errorf("err = %v, want ErrBatchNotFound", err)
+	}
+}
+
 func TestMemStoreSaveDelivery(t *testing.T) {
 	ctx := context.Background()
 	s := NewMemStore()
@@ -353,5 +481,66 @@ func TestMemStoreSaveDelivery(t *testing.T) {
 	d = got.Plan.Recipients[0].Deliveries[0]
 	if d.Status != StatusSent {
 		t.Errorf("status = %s, want sent (must not downgrade)", d.Status)
+	}
+}
+
+func TestServiceStartRetry(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemStore()
+	transientErr := providers.TransientError(errors.New("gateway unavailable"))
+	sms := &scriptedSender{
+		channel: providers.ChannelSMS,
+		errs: map[string][]error{
+			id2: {transientErr, transientErr, transientErr},
+		},
+	}
+	svc := newTestService(t, twoRecipients(), store, sms)
+
+	batch, err := svc.Send(ctx, validDraft())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if batch.Status != BatchDoneWithErrors {
+		t.Fatalf("first run status = %s, want done_with_errors", batch.Status)
+	}
+
+	sms.errs = nil
+	sms.sent = nil
+
+	retried, err := svc.StartRetry(ctx, batch.ID)
+	if err != nil {
+		t.Fatalf("unexpected StartRetry error: %v", err)
+	}
+	if retried.Status != BatchRunning {
+		t.Errorf("immediate status = %s, want running", retried.Status)
+	}
+
+	// Wait for background dispatch to finish
+	svc.running.Wait()
+
+	finalBatch, err := store.Batch(ctx, batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finalBatch.Status != BatchDone {
+		t.Errorf("final status = %s, want done", finalBatch.Status)
+	}
+	if len(sms.sent) != 1 || sms.sent[0].RecipientID != id2 {
+		t.Errorf("sent during retry = %v, want only recipient 2", sms.sent)
+	}
+}
+
+func TestServiceStartRetry_ShuttingDown(t *testing.T) {
+	svc := newTestService(t, twoRecipients(), NewMemStore(), &scriptedSender{channel: providers.ChannelSMS})
+	done := make(chan struct{})
+	go func() {
+		svc.Wait()
+		close(done)
+	}()
+	<-done
+
+	_, err := svc.StartRetry(context.Background(), id1)
+	if !errors.Is(err, ErrShuttingDown) {
+		t.Errorf("StartRetry while shutting down error = %v, want ErrShuttingDown", err)
 	}
 }

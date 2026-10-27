@@ -33,7 +33,10 @@ export type NavLink = { href: string; label: string };
 /** The main navigation for a user's role. */
 export function navLinks(user: User | null): NavLink[] {
 	if (!user) return [];
-	const links: NavLink[] = [{ href: '/wiadomosci', label: 'Nowa wiadomość' }];
+	const links: NavLink[] = [
+		{ href: '/wiadomosci', label: 'Nowa wiadomość' },
+		{ href: '/historia', label: 'Historia' }
+	];
 	if (user.role === 'admin') {
 		links.push(
 			{ href: '/odbiorcy', label: 'Odbiorcy' },

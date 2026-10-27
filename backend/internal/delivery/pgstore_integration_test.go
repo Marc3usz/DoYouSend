@@ -665,3 +665,141 @@ func TestPGStoreListBatches(t *testing.T) {
 		t.Errorf("ListBatches(running) total %d; want 2", total)
 	}
 }
+
+func TestPGStoreResetFailedDeliveries(t *testing.T) {
+	store, _ := newPGStore(t)
+	ctx := context.Background()
+
+	plan := NewPlan("Zebranie", "Czesc {{imie}}", []groups.Resolved{
+		resolved(pgBoth, "Anna", "anna@example.test", "+48500100101"),
+		resolved(pgEmail, "Jan", "jan@example.test", ""),
+	})
+	parts := plan.smsParts()
+	b := Batch{
+		Subject:      "Zebranie",
+		Body:         "Czesc {{imie}}",
+		CreatedBy:    userID,
+		Groups:       []GroupRef{{ID: groupID, Name: "Rodzice uczniów klasy 3A"}},
+		RecipientIDs: []string{pgEmail},
+		Status:       BatchRunning,
+		SMSParts:     parts,
+		CostMilli:    int64(parts) * 65,
+		Plan:         plan,
+	}
+
+	created, err := store.CreateBatch(ctx, b)
+	if err != nil {
+		t.Fatalf("CreateBatch() error = %v", err)
+	}
+
+	// While batch is running, ResetFailedDeliveries returns ErrBatchRunning.
+	if _, err := store.ResetFailedDeliveries(ctx, created.ID); !errors.Is(err, ErrBatchRunning) {
+		t.Fatalf("ResetFailedDeliveries() on running batch = %v; want ErrBatchRunning", err)
+	}
+
+	// Save outcome where:
+	// - pgBoth SMS fails with transient error (MUST be retried)
+	// - pgBoth Email fails with unclassified error (MUST NOT be retried)
+	// - pgEmail Email succeeds
+	failedPlan := created.Plan.clone()
+	for i, r := range failedPlan.Recipients {
+		for j, d := range r.Deliveries {
+			if r.RecipientID == pgBoth && d.Channel == providers.ChannelSMS {
+				d.Status = StatusFailed
+				d.Error = "transient: gateway timeout"
+				d.Attempts = 3
+			} else if r.RecipientID == pgBoth && d.Channel == providers.ChannelEmail {
+				d.Status = StatusFailed
+				d.Error = "unclassified provider error"
+				d.Attempts = 1
+			} else {
+				d.Status = StatusSent
+				d.ProviderMessageID = "msg-" + r.RecipientID + "-" + string(d.Channel)
+				d.Attempts = 1
+			}
+			failedPlan.Recipients[i].Deliveries[j] = d
+		}
+	}
+	if err := store.SaveOutcome(ctx, created.ID, failedPlan); err != nil {
+		t.Fatalf("SaveOutcome() error = %v", err)
+	}
+
+	batchAfterFail, err := store.Batch(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Batch() error = %v", err)
+	}
+	if batchAfterFail.Status != BatchDoneWithErrors {
+		t.Fatalf("batch status = %s; want %s", batchAfterFail.Status, BatchDoneWithErrors)
+	}
+
+	// Reset failed deliveries: only the transient failure should be reset to pending.
+	resetBatch, err := store.ResetFailedDeliveries(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("ResetFailedDeliveries() error = %v", err)
+	}
+	if resetBatch.Status != BatchRunning {
+		t.Errorf("reset batch status = %s; want %s", resetBatch.Status, BatchRunning)
+	}
+
+	for _, r := range resetBatch.Plan.Recipients {
+		for _, d := range r.Deliveries {
+			if r.RecipientID == pgBoth && d.Channel == providers.ChannelSMS {
+				// Transient error reset to pending with attempts reset to 0
+				if d.Status != StatusPending || d.Error != "" || d.Attempts != 0 {
+					t.Errorf("SMS delivery = %s, error %q, attempts %d; want pending with empty error and 0 attempts", d.Status, d.Error, d.Attempts)
+				}
+			} else if r.RecipientID == pgBoth && d.Channel == providers.ChannelEmail {
+				// Unclassified error must remain failed
+				if d.Status != StatusFailed || d.Error != "unclassified provider error" {
+					t.Errorf("Email delivery = %s, error %q; want failed with unclassified error", d.Status, d.Error)
+				}
+			} else {
+				if d.Status != StatusSent {
+					t.Errorf("channel %s delivery = %s; want sent (unchanged)", d.Channel, d.Status)
+				}
+			}
+		}
+	}
+
+	// Calling again while running returns ErrBatchRunning.
+	if _, err := store.ResetFailedDeliveries(ctx, created.ID); !errors.Is(err, ErrBatchRunning) {
+		t.Errorf("second ResetFailedDeliveries() error = %v; want ErrBatchRunning", err)
+	}
+
+	// Save successful outcome for the retried delivery.
+	retriedPlan := resetBatch.Plan.clone()
+	for i, r := range retriedPlan.Recipients {
+		for j, d := range r.Deliveries {
+			if d.Status == StatusPending {
+				d.Status = StatusSent
+				d.ProviderMessageID = "msg-" + r.RecipientID + "-sms-retried"
+				d.Attempts = 1
+				retriedPlan.Recipients[i].Deliveries[j] = d
+			}
+		}
+	}
+	if err := store.SaveOutcome(ctx, created.ID, retriedPlan); err != nil {
+		t.Fatalf("SaveOutcome() retried error = %v", err)
+	}
+
+	finalBatch, err := store.Batch(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("final Batch() error = %v", err)
+	}
+	// Finished with errors because unclassified email delivery is still failed
+	if finalBatch.Status != BatchDoneWithErrors {
+		t.Errorf("final batch status = %s; want %s", finalBatch.Status, BatchDoneWithErrors)
+	}
+
+	// When no retryable failed deliveries exist (only unclassified remains), ResetFailedDeliveries returns ErrNoFailedDeliveries.
+	if _, err := store.ResetFailedDeliveries(ctx, created.ID); !errors.Is(err, ErrNoFailedDeliveries) {
+		t.Errorf("ResetFailedDeliveries() when no retryable deliveries exist error = %v; want ErrNoFailedDeliveries", err)
+	}
+
+	// Unknown or invalid batch ID returns ErrBatchNotFound.
+	for _, id := range []string{"00000000-0000-4000-8000-0000000000ee", "not-a-uuid"} {
+		if _, err := store.ResetFailedDeliveries(ctx, id); !errors.Is(err, ErrBatchNotFound) {
+			t.Errorf("ResetFailedDeliveries(%q) error = %v; want ErrBatchNotFound", id, err)
+		}
+	}
+}

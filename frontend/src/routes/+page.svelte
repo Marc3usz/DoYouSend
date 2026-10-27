@@ -26,6 +26,16 @@
 			<a href="/odbiorcy">
 				<strong>Odbiorcy</strong>
 				<span>Rodzice i uczniowie, ich e-maile i telefony, import z pliku.</span>
+				{#if data.counts}
+					<small>
+						W bazie: {data.counts.total}.
+						{#if data.counts.noEmail + data.counts.noPhone > 0}
+							<em>Bez e-maila: {data.counts.noEmail}, bez telefonu: {data.counts.noPhone}.</em>
+						{:else}
+							Wszyscy mają komplet danych.
+						{/if}
+					</small>
+				{/if}
 			</a>
 		</li>
 		<li>
@@ -73,5 +83,12 @@
 	}
 	.tiles span {
 		color: #555;
+	}
+	.tiles small {
+		color: #555;
+	}
+	.tiles em {
+		font-style: normal;
+		color: #6b4500;
 	}
 </style>

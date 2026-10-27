@@ -11,10 +11,8 @@ import (
 )
 
 // Handler serves the recipient CRUD endpoints of docs/api/openapi.yaml.
-//
-// TODO(iam): every route returns personal data and must require the admin
-// role once the iam middleware lands (DEV D). Until then the API is meant for
-// local, fictional data only (CLAUDE.md rules 2 and 3).
+// iam.Middleware lets only administrators through, except for GET
+// /recipients/lookup, which any signed-in user may call (iam/policy.go).
 type Handler struct {
 	svc    *Service
 	logger *slog.Logger
@@ -29,6 +27,7 @@ func NewHandler(svc *Service, logger *slog.Logger) *Handler {
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/recipients", h.list)
 	mux.HandleFunc("GET /api/recipients/lookup", h.lookup)
+	mux.HandleFunc("GET /api/recipients/stats", h.stats)
 	mux.HandleFunc("POST /api/recipients", h.create)
 	mux.HandleFunc("GET /api/recipients/{id}", h.get)
 	mux.HandleFunc("PUT /api/recipients/{id}", h.update)
@@ -150,6 +149,18 @@ func (h *Handler) decodeInput(w http.ResponseWriter, r *http.Request) (Input, bo
 	}, true
 }
 
+func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
+	st, err := h.svc.Stats(r.Context())
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, statsJSON{
+		Total: st.Total, Parents: st.Parents, Students: st.Students,
+		WithoutEmail: st.WithoutEmail, WithoutPhone: st.WithoutPhone, Unreachable: st.Unreachable,
+	})
+}
+
 // writeError maps a service error to its status and stable code. Unexpected
 // errors are logged (they carry IDs, never contact data) and hidden.
 func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) {
@@ -236,6 +247,14 @@ type (
 	lookupPageJSON struct {
 		Items []lookupJSON `json:"items"`
 		Total int          `json:"total"`
+	}
+	statsJSON struct {
+		Total        int `json:"total"`
+		Parents      int `json:"parents"`
+		Students     int `json:"students"`
+		WithoutEmail int `json:"withoutEmail"`
+		WithoutPhone int `json:"withoutPhone"`
+		Unreachable  int `json:"unreachable"`
 	}
 	inputJSON struct {
 		FirstName string  `json:"firstName"`

@@ -17,6 +17,8 @@ type RequestOptions = {
 	method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 	// FormData is sent as multipart/form-data, anything else as JSON.
 	body?: unknown;
+	/** Extra request headers, e.g. Idempotency-Key. */
+	headers?: Record<string, string>;
 	fetch?: typeof globalThis.fetch;
 };
 
@@ -27,7 +29,10 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
 	const response = await doFetch(`/api${path}`, {
 		method: options.method ?? 'GET',
 		// For FormData the browser sets Content-Type itself, with the boundary.
-		headers: body && !isForm ? { 'Content-Type': 'application/json' } : undefined,
+		headers: {
+			...(body && !isForm ? { 'Content-Type': 'application/json' } : {}),
+			...options.headers
+		},
 		body: isForm ? body : body ? JSON.stringify(body) : undefined
 	});
 

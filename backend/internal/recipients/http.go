@@ -33,10 +33,8 @@ func HandleCheckImport(logger *slog.Logger) http.HandlerFunc {
 // HandleImportFile serves the import endpoints of docs/api/openapi.yaml:
 // POST /api/recipients/import/check with Importer.Check and
 // POST /api/recipients/import with Importer.Import. Both answer the same
-// per-row report.
-//
-// TODO(iam): with a database both endpoints read or write the recipient base
-// and must require the admin role once the iam middleware lands (DEV D).
+// per-row report. Both read or write the recipient base, so iam.Middleware
+// lets only administrators through (iam/policy.go).
 func HandleImportFile(process ImportFunc, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxImportBody)
