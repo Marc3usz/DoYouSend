@@ -11,5 +11,5 @@
 // Invariant: the e-mail body and the SMS body of a given recipient are byte-identical.
 // Nothing here may shorten, summarise or reformat the text.
 //
-// Owner: DEV B.
+// Owner: MichalK252 (domain B, ADR-0012).
 package messaging

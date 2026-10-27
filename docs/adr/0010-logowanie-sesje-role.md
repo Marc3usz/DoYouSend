@@ -1,10 +1,10 @@
 # ADR-0010: Logowanie, sesje i role
 
-- **Status:** propozycja — wdrożona w PR z panelem administratora; czeka na akceptację
-  averithefox (DEV D, właściciel `iam`) i przegląd zespołu
+- **Status:** przyjęta (2026-10-27) — po ADR-0012 właścicielem `iam` jest Marc3usz, który
+  ją napisał i wdrożył (PR #36); recenzja MichalK252 przy PR-ze zmiany statusu
 - **Data:** 2026-10-09
-- **Uczestnicy:** Marc3usz (DEV A) — napisał w zastępstwie DEV D; averithefox (DEV D) — właściciel
-  `iam`; S1D0R-10 (DEV B) i MichalK252 (DEV C) — konsumenci middleware
+- **Uczestnicy:** Marc3usz (DEV A) — napisał w zastępstwie DEV D; averithefox (DEV D) — ówczesny właściciel
+  `iam`, odszedł z projektu bez decyzji; S1D0R-10 (DEV B) i MichalK252 (DEV C) — konsumenci middleware
 
 ## Kontekst
 
@@ -78,13 +78,11 @@ SvelteKit przed jednym API w Go, na razie bez SSO szkoły.
 
 - **Wszystkie** endpointy z danymi wymagają teraz logowania. Lokalnie trzeba raz uruchomić
   `make migrate` i `make create-admin` (README), inaczej UI pokaże tylko ekran logowania.
-- Wysyłający nie ma dostępu do listy odbiorców (`/api/recipients`). Wybór pojedynczych osób w
-  kreatorze (DEV B, ADR-0007) będzie potrzebował osobnego, węższego endpointu (np. wyszukiwarki bez
-  danych kontaktowych) albo zmiany reguły. Do ustalenia z DEV B.
+- Wysyłający nie ma dostępu do listy odbiorców (`/api/recipients`). Do wyboru pojedynczych osób w
+  kreatorze służy węższy `GET /api/recipients/lookup` bez danych kontaktowych (PR #45, #46).
 - `delivery.Service.Send` (#30) może brać `CreatedBy` z `iam.UserFrom(ctx)`.
 - Licznik nieudanych logowań działa per proces. Przy kilku instancjach API trzeba go przenieść do
   Redisa albo bazy.
 - Migracja ma numer `0004`, bo `0003` jest zarezerwowane dla klas odbiorców (ADR-0009). Migracje
   są niezależne, a `scripts/migrate.sh` stosuje każdy brakujący plik.
-- Właściciel `iam` to nadal DEV D. Ten ADR i kod są propozycją do jego przeglądu, a nie przejęciem
-  domeny.
+- Od ADR-0012 właścicielem `iam` (domena D) jest Marc3usz.

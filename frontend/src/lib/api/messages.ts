@@ -1,4 +1,4 @@
-// Endpoints of the messaging domain (DEV B), see docs/api/openapi.yaml.
+// Endpoints of the messaging domain (domain B, MichalK252), see docs/api/openapi.yaml.
 import { api } from './client';
 import type { RecipientSelection } from './groups';
 

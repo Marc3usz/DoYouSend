@@ -17,7 +17,7 @@ Working language: **code, identifiers, commits, PR titles in English**; user-fac
 | Local env | Docker Compose: Postgres, Redis, Mailpit (fake SMTP)           |
 
 Do not introduce a new framework, ORM or runtime dependency without an ADR
-(`docs/adr/`) — four people share this repo and dependency choices are not local decisions.
+(`docs/adr/`) — two people share this repo and dependency choices are not local decisions.
 
 ## Repo map
 
@@ -26,12 +26,12 @@ backend/            Go API + delivery worker
   cmd/api/          entrypoint
   internal/
     platform/       config, database, httpx — shared plumbing (coordinate before changing)
-    recipients/     recipients CRUD, CSV import, validation      -> owner: DEV A (Marc3usz)
-    groups/         groups, membership, recipient resolution     -> owner: DEV A (Marc3usz)
-    messaging/      message composition, preview, SMS part count -> owner: DEV B (S1D0R-10)
-    delivery/       dispatch, queue, per-channel status, retries -> owner: DEV B (S1D0R-10)
-    providers/      email/ + sms/ adapters (incl. fake ones)     -> owner: DEV C (MichalK252)
-    iam/            users, roles, auth, audit log                -> owner: DEV D (averithefox)
+    recipients/     recipients CRUD, CSV import, validation      -> owner: Marc3usz (domain A)
+    groups/         groups, membership, recipient resolution     -> owner: Marc3usz (domain A)
+    messaging/      message composition, preview, SMS part count -> owner: MichalK252 (domain B)
+    delivery/       dispatch, queue, per-channel status, retries -> owner: MichalK252 (domain B)
+    providers/      email/ + sms/ adapters (incl. fake ones)     -> owner: MichalK252 (domain C)
+    iam/            users, roles, auth, audit log                -> owner: Marc3usz (domain D)
   migrations/       numbered SQL migrations (shared, see below)
 frontend/           SvelteKit UI (routes mirror the same domain split)
 docs/               architecture, work split, git workflow, ADRs
@@ -58,7 +58,7 @@ Run `make check` before every commit; CI runs the same targets.
 
 ## Shared files — coordinate before touching
 
-These cause the merge conflicts that actually hurt with three parallel Claude sessions:
+These cause the merge conflicts that actually hurt with parallel Claude sessions:
 
 - `backend/migrations/*.sql` — **never renumber or edit an applied migration.** Always add a new
   file `NNNN_description.sql` with the next free number; if two people race, the later PR renumbers.

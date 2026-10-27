@@ -14,10 +14,10 @@ servers:
 tags:
   - name: recipients   # DEV A
   - name: groups       # DEV A
-  - name: messages     # DEV B
-  - name: batches      # DEV B
-  - name: admin        # DEV D
-  - name: auth         # DEV D
+  - name: messages     # domain B (MichalK252)
+  - name: batches      # domain B (MichalK252)
+  - name: admin        # domain D (Marc3usz)
+  - name: auth         # domain D (Marc3usz)
 
 # Kazdy endpoint wymaga zalogowania (cookie sesji), o ile nie ma "security: []".
 # Ktora rola moze co: backend/internal/iam/policy.go (ADR-0010). Brak sesji -> 401
