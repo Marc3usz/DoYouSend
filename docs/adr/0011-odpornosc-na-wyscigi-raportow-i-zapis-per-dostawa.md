@@ -1,6 +1,7 @@
 # ADR-0011: Odporność na wyścigi raportów doręczeń i zapis per dostawa
 
-- **Status:** propozycja — czeka na akceptację S1D0R-10
+- **Status:** przyjęta (2026-10-27) — S1D0R-10 odszedł z projektu bez decyzji; po ADR-0012
+  domena B należy do MichalK252 (autor), recenzja Marc3usz (PR #44)
 - **Data:** 2026-10-13
 - **Uczestnicy:** MichalK252 (DEV C) proponuje i implementuje, S1D0R-10 (DEV B) współdecyduje, Marc3usz (DEV A) recenzuje
 - **Powiązane:** Issue #42, PR #40, PR #41, ADR-0003, ADR-0008

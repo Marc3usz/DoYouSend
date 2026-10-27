@@ -6,6 +6,5 @@
 //   - authorisation checks for admin-only operations,
 //   - audit log: who composed and who confirmed each batch.
 //
-// Owner: DEV D (averithefox). First version written by DEV A on DEV D's behalf
-// (ADR-0010); review responsibility stays with DEV D.
+// Owner: Marc3usz (domain D, ADR-0012).
 package iam

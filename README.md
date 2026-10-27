@@ -75,7 +75,7 @@ Konfiguracja dostawców produkcyjnych (SendGrid, SMSAPI) oraz trybów testowych:
   i prawdziwych odbiorców wymaga zgody opiekuna projektu.
 - W repo nie ma i nie może być prawdziwych danych osobowych ani kluczy API.
 
-## Praca zespołowa (4 osoby)
+## Praca zespołowa (2 osoby)
 
 | Dokument | Zawartość |
 |---|---|

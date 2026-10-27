@@ -11,5 +11,5 @@
 // Invariants: one recipient is never messaged twice in one batch; a single recipient's
 // failure never aborts the batch; a sent message is immutable (copy it to reuse it).
 //
-// Owner: DEV B. Uses providers through an interface - never calls a vendor SDK directly.
+// Owner: MichalK252 (domain B, ADR-0012). Uses providers through an interface - never calls a vendor SDK directly.
 package delivery
