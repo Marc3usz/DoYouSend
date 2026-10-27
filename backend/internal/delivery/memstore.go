@@ -189,6 +189,7 @@ func (s *MemStore) ResetFailedDeliveries(_ context.Context, batchID string) (Bat
 	b.Plan = retriedPlan
 	b.Status = BatchRunning
 	b.FinishedAt = time.Time{}
+	b.Counts = retriedPlan.Counts()
 	s.batches[batchID] = b
 	return cloneBatch(b), nil
 }
