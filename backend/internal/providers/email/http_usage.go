@@ -60,13 +60,19 @@ func HandleUsageStats(store UsageStore, logger *slog.Logger) http.HandlerFunc {
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			httpx.Error(w, http.StatusMethodNotAllowed, httpx.ErrorBody{
+				Code:    "invalid_request",
+				Message: "method not allowed",
+			})
 			return
 		}
 
 		if store == nil {
 			logger.Error("usage store is nil")
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+			httpx.Error(w, http.StatusInternalServerError, httpx.ErrorBody{
+				Code:    "internal",
+				Message: "usage store is not configured",
+			})
 			return
 		}
 
@@ -76,7 +82,10 @@ func HandleUsageStats(store UsageStore, logger *slog.Logger) http.HandlerFunc {
 		if bID := strings.TrimSpace(q.Get("batch_id")); bID != "" {
 			if !uuidPattern.MatchString(bID) {
 				logger.Warn("invalid batch_id parameter", "val", bID)
-				http.Error(w, "invalid batch_id parameter, expected UUID", http.StatusBadRequest)
+				httpx.Error(w, http.StatusBadRequest, httpx.ErrorBody{
+					Code:    "invalid_request",
+					Message: "invalid batch_id parameter, expected UUID",
+				})
 				return
 			}
 			filter.BatchID = &bID
@@ -86,7 +95,10 @@ func HandleUsageStats(store UsageStore, logger *slog.Logger) http.HandlerFunc {
 			t, _, err := parseTimeParam(fromStr, false)
 			if err != nil {
 				logger.Warn("invalid from parameter", "val", fromStr, "err", err)
-				http.Error(w, "invalid from parameter, expected RFC3339 timestamp or YYYY-MM-DD date", http.StatusBadRequest)
+				httpx.Error(w, http.StatusBadRequest, httpx.ErrorBody{
+					Code:    "invalid_request",
+					Message: "invalid from parameter, expected RFC3339 timestamp or YYYY-MM-DD date",
+				})
 				return
 			}
 			filter.From = &t
@@ -96,7 +108,10 @@ func HandleUsageStats(store UsageStore, logger *slog.Logger) http.HandlerFunc {
 			t, exclusive, err := parseTimeParam(toStr, true)
 			if err != nil {
 				logger.Warn("invalid to parameter", "val", toStr, "err", err)
-				http.Error(w, "invalid to parameter, expected RFC3339 timestamp or YYYY-MM-DD date", http.StatusBadRequest)
+				httpx.Error(w, http.StatusBadRequest, httpx.ErrorBody{
+					Code:    "invalid_request",
+					Message: "invalid to parameter, expected RFC3339 timestamp or YYYY-MM-DD date",
+				})
 				return
 			}
 			filter.To = &t
@@ -106,7 +121,10 @@ func HandleUsageStats(store UsageStore, logger *slog.Logger) http.HandlerFunc {
 		stats, err := store.GetUsage(r.Context(), filter)
 		if err != nil {
 			logger.Error("get email usage stats failed", "err", err)
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+			httpx.Error(w, http.StatusInternalServerError, httpx.ErrorBody{
+				Code:    "internal",
+				Message: "get email usage stats failed",
+			})
 			return
 		}
 

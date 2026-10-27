@@ -205,6 +205,18 @@ func (a batchAudit) BatchConfirmed(ctx context.Context, b delivery.Batch) {
 	})
 }
 
+func (a batchAudit) BatchRetried(ctx context.Context, b delivery.Batch) {
+	callerID := b.CreatedBy
+	if u, ok := iam.UserFrom(ctx); ok && u.ID != "" {
+		callerID = u.ID
+	}
+	a.log.Record(ctx, callerID, iam.ActionBatchRetried, "batch", b.ID, map[string]string{
+		"recipients": strconv.Itoa(b.Counts.Recipients),
+		"groups":     strconv.Itoa(len(b.Groups)),
+		"smsParts":   strconv.Itoa(b.SMSParts),
+	})
+}
+
 // currentCaller adapts the iam session user to what the batch endpoints need.
 func currentCaller(ctx context.Context) (delivery.Caller, bool) {
 	u, ok := iam.UserFrom(ctx)
