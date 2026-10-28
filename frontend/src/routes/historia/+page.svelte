@@ -90,7 +90,7 @@
 
 <style>
 	.lead {
-		color: #555;
+		color: var(--color-text-muted);
 		max-width: 42rem;
 	}
 	.filters {
@@ -103,17 +103,6 @@
 		font-weight: 700;
 		text-decoration: none;
 	}
-	table {
-		border-collapse: collapse;
-		width: 100%;
-	}
-	th,
-	td {
-		border-bottom: 1px solid #ddd;
-		padding: 0.35rem 0.5rem;
-		text-align: left;
-		vertical-align: top;
-	}
 	.num {
 		text-align: right;
 		font-variant-numeric: tabular-nums;
@@ -123,18 +112,15 @@
 	}
 	.status.done_with_errors,
 	.bad {
-		color: #b00020;
+		color: var(--color-danger);
 	}
 	.status.running,
 	.warn {
-		color: #8a4b00;
+		color: var(--color-warning);
 	}
 	.pager {
 		display: flex;
 		gap: 1rem;
 		margin-top: 1rem;
-	}
-	.error {
-		color: #b00020;
 	}
 </style>
