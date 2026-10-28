@@ -28,7 +28,7 @@ func LoadDotEnv(paths ...string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("open %s: %w", path, err)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }() // read-only: a close error loses nothing
 		if err := applyDotEnv(f); err != nil {
 			return "", fmt.Errorf("%s: %w", path, err)
 		}

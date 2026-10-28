@@ -1,6 +1,7 @@
 package groups
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -247,6 +248,58 @@ func TestHandlerResolve(t *testing.T) {
 	}
 	if got.Summary.Total != 3 || got.Summary.Complete != 1 || got.Summary.Partial != 2 || got.Summary.Unreachable != 0 {
 		t.Errorf("summary = %+v, want 3 total: 1 complete, 2 partial", got.Summary)
+	}
+}
+
+func TestHandlerResolveContactAccess(t *testing.T) {
+	tests := []struct {
+		name         string
+		access       func(context.Context) bool
+		wantContacts bool
+	}{
+		{"not configured", nil, false},
+		{"sender", func(context.Context) bool { return false }, false},
+		{"administrator", func(context.Context) bool { return true }, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := NewMemStore()
+			dir := newFakeDirectory(fixtureRecipients()...)
+			mux := http.NewServeMux()
+			h := NewHandler(NewService(store, dir), NewResolver(store, dir), slog.New(slog.NewTextHandler(io.Discard, nil)))
+			if tt.access != nil {
+				h.WithContactAccess(tt.access)
+			}
+			h.Register(mux)
+
+			var got struct {
+				Recipients []struct {
+					Recipient struct {
+						ID     string            `json:"id"`
+						Email  *string           `json:"email"`
+						Phone  *string           `json:"phone"`
+						Issues []json.RawMessage `json:"issues"`
+					} `json:"recipient"`
+					Channels []string `json:"channels"`
+				} `json:"recipients"`
+			}
+			body := `{"recipientIds":["` + idJan + `","` + idLena + `"]}`
+			if status := do(t, mux, http.MethodPost, "/api/groups/resolve", body, &got); status != 200 {
+				t.Fatalf("status = %d", status)
+			}
+			if len(got.Recipients) != 2 {
+				t.Fatalf("recipients = %d, want 2", len(got.Recipients))
+			}
+			for _, r := range got.Recipients {
+				hasContact := r.Recipient.Email != nil || r.Recipient.Phone != nil
+				if hasContact != tt.wantContacts {
+					t.Errorf("%s: email=%v phone=%v, want contacts shown = %v", r.Recipient.ID, r.Recipient.Email, r.Recipient.Phone, tt.wantContacts)
+				}
+				if r.Recipient.ID == idLena && (len(r.Recipient.Issues) == 0 || !reflect.DeepEqual(r.Channels, []string{"sms"})) {
+					t.Errorf("Lena: issues=%d channels=%v; missing e-mail must stay visible", len(r.Recipient.Issues), r.Channels)
+				}
+			}
+		})
 	}
 }
 

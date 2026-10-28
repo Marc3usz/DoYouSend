@@ -16,15 +16,24 @@ import (
 // user list groups and resolve a selection; managing groups is for
 // administrators (iam/policy.go).
 type Handler struct {
-	svc      *Service
-	resolver *Resolver
-	logger   *slog.Logger
+	svc           *Service
+	resolver      *Resolver
+	logger        *slog.Logger
+	contactAccess func(context.Context) bool
 }
 
 // NewHandler returns a Handler using svc for group management and resolver
 // for POST /groups/resolve.
 func NewHandler(svc *Service, resolver *Resolver, logger *slog.Logger) *Handler {
 	return &Handler{svc: svc, resolver: resolver, logger: logger}
+}
+
+// WithContactAccess sets who may see e-mail addresses and phone numbers in the
+// POST /groups/resolve result. Without it nobody does: a sender needs names and
+// the channels each person can be reached on, not the contact data (ADR-0010).
+func (h *Handler) WithContactAccess(allowed func(context.Context) bool) *Handler {
+	h.contactAccess = allowed
+	return h
 }
 
 // Register adds the routes to mux.
@@ -177,7 +186,11 @@ func (h *Handler) resolve(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, err)
 		return
 	}
-	httpx.JSON(w, http.StatusOK, toResolutionJSON(res))
+	out := toResolutionJSON(res)
+	if h.contactAccess == nil || !h.contactAccess(r.Context()) {
+		out.hideContacts()
+	}
+	httpx.JSON(w, http.StatusOK, out)
 }
 
 // pathID checks the {id} path value. A malformed ID is a bad request
@@ -296,6 +309,15 @@ func toGroupJSON(g GroupInfo) groupJSON {
 		out.CreatedAt = &createdAt
 	}
 	return out
+}
+
+// hideContacts drops e-mail addresses and phone numbers. Issues and channels
+// stay, so the caller still sees what is missing.
+func (out *resolutionJSON) hideContacts() {
+	for i := range out.Recipients {
+		out.Recipients[i].Recipient.Email = nil
+		out.Recipients[i].Recipient.Phone = nil
+	}
 }
 
 func toResolutionJSON(res Resolution) resolutionJSON {

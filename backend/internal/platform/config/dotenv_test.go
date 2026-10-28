@@ -52,15 +52,23 @@ func TestParseDotEnvLine(t *testing.T) {
 	}
 }
 
+// unsetenv removes key for the test and restores its previous value afterwards.
+func unsetenv(t *testing.T, key string) {
+	t.Helper()
+	t.Setenv(key, "")
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestLoadDotEnv(t *testing.T) {
 	dir := t.TempDir()
 	path := writeFile(t, dir, ".env", "# test\r\nDYS_TEST_A=from-file\r\nDYS_TEST_B=\"quoted value\"\r\nDYS_TEST_KEPT=from-file\r\nDYS_TEST_EMPTY=from-file\r\n")
 
-	os.Unsetenv("DYS_TEST_A")
-	os.Unsetenv("DYS_TEST_B")
+	unsetenv(t, "DYS_TEST_A")
+	unsetenv(t, "DYS_TEST_B")
 	t.Setenv("DYS_TEST_KEPT", "from-shell")
 	t.Setenv("DYS_TEST_EMPTY", "")
-	t.Cleanup(func() { os.Unsetenv("DYS_TEST_A"); os.Unsetenv("DYS_TEST_B") })
 
 	got, err := LoadDotEnv(filepath.Join(dir, "missing.env"), path)
 	if err != nil {
@@ -94,7 +102,7 @@ func TestLoadDotEnvReportsTheBadLine(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "line 2") {
 		t.Errorf("LoadDotEnv() error = %v, want it to name line 2", err)
 	}
-	os.Unsetenv("OK_VAR")
+	_ = os.Unsetenv("OK_VAR") // set from the file above
 }
 
 func TestLoadDevEnv(t *testing.T) {
@@ -120,8 +128,7 @@ func TestLoadDevEnv(t *testing.T) {
 			}
 			t.Chdir(dir)
 			t.Setenv("APP_ENV", tt.appEnv)
-			os.Unsetenv("DYS_DEV")
-			t.Cleanup(func() { os.Unsetenv("DYS_DEV") })
+			unsetenv(t, "DYS_DEV")
 
 			path, example, err := LoadDevEnv()
 			if err != nil {

@@ -47,7 +47,7 @@ func parseTimeParam(s string, isEnd bool) (time.Time, bool, error) {
 
 // HandleUsageStats returns an HTTP handler serving aggregated SMS usage metrics and costs.
 //
-// TODO(iam): admin only - restrict access once IAM middleware lands.
+// Access: admin only (enforced by iam.Middleware and iam/policy.go).
 //
 // Query parameters:
 //   - batch_id: filter by batch UUID
