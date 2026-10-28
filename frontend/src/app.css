@@ -343,10 +343,11 @@ tbody tr:hover td {
 	font-weight: normal;
 }
 
-/* Alerts: <div class="error" role="alert"> and <p class="notice"> on every page. */
+/* Alerts: <div class="error" role="alert"> and <p class="notice"> on every page.
+   (.warn stays free: pages use it as a text or bar modifier.) */
 .error,
 .notice,
-.warn {
+.alert-warning {
 	border: 1px solid;
 	border-radius: var(--radius);
 	padding: var(--space-3) var(--space-4);
@@ -365,7 +366,7 @@ tbody tr:hover td {
 	color: var(--color-success);
 }
 
-.warn {
+.alert-warning {
 	border-color: var(--color-warning-border);
 	background: var(--color-warning-soft);
 	color: var(--color-warning);
@@ -373,7 +374,7 @@ tbody tr:hover td {
 
 .error > :last-child,
 .notice > :last-child,
-.warn > :last-child {
+.alert-warning > :last-child {
 	margin-bottom: 0;
 }
 
