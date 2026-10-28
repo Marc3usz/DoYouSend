@@ -215,6 +215,8 @@ func (a batchAudit) BatchRetried(ctx context.Context, b delivery.Batch) {
 		"groups":     strconv.Itoa(len(b.Groups)),
 		"smsParts":   strconv.Itoa(b.SMSParts),
 	})
+}
+
 // isAdmin reports whether the request comes from a logged-in administrator.
 func isAdmin(ctx context.Context) bool {
 	u, ok := iam.UserFrom(ctx)
