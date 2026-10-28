@@ -54,6 +54,20 @@
 
 	const incompleteRecipients = $derived(resolvedRecipients.filter((r) => r.channels.length < 2));
 
+	$effect(() => {
+		if (resolvedRecipients.length > 0 && excludedRecipientIds.length > 0) {
+			for (const id of excludedRecipientIds) {
+				if (!excludedPeople.some((p) => p.id === id)) {
+					const found = resolvedRecipients.find((r) => r.recipient.id === id);
+					if (found) {
+						const name = `${found.recipient.lastName} ${found.recipient.firstName}`.trim() || id;
+						excludedPeople = [...excludedPeople, { id, name }];
+					}
+				}
+			}
+		}
+	});
+
 	let personQuery = $state('');
 	let personSearching = $state(false);
 	let personCandidates = $state<RecipientLookup[]>([]);
@@ -256,7 +270,7 @@
 					{/if}
 					<div class="preview-body">{estimate?.sampleBody || body}</div>
 					<p class="preview-note">
-						Właściwa treść e-maila i SMS-a jest identyczna dla każdego odbiorcy.
+						E-mail i SMS mają tę samą treść; <code>{'{{imie}}'}</code> i <code>{'{{nazwisko}}'}</code> każdy odbiorca dostaje ze swoimi danymi.
 					</p>
 				</div>
 			{/if}
@@ -355,7 +369,7 @@
 									<div class="inc-details">
 										<strong>{inc.recipient.lastName} {inc.recipient.firstName}</strong>
 										<span class="inc-badge">
-											{#if !inc.channels.includes('email') && !inc.channels.includes('sms')}
+											{#if inc.channels.length === 0}
 												brak e-maila i telefonu
 											{:else if !inc.channels.includes('email')}
 												brak e-maila (tylko SMS)
@@ -379,14 +393,16 @@
 						<ul class="chips">
 							{#each excludedRecipientIds as id (id)}
 								{@const person = excludedPeople.find((p) => p.id === id)}
+								{@const resolved = resolvedRecipients.find((r) => r.recipient.id === id)}
+								{@const displayName = person?.name ?? (resolved ? `${resolved.recipient.lastName} ${resolved.recipient.firstName}`.trim() : null) ?? `Osoba wykluczona (${id.slice(0, 8)}…)`}
 								<li class="chip chip-excluded">
-									<span>{person?.name ?? id}</span>
+									<span>{displayName}</span>
 									<button
 										type="button"
 										class="chip-remove"
 										onclick={() => unexcludeRecipient(id)}
 										title="Przywróć odbiorcę do wysyłki"
-										aria-label={`Przywróć ${person?.name ?? id}`}>↺</button
+										aria-label={`Przywróć ${displayName}`}>↺</button
 									>
 								</li>
 							{/each}
