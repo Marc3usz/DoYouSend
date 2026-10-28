@@ -154,6 +154,33 @@ func TestPreviewResolveError(t *testing.T) {
 	}
 }
 
+func TestPreviewSampleBody(t *testing.T) {
+	rv := &fakeResolver{res: groups.Resolution{Recipients: []groups.Resolved{anna, lukasz}}}
+	sel := groups.Selection{GroupIDs: []string{idGroup}}
+	est, err := NewPreviewer(rv, 80).Preview(context.Background(), "Czesc {{imie}} {{nazwisko}}", sel)
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	if est.SampleRecipientName != "Anna Nowak" {
+		t.Errorf("SampleRecipientName = %q, want Anna Nowak", est.SampleRecipientName)
+	}
+	if est.SampleBody != "Czesc Anna Nowak" {
+		t.Errorf("SampleBody = %q, want Czesc Anna Nowak", est.SampleBody)
+	}
+
+	// Without recipients selected, falls back to Jan Kowalski (dane przykładowe)
+	estNoSel, err := NewPreviewer(&fakeResolver{}, 80).Preview(context.Background(), "Witaj {{imie}} {{nazwisko}}!", groups.Selection{})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	if estNoSel.SampleRecipientName != "Jan Kowalski (dane przykładowe)" {
+		t.Errorf("SampleRecipientName = %q, want Jan Kowalski (dane przykładowe)", estNoSel.SampleRecipientName)
+	}
+	if estNoSel.SampleBody != "Witaj Jan Kowalski!" {
+		t.Errorf("SampleBody = %q, want Witaj Jan Kowalski!", estNoSel.SampleBody)
+	}
+}
+
 func assertEstimate(t *testing.T, got, want Estimate) {
 	t.Helper()
 	if got.Template != want.Template {
