@@ -205,6 +205,7 @@ func (s *MemStore) ResetFailedDeliveries(_ context.Context, batchID string) (Bat
 func cloneBatch(b Batch) Batch {
 	b.Groups = append([]GroupRef(nil), b.Groups...)
 	b.RecipientIDs = append([]string(nil), b.RecipientIDs...)
+	b.ExcludedRecipientIDs = append([]string(nil), b.ExcludedRecipientIDs...)
 	b.Plan = b.Plan.clone()
 	return b
 }

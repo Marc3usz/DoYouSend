@@ -60,6 +60,7 @@ describe('wiadomosci load', () => {
 				subject: 'Zebranie rodziców',
 				body: 'Wiadomość testowa dla {{imie}}',
 				groupIds: ['g1'],
+				excludedRecipientIds: [],
 				recipients: [
 					{
 						id: '00000000-0000-4000-8000-000000000002',
@@ -72,6 +73,25 @@ describe('wiadomosci load', () => {
 				]
 			}
 		});
+	});
+
+	it('prefills excluded recipients from batch when kopia is provided', async () => {
+		const batchWithExclusions = {
+			...batch,
+			excludedRecipientIds: ['00000000-0000-4000-8000-000000000099']
+		};
+		const ev = fakeEvent('http://localhost/wiadomosci?kopia=00000000-0000-4000-8000-000000000001', {
+			'/api/groups': new Response(JSON.stringify(groups), { status: 200 }),
+			'/api/batches/00000000-0000-4000-8000-000000000001': new Response(
+				JSON.stringify(batchWithExclusions),
+				{ status: 200 }
+			)
+		});
+		const got = await load(ev);
+		if (!got) throw new Error('expected load output');
+		expect(got.initialDraft?.excludedRecipientIds).toEqual([
+			'00000000-0000-4000-8000-000000000099'
+		]);
 	});
 
 	it('gracefully handles missing kopia batch and leaves draft null', async () => {
