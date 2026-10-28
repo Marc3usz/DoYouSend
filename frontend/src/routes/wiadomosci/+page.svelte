@@ -270,7 +270,8 @@
 					{/if}
 					<div class="preview-body">{estimate?.sampleBody || body}</div>
 					<p class="preview-note">
-						E-mail i SMS mają tę samą treść; <code>{'{{imie}}'}</code> i <code>{'{{nazwisko}}'}</code> każdy odbiorca dostaje ze swoimi danymi.
+						E-mail i SMS mają tę samą treść; <code>{'{{imie}}'}</code> i
+						<code>{'{{nazwisko}}'}</code> każdy odbiorca dostaje ze swoimi danymi.
 					</p>
 				</div>
 			{/if}
@@ -394,7 +395,12 @@
 							{#each excludedRecipientIds as id (id)}
 								{@const person = excludedPeople.find((p) => p.id === id)}
 								{@const resolved = resolvedRecipients.find((r) => r.recipient.id === id)}
-								{@const displayName = person?.name ?? (resolved ? `${resolved.recipient.lastName} ${resolved.recipient.firstName}`.trim() : null) ?? `Osoba wykluczona (${id.slice(0, 8)}…)`}
+								{@const displayName =
+									person?.name ??
+									(resolved
+										? `${resolved.recipient.lastName} ${resolved.recipient.firstName}`.trim()
+										: null) ??
+									`Osoba wykluczona (${id.slice(0, 8)}…)`}
 								<li class="chip chip-excluded">
 									<span>{displayName}</span>
 									<button
