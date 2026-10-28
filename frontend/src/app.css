@@ -324,6 +324,16 @@ tbody tr:hover td {
 	background: #fafbfd;
 }
 
+/* On narrow screens a wide table scrolls inside its own box instead of
+   widening the whole page. */
+@media (max-width: 48rem) {
+	table {
+		display: block;
+		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
+	}
+}
+
 /* Shared helpers used across pages */
 
 .lead {
