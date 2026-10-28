@@ -172,6 +172,39 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  /recipients/{id}/contact:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [recipients]
+      summary: Uzupelnia brakujacy lub bledny kontakt (rowniez wysylajacy, z kreatora)
+      description: |
+        Dla kazdego zalogowanego (ADR-0013, description.md "Brak danych kontaktowych":
+        wysylajacy powinien moc poprawic dane). Ustawia email i/lub phone, ale tylko w kanale,
+        ktory ma problem (issues: missing albo invalid). Dzialajacego kontaktu nie da sie tu
+        nadpisac ani odczytac: od tego jest PUT /recipients/{id} (administrator).
+        Walidacja i normalizacja jak w RecipientInput. Pole pominiete albo null = bez zmian.
+        Odpowiedz bez danych kontaktowych (RecipientLookup), wiec po poprawce widac tylko,
+        czy problem zniknal. Zmiana trafia do dziennika (recipient_contact_fixed, z nazwami
+        kanalow, bez wartosci).
+        409 contact_not_fixable = kanal nie ma problemu (np. ktos wlasnie go uzupelnil);
+        409 duplicate_contact = wartosc ma juz inny odbiorca (bez ids: wysylajacy nie dowiaduje
+        sie, kto to jest).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecipientContactFix" }
+      responses:
+        "200":
+          description: Zapisano
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RecipientLookup" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
   /recipients/import:
     post:
       tags: [recipients]
@@ -1006,6 +1039,14 @@ components:
       type: string
       enum: [email, sms]
 
+    RecipientContactFix:
+      type: object
+      description: Brakujacy lub bledny kontakt do uzupelnienia (PATCH /recipients/{id}/contact).
+      minProperties: 1
+      properties:
+        email: { type: string, nullable: true, maxLength: 254 }
+        phone: { type: string, nullable: true, description: "Normalizowany do E.164 jak w RecipientInput" }
+
     RecipientLookup:
       type: object
       description: Odbiorca w wyszukiwarce kreatora (GET /recipients/lookup), bez e-maila i telefonu.
@@ -1175,6 +1216,7 @@ components:
             - not_found
             - duplicate_contact    # e-mail lub telefon uzywany przez innego odbiorce, szczegoly w fields i ids
             - recipient_in_use     # odbiorca jest w historii wysylek
+            - contact_not_fixable  # PATCH /recipients/{id}/contact: kanal nie ma problemu do poprawienia
             - name_taken           # nazwa grupy zajeta
             - system_group         # proba zmiany grupy systemowej
             - unknown_recipient    # nieistniejace ID w ids
