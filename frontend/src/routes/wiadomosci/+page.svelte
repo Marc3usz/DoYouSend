@@ -355,9 +355,9 @@
 									<div class="inc-details">
 										<strong>{inc.recipient.lastName} {inc.recipient.firstName}</strong>
 										<span class="inc-badge">
-											{#if !inc.recipient.email && !inc.recipient.phone}
+											{#if !inc.channels.includes('email') && !inc.channels.includes('sms')}
 												brak e-maila i telefonu
-											{:else if !inc.recipient.email}
+											{:else if !inc.channels.includes('email')}
 												brak e-maila (tylko SMS)
 											{:else}
 												brak telefonu (tylko e-mail)
