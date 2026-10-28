@@ -61,7 +61,7 @@
 
 <style>
 	.health {
-		border: 1px solid #ddd;
+		border: 1px solid var(--color-border);
 		border-radius: 6px;
 		padding: 0.75rem 1rem;
 		margin: 1rem 0;
@@ -81,7 +81,7 @@
 		flex-direction: column-reverse;
 	}
 	.totals dt {
-		color: #555;
+		color: var(--color-text-muted);
 		font-size: 0.9rem;
 	}
 	.totals dd {
@@ -103,16 +103,16 @@
 	}
 	.bar {
 		height: 0.6rem;
-		background: #eee;
+		background: var(--color-surface-muted);
 		border-radius: 0.3rem;
 		overflow: hidden;
 	}
 	.fill {
 		height: 100%;
-		background: #2a7;
+		background: var(--color-success);
 	}
 	.fill.warn {
-		background: #d98a00;
+		background: var(--color-warning-border);
 	}
 	.cta,
 	.ok {
@@ -120,6 +120,6 @@
 		font-size: 0.9rem;
 	}
 	.ok {
-		color: #1b6b43;
+		color: var(--color-success);
 	}
 </style>

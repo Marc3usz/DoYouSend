@@ -55,7 +55,7 @@
 
 <style>
 	.lead {
-		color: #555;
+		color: var(--color-text-muted);
 		max-width: 42rem;
 	}
 	.tiles {
@@ -72,23 +72,29 @@
 		height: 100%;
 		box-sizing: border-box;
 		padding: 1rem 1.25rem;
-		border: 1px solid #ddd;
-		border-radius: 6px;
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow-sm);
 		color: inherit;
 		text-decoration: none;
+		transition:
+			border-color 0.15s,
+			box-shadow 0.15s;
 	}
 	.tiles a:hover,
 	.tiles a:focus-visible {
-		border-color: #1d4ed8;
+		border-color: var(--color-primary);
+		box-shadow: var(--shadow);
 	}
 	.tiles span {
-		color: #555;
+		color: var(--color-text-muted);
 	}
 	.tiles small {
-		color: #555;
+		color: var(--color-text-muted);
 	}
 	.tiles em {
 		font-style: normal;
-		color: #6b4500;
+		color: var(--color-warning);
 	}
 </style>
