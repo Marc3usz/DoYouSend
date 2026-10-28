@@ -17,6 +17,7 @@ var emailPattern = regexp.MustCompile(`^[^\s@]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za
 // ValidatePhone itself does not accept spaced or local-format input.
 var phonePattern = regexp.MustCompile(`^\+[1-9]\d{6,14}$`)
 
+// Validation errors for contact data.
 var (
 	ErrInvalidEmail = errors.New("not a valid e-mail address")
 	ErrInvalidPhone = errors.New("not a valid E.164 phone number, expected e.g. +48500100101")

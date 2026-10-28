@@ -5,6 +5,7 @@ import "strings"
 // Channel is a delivery channel, named as in the channel enum of the schema.
 type Channel string
 
+// Delivery channels.
 const (
 	ChannelEmail Channel = "email"
 	ChannelSMS   Channel = "sms"
@@ -14,9 +15,9 @@ const (
 type IssueReason string
 
 const (
-	// IssueMissing: the recipient has no e-mail address or no phone number.
+	// IssueMissing means the recipient has no e-mail address or no phone number.
 	IssueMissing IssueReason = "missing"
-	// IssueInvalid: the stored value would be rejected by Validate, e.g. a
+	// IssueInvalid means the stored value would be rejected by Validate, e.g. a
 	// phone number saved before normalization existed.
 	IssueInvalid IssueReason = "invalid"
 )

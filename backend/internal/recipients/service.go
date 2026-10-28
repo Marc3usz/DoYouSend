@@ -30,6 +30,7 @@ func (e *ValidationError) Error() string {
 	return "invalid input: " + strings.Join(msgs, "; ")
 }
 
+// Is makes errors.Is(err, ErrInvalidInput) match a ValidationError.
 func (e *ValidationError) Is(target error) bool {
 	return target == ErrInvalidInput
 }
@@ -50,6 +51,7 @@ func (e *ParamError) Error() string {
 	return "invalid request parameters: " + strings.Join(msgs, "; ")
 }
 
+// Is makes errors.Is(err, ErrInvalidParams) match a ParamError.
 func (e *ParamError) Is(target error) bool {
 	return target == ErrInvalidParams
 }

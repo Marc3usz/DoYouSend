@@ -32,6 +32,7 @@ var (
 // (computed from recipient data, read-only).
 type Kind string
 
+// Group kinds: custom groups are edited by hand, system ones follow recipient data.
 const (
 	KindCustom Kind = "custom"
 	KindSystem Kind = "system"
@@ -114,6 +115,7 @@ func (e *ValidationError) Error() string {
 	return "invalid input: " + strings.Join(msgs, "; ")
 }
 
+// Is makes errors.Is(err, ErrInvalidInput) match a ValidationError.
 func (e *ValidationError) Is(target error) bool {
 	return target == ErrInvalidInput
 }
@@ -128,6 +130,7 @@ func (e *UnknownRecipientsError) Error() string {
 	return "unknown recipient: " + strings.Join(e.IDs, ", ")
 }
 
+// Is makes errors.Is(err, ErrUnknownRecipient) match an UnknownRecipientsError.
 func (e *UnknownRecipientsError) Is(target error) bool {
 	return target == ErrUnknownRecipient
 }

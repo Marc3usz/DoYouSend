@@ -73,6 +73,7 @@ func (e *ValidationError) Error() string {
 	return "invalid input: " + strings.Join(msgs, "; ")
 }
 
+// Is makes errors.Is(err, ErrInvalidInput) match a ValidationError.
 func (e *ValidationError) Is(target error) bool { return target == ErrInvalidInput }
 
 // emailPattern is deliberately loose: staff accounts are created by an
