@@ -407,3 +407,69 @@ func TestServiceStats(t *testing.T) {
 		}
 	})
 }
+
+func TestServiceFixContact(t *testing.T) {
+	str := func(s string) *string { return &s }
+	tests := []struct {
+		name      string
+		who       string
+		fix       ContactFix
+		wantErr   error
+		wantFixed []Channel
+		check     func(t *testing.T, r Recipient)
+	}{
+		{
+			name: "fills a missing phone, normalized", who: "Maria",
+			fix:       ContactFix{Phone: str(" 500 100 120 ")},
+			wantFixed: []Channel{ChannelSMS},
+			check: func(t *testing.T, r Recipient) {
+				if r.Phone != "+48500100120" || r.Email != "maria.kowalska@example.test" || len(r.ContactIssues()) != 0 {
+					t.Errorf("recipient = %+v, want phone set and e-mail kept", r)
+				}
+			},
+		},
+		{
+			name: "replaces an invalid phone", who: "Pawel",
+			fix:       ContactFix{Phone: str("+48500100121")},
+			wantFixed: []Channel{ChannelSMS},
+			check: func(t *testing.T, r Recipient) {
+				if r.Phone != "+48500100121" {
+					t.Errorf("phone = %q", r.Phone)
+				}
+			},
+		},
+		{name: "a working e-mail stays", who: "Maria", fix: ContactFix{Email: str("other@example.test")}, wantErr: ErrContactNotFixable},
+		{name: "a working channel in the same request blocks the fix", who: "Maria", fix: ContactFix{Email: str("x@example.test"), Phone: str("+48500100122")}, wantErr: ErrContactNotFixable},
+		{name: "nothing to fix", who: "Lena", fix: ContactFix{}, wantErr: ErrInvalidInput},
+		{name: "empty value", who: "Lena", fix: ContactFix{Email: str("  ")}, wantErr: ErrInvalidInput},
+		{name: "invalid value", who: "Lena", fix: ContactFix{Email: str("not-an-email")}, wantErr: ErrInvalidInput},
+		{name: "someone else's e-mail", who: "Lena", fix: ContactFix{Email: str("jan.kowalski@example.test")}, wantErr: ErrDuplicateContact},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := serviceFixture()
+			got, fixed, err := NewService(store).FixContact(context.Background(), store.id(tt.who), tt.fix)
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("FixContact() error = %v, want %v", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("FixContact() error = %v", err)
+			}
+			if !reflect.DeepEqual(fixed, tt.wantFixed) {
+				t.Errorf("fixed = %v, want %v", fixed, tt.wantFixed)
+			}
+			tt.check(t, got)
+		})
+	}
+
+	svc := NewService(serviceFixture())
+	if _, _, err := svc.FixContact(context.Background(), "00000000-0000-4000-8000-0000000000ff", ContactFix{Email: str("a@example.test")}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("FixContact(unknown) error = %v, want ErrNotFound", err)
+	}
+	if _, _, err := svc.FixContact(context.Background(), "nope", ContactFix{Email: str("a@example.test")}); !errors.Is(err, ErrInvalidParams) {
+		t.Errorf("FixContact(bad id) error = %v, want ErrInvalidParams", err)
+	}
+}

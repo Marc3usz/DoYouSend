@@ -171,6 +171,26 @@ export function lookupRecipients(
 	return api<RecipientLookupPage>(`/recipients/lookup${search}`, { fetch });
 }
 
+/** The RecipientContactFix schema: only the channels to fill in. */
+export type RecipientContactFix = { email?: string; phone?: string };
+
+/**
+ * PATCH /recipients/{id}/contact: fills in a missing or invalid e-mail or phone
+ * (ADR-0013). Open to senders; it never returns contact data, and a working
+ * channel answers 409 contact_not_fixable.
+ */
+export function fixRecipientContact(
+	id: string,
+	fix: RecipientContactFix,
+	fetch?: typeof globalThis.fetch
+): Promise<RecipientLookup> {
+	return api<RecipientLookup>(`/recipients/${encodeURIComponent(id)}/contact`, {
+		method: 'PATCH',
+		body: fix,
+		fetch
+	});
+}
+
 export function getRecipient(id: string, fetch?: typeof globalThis.fetch): Promise<Recipient> {
 	return api<Recipient>(`/recipients/${encodeURIComponent(id)}`, { fetch });
 }
