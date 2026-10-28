@@ -229,18 +229,19 @@ func (s *Service) record(ctx context.Context, d Draft) (Batch, bool, error) {
 	plan := NewPlan(d.Subject, d.Body, res.Recipients)
 	parts := plan.smsParts()
 	batch, err := s.store.CreateBatch(ctx, Batch{
-		Subject:        d.Subject,
-		Body:           d.Body,
-		CreatedBy:      d.CreatedBy,
-		CreatedByName:  d.CreatedByName,
-		IdempotencyKey: d.IdempotencyKey,
-		RequestHash:    hash,
-		Groups:         refs,
-		RecipientIDs:   d.Selection.Normalize().RecipientIDs,
-		Status:         BatchRunning,
-		SMSParts:       parts,
-		CostMilli:      int64(parts) * s.pricePerPartMilli,
-		Plan:           plan,
+		Subject:              d.Subject,
+		Body:                 d.Body,
+		CreatedBy:            d.CreatedBy,
+		CreatedByName:        d.CreatedByName,
+		IdempotencyKey:       d.IdempotencyKey,
+		RequestHash:          hash,
+		Groups:               refs,
+		RecipientIDs:         d.Selection.Normalize().RecipientIDs,
+		ExcludedRecipientIDs: d.Selection.Normalize().ExcludedRecipientIDs,
+		Status:               BatchRunning,
+		SMSParts:             parts,
+		CostMilli:            int64(parts) * s.pricePerPartMilli,
+		Plan:                 plan,
 	})
 	if errors.Is(err, ErrDuplicateKey) {
 		// A concurrent request with the same key won the race.

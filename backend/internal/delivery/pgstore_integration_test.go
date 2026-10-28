@@ -135,6 +135,25 @@ func TestPGStoreBatchWithoutGroupsOrHandPicked(t *testing.T) {
 	}
 }
 
+func TestPGStoreBatchWithExcludedRecipients(t *testing.T) {
+	store, _ := newPGStore(t)
+	ctx := context.Background()
+	b := testBatch()
+	b.ExcludedRecipientIDs = []string{pgSMS}
+
+	created, err := store.CreateBatch(ctx, b)
+	if err != nil {
+		t.Fatalf("CreateBatch() error = %v", err)
+	}
+	got, err := store.Batch(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Batch() error = %v", err)
+	}
+	if !reflect.DeepEqual(got.ExcludedRecipientIDs, []string{pgSMS}) {
+		t.Errorf("Batch() excluded recipient IDs %v; want [%s]", got.ExcludedRecipientIDs, pgSMS)
+	}
+}
+
 func TestPGStoreCreateBatchIsAtomic(t *testing.T) {
 	store, pool := newPGStore(t)
 	ctx := context.Background()

@@ -303,9 +303,10 @@ type (
 	}
 	batchDetailJSON struct {
 		batchSummaryJSON
-		Body         string               `json:"body"`
-		RecipientIDs []string             `json:"recipientIds"`
-		Recipients   []batchRecipientJSON `json:"recipients"`
+		Body                 string               `json:"body"`
+		RecipientIDs         []string             `json:"recipientIds"`
+		ExcludedRecipientIDs []string             `json:"excludedRecipientIds"`
+		Recipients           []batchRecipientJSON `json:"recipients"`
 	}
 	batchRecipientJSON struct {
 		RecipientID  string         `json:"recipientId"`
@@ -360,10 +361,11 @@ func toSummaryJSON(b Batch) batchSummaryJSON {
 
 func toDetailJSON(b Batch) batchDetailJSON {
 	out := batchDetailJSON{
-		batchSummaryJSON: toSummaryJSON(b),
-		Body:             b.Body,
-		RecipientIDs:     append([]string{}, b.RecipientIDs...),
-		Recipients:       make([]batchRecipientJSON, 0, len(b.Plan.Recipients)),
+		batchSummaryJSON:     toSummaryJSON(b),
+		Body:                 b.Body,
+		RecipientIDs:         append([]string{}, b.RecipientIDs...),
+		ExcludedRecipientIDs: append([]string{}, b.ExcludedRecipientIDs...),
+		Recipients:           make([]batchRecipientJSON, 0, len(b.Plan.Recipients)),
 	}
 	for _, r := range b.Plan.Recipients {
 		rj := batchRecipientJSON{

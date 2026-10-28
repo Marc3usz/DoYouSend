@@ -32,6 +32,22 @@ jobs:
       - run: go build ./...
       - run: go test ./... -race
 
+  # golangci-lint (konfiguracja: backend/.golangci.yml). Na razie zglasza tylko uwagi w zmienionych
+  # liniach: istniejacy kod ma ~60 uwag, glownie revive o komentarzach - do sprzatniecia osobno.
+  backend-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: false
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.1.6
+          working-directory: backend
+          only-new-issues: true
+
   # Testy z tagiem `integration` (stores na Postgresie, SQL). Bez bazy dbtest je pomija,
   # wiec job nie przechodzi, jesli ktorykolwiek test zostal pominiety z braku URL.
   backend-integration:

@@ -2,6 +2,7 @@
 	import { untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { sendBatch } from '$lib/api/batches';
+	import { resolveSelection, type ResolvedRecipient } from '$lib/api/groups';
 	import { previewMessage, type SendEstimate } from '$lib/api/messages';
 	import { lookupRecipients, type RecipientLookup } from '$lib/api/recipients';
 	import { recipientTypeLabel } from '../odbiorcy/messages';
@@ -29,6 +30,43 @@
 		untrack(() => data.initialDraft?.recipients ?? [])
 	);
 	const selectedRecipientIds = $derived(selectedRecipients.map((r) => r.id));
+
+	let excludedRecipientIds = $state<string[]>(
+		untrack(() => data.initialDraft?.excludedRecipientIds ?? [])
+	);
+	let excludedPeople = $state<{ id: string; name: string }[]>([]);
+	let resolvedRecipients = $state<ResolvedRecipient[]>([]);
+	let latestResolve = 0;
+
+	function excludeRecipient(r: ResolvedRecipient) {
+		const id = r.recipient.id;
+		if (!excludedRecipientIds.includes(id)) {
+			excludedRecipientIds = [...excludedRecipientIds, id];
+			const name = `${r.recipient.lastName} ${r.recipient.firstName}`.trim() || id;
+			excludedPeople = [...excludedPeople.filter((p) => p.id !== id), { id, name }];
+		}
+	}
+
+	function unexcludeRecipient(id: string) {
+		excludedRecipientIds = excludedRecipientIds.filter((x) => x !== id);
+		excludedPeople = excludedPeople.filter((p) => p.id !== id);
+	}
+
+	const incompleteRecipients = $derived(resolvedRecipients.filter((r) => r.channels.length < 2));
+
+	$effect(() => {
+		if (resolvedRecipients.length > 0 && excludedRecipientIds.length > 0) {
+			for (const id of excludedRecipientIds) {
+				if (!excludedPeople.some((p) => p.id === id)) {
+					const found = resolvedRecipients.find((r) => r.recipient.id === id);
+					if (found) {
+						const name = `${found.recipient.lastName} ${found.recipient.firstName}`.trim() || id;
+						excludedPeople = [...excludedPeople, { id, name }];
+					}
+				}
+			}
+		}
+	});
 
 	let personQuery = $state('');
 	let personSearching = $state(false);
@@ -115,7 +153,8 @@
 					body,
 					selection: {
 						groupIds: [...selectedGroupIds],
-						recipientIds: [...selectedRecipientIds]
+						recipientIds: [...selectedRecipientIds],
+						excludedRecipientIds: [...excludedRecipientIds]
 					}
 				},
 				idempotencyKey
@@ -142,7 +181,8 @@
 			body,
 			selection: {
 				groupIds: [...selectedGroupIds],
-				recipientIds: [...selectedRecipientIds]
+				recipientIds: [...selectedRecipientIds],
+				excludedRecipientIds: [...excludedRecipientIds]
 			}
 		};
 		const request = ++latestRequest;
@@ -159,6 +199,32 @@
 				if (request === latestRequest) failure = previewFailureText(err);
 			} finally {
 				if (request === latestRequest) counting = false;
+			}
+		}, PREVIEW_DELAY_MS);
+		return () => clearTimeout(timer);
+	});
+
+	$effect(() => {
+		const sel = {
+			groupIds: [...selectedGroupIds],
+			recipientIds: [...selectedRecipientIds],
+			excludedRecipientIds: [...excludedRecipientIds]
+		};
+		if (sel.groupIds.length === 0 && sel.recipientIds.length === 0) {
+			resolvedRecipients = [];
+			return;
+		}
+		const req = ++latestResolve;
+		const timer = setTimeout(async () => {
+			try {
+				const res = await resolveSelection(sel);
+				if (req === latestResolve) {
+					resolvedRecipients = res.recipients;
+				}
+			} catch {
+				if (req === latestResolve) {
+					resolvedRecipients = [];
+				}
 			}
 		}, PREVIEW_DELAY_MS);
 		return () => clearTimeout(timer);
@@ -188,6 +254,27 @@
 				Możesz wstawić <code>{'{{imie}}'}</code> i <code>{'{{nazwisko}}'}</code> — każdy odbiorca dostanie
 				swoje dane, tak samo w e-mailu i w SMS-ie.
 			</p>
+
+			{#if body.trim() !== ''}
+				<div class="message-preview-card">
+					<div class="preview-header">
+						<span class="preview-title">Podgląd wiadomości</span>
+						{#if estimate?.sampleRecipientName}
+							<span class="preview-target"
+								>Dla: <strong>{estimate.sampleRecipientName}</strong></span
+							>
+						{/if}
+					</div>
+					{#if subject.trim()}
+						<p class="preview-subject"><strong>Temat e-maila:</strong> {subject}</p>
+					{/if}
+					<div class="preview-body">{estimate?.sampleBody || body}</div>
+					<p class="preview-note">
+						E-mail i SMS mają tę samą treść; <code>{'{{imie}}'}</code> i
+						<code>{'{{nazwisko}}'}</code> każdy odbiorca dostaje ze swoimi danymi.
+					</p>
+				</div>
+			{/if}
 
 			<fieldset>
 				<legend>Odbiorcy</legend>
@@ -267,6 +354,67 @@
 						</ul>
 					{/if}
 				</div>
+
+				{#if incompleteRecipients.length > 0}
+					<div class="incomplete-section">
+						<h4 class="incomplete-heading">
+							Osoby z niepełnymi danymi kontaktowymi ({incompleteRecipients.length})
+						</h4>
+						<p class="hint">
+							Te osoby nie mają kompletu danych kontaktowych. Zgodnie z wymaganiami możesz wykluczyć
+							je z tej wysyłki:
+						</p>
+						<ul class="incomplete-list">
+							{#each incompleteRecipients as inc (inc.recipient.id)}
+								<li>
+									<div class="inc-details">
+										<strong>{inc.recipient.lastName} {inc.recipient.firstName}</strong>
+										<span class="inc-badge">
+											{#if inc.channels.length === 0}
+												brak e-maila i telefonu
+											{:else if !inc.channels.includes('email')}
+												brak e-maila (tylko SMS)
+											{:else}
+												brak telefonu (tylko e-mail)
+											{/if}
+										</span>
+									</div>
+									<button type="button" class="btn-exclude" onclick={() => excludeRecipient(inc)}>
+										Wyklucz z wysyłki
+									</button>
+								</li>
+							{/each}
+						</ul>
+					</div>
+				{/if}
+
+				{#if excludedRecipientIds.length > 0}
+					<div class="excluded-section">
+						<h4>Wykluczeni z tej wysyłki ({excludedRecipientIds.length})</h4>
+						<ul class="chips">
+							{#each excludedRecipientIds as id (id)}
+								{@const person = excludedPeople.find((p) => p.id === id)}
+								{@const resolved = resolvedRecipients.find((r) => r.recipient.id === id)}
+								{@const displayName =
+									person?.name ??
+									(resolved
+										? `${resolved.recipient.lastName} ${resolved.recipient.firstName}`.trim()
+										: null) ??
+									`Osoba wykluczona (${id.slice(0, 8)}…)`}
+								<li class="chip chip-excluded">
+									<span>{displayName}</span>
+									<button
+										type="button"
+										class="chip-remove"
+										onclick={() => unexcludeRecipient(id)}
+										title="Przywróć odbiorcę do wysyłki"
+										aria-label={`Przywróć ${displayName}`}>↺</button
+									>
+								</li>
+							{/each}
+						</ul>
+					</div>
+				{/if}
 			</fieldset>
 		</fieldset>
 	</form>
@@ -338,6 +486,16 @@
 				<h3 id="confirm-heading">Zatwierdź wysyłkę</h3>
 				<p>{confirmText(estimate)}</p>
 				<p>Szacowany koszt SMS: <strong>{costText(estimate.costMilli)}</strong></p>
+				{#if estimate.sampleBody}
+					<div class="confirm-preview">
+						<small
+							><strong
+								>Podgląd treści ({estimate.sampleRecipientName || 'przykładowy odbiorca'}):</strong
+							></small
+						>
+						<div class="confirm-body">{estimate.sampleBody}</div>
+					</div>
+				{/if}
 				<p class="hint">
 					Wysyłki nie da się cofnąć. Każdy odbiorca dostanie tę samą treść e-mailem i SMS-em.
 				</p>
@@ -590,5 +748,132 @@
 	}
 	.btn-add-candidate:hover {
 		background: #e2e8f0;
+	}
+	.message-preview-card {
+		margin-top: 0.75rem;
+		border: 1px solid #93c5fd;
+		background: #eff6ff;
+		border-radius: 6px;
+		padding: 0.85rem 1rem;
+	}
+	.preview-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.4rem;
+	}
+	.preview-title {
+		font-weight: 700;
+		color: #1e40af;
+		font-size: 0.95em;
+	}
+	.preview-target {
+		font-size: 0.85em;
+		color: #1e3a8a;
+	}
+	.preview-subject {
+		margin: 0.2rem 0 0.4rem;
+		font-size: 0.9em;
+		color: #334155;
+	}
+	.preview-body {
+		background: #fff;
+		border: 1px solid #bfdbfe;
+		border-radius: 4px;
+		padding: 0.6rem 0.8rem;
+		font-family: inherit;
+		white-space: pre-wrap;
+		font-size: 0.95em;
+		color: #0f172a;
+	}
+	.preview-note {
+		margin: 0.4rem 0 0;
+		font-size: 0.8em;
+		color: #64748b;
+	}
+	.incomplete-section {
+		margin-top: 1.25rem;
+		background: #fffbeb;
+		border: 1px solid #fde68a;
+		border-radius: 6px;
+		padding: 0.75rem 1rem;
+	}
+	.incomplete-heading {
+		margin: 0 0 0.25rem;
+		color: #92400e;
+		font-size: 0.95em;
+	}
+	.incomplete-list {
+		list-style: none;
+		padding: 0;
+		margin: 0.5rem 0 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+	}
+	.incomplete-list li {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.35rem 0.5rem;
+		background: #fff;
+		border: 1px solid #fef3c7;
+		border-radius: 4px;
+		gap: 0.5rem;
+	}
+	.inc-details {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+	}
+	.inc-badge {
+		font-size: 0.8em;
+		color: #b45309;
+	}
+	.btn-exclude {
+		background: #fee2e2;
+		color: #991b1b;
+		border: 1px solid #fca5a5;
+		border-radius: 4px;
+		padding: 0.2rem 0.6rem;
+		font-size: 0.85em;
+		cursor: pointer;
+		margin: 0;
+		white-space: nowrap;
+	}
+	.btn-exclude:hover {
+		background: #fecaca;
+	}
+	.excluded-section {
+		margin-top: 1rem;
+	}
+	.excluded-section h4 {
+		margin: 0 0 0.3rem;
+		font-size: 0.9em;
+		color: #475569;
+	}
+	.chip-excluded {
+		background: #f1f5f9;
+		border-color: #cbd5e1;
+		color: #64748b;
+	}
+	.chip-excluded span {
+		text-decoration: line-through;
+	}
+	.confirm-preview {
+		margin-top: 0.75rem;
+		padding: 0.5rem;
+		background: #f8fafc;
+		border: 1px solid #e2e8f0;
+		border-radius: 4px;
+		font-size: 0.9em;
+	}
+	.confirm-body {
+		margin: 0.4rem 0 0;
+		font-style: normal;
+		white-space: pre-wrap;
+		color: #1e293b;
+		border-left: 3px solid #3b82f6;
+		padding-left: 0.5rem;
 	}
 </style>
