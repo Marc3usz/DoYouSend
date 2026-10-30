@@ -73,6 +73,7 @@ func (e *ValidationError) Error() string {
 	return "invalid input: " + strings.Join(msgs, "; ")
 }
 
+// Is makes errors.Is(err, ErrInvalidInput) match a ValidationError.
 func (e *ValidationError) Is(target error) bool { return target == ErrInvalidInput }
 
 // emailPattern is deliberately loose: staff accounts are created by an
@@ -110,6 +111,8 @@ const (
 	ActionPasswordChange = "password_changed"
 	// ActionBatchSent is a sender confirming a batch (POST /batches); entity "batch".
 	ActionBatchSent = "batch_sent"
+	// ActionBatchRetried is a sender retrying failed deliveries in a batch (POST /batches/{id}/retry); entity "batch".
+	ActionBatchRetried = "batch_retried"
 )
 
 // Store is the storage the Service needs; PGStore implements it.
