@@ -77,8 +77,9 @@ func main() {
 		os.Exit(1)
 	default:
 		defer pool.Close()
+		iamSvc := iam.NewService(iam.NewPGStore(pool))
 		recipientStore := recipients.NewPGStore(pool)
-		recipients.NewHandler(recipients.NewService(recipientStore), logger).Register(mux)
+		recipients.NewHandler(recipients.NewService(recipientStore), logger).WithAuditor(contactAudit{log: iamSvc}).Register(mux)
 		groupStore := groups.NewPGStore(pool)
 		resolver := groups.NewResolver(groupStore, recipientStore)
 		groupService := groups.NewService(groupStore, recipientStore)
@@ -161,7 +162,6 @@ func main() {
 			SMSReportsWebhook:    smsToken != "",
 			SMSPricePerPartMilli: smsPrice,
 		}
-		iamSvc := iam.NewService(iam.NewPGStore(pool))
 		batchService.SetAuditor(batchAudit{log: iamSvc})
 		iam.NewHandler(iamSvc, iam.CookieOptions{Secure: cfg.SessionCookieSecure}, sending, logger).Register(mux)
 		handler = iam.Middleware(iamSvc, logger, mux)
@@ -195,6 +195,24 @@ func main() {
 
 // batchAudit writes a confirmed batch to the iam audit log: who launched it and
 // how big it was. Counts only, no names, addresses or the message body.
+// contactAudit records a recipient contact fixed by the signed-in user
+// (ADR-0013): channel names only, never the values.
+type contactAudit struct{ log *iam.Service }
+
+func (a contactAudit) ContactFixed(ctx context.Context, recipientID string, channels []recipients.Channel) {
+	u, ok := iam.UserFrom(ctx)
+	if !ok {
+		return
+	}
+	names := make([]string, len(channels))
+	for i, c := range channels {
+		names[i] = string(c)
+	}
+	a.log.Record(ctx, u.ID, iam.ActionRecipientContactFixed, "recipient", recipientID, map[string]string{
+		"channels": strings.Join(names, ","),
+	})
+}
+
 type batchAudit struct{ log *iam.Service }
 
 func (a batchAudit) BatchConfirmed(ctx context.Context, b delivery.Batch) {

@@ -1,12 +1,14 @@
 package recipients
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -226,5 +228,64 @@ func TestHandlerStatsStoreError(t *testing.T) {
 	rec, body := do(t, crudServer(store), http.MethodGet, "/api/recipients/stats", "")
 	if rec.Code != http.StatusInternalServerError || body["code"] != "internal" {
 		t.Errorf("status = %d, body %v, want 500 internal", rec.Code, body)
+	}
+}
+
+type recordedFix struct {
+	id       string
+	channels []Channel
+}
+
+type fakeContactAuditor struct{ got []recordedFix }
+
+func (a *fakeContactAuditor) ContactFixed(_ context.Context, id string, channels []Channel) {
+	a.got = append(a.got, recordedFix{id, channels})
+}
+
+func TestHandlerFixContact(t *testing.T) {
+	store := serviceFixture()
+	audit := &fakeContactAuditor{}
+	mux := http.NewServeMux()
+	NewHandler(NewService(store), slog.New(slog.NewTextHandler(io.Discard, nil))).WithAuditor(audit).Register(mux)
+	maria, lena := store.id("Maria"), store.id("Lena")
+
+	rec, body := do(t, mux, http.MethodPatch, "/api/recipients/"+maria+"/contact", `{"phone":"500100120"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %v", rec.Code, body)
+	}
+	if _, ok := body["phone"]; ok {
+		t.Errorf("response must not carry contact data: %v", body)
+	}
+	if issues, _ := body["issues"].([]any); len(issues) != 0 {
+		t.Errorf("issues = %v, want none after the fix", issues)
+	}
+	if want := []recordedFix{{maria, []Channel{ChannelSMS}}}; !reflect.DeepEqual(audit.got, want) {
+		t.Errorf("audit = %+v, want %+v", audit.got, want)
+	}
+
+	tests := []struct {
+		name, id, body string
+		status         int
+		code           string
+	}{
+		{"working channel", maria, `{"email":"x@example.test"}`, http.StatusConflict, "contact_not_fixable"},
+		{"duplicate", lena, `{"email":"jan.kowalski@example.test"}`, http.StatusConflict, "duplicate_contact"},
+		{"nothing given", lena, `{}`, http.StatusBadRequest, "invalid_input"},
+		{"not JSON", lena, `[]`, http.StatusBadRequest, "invalid_request"},
+		{"unknown", "00000000-0000-4000-8000-0000000000ff", `{"email":"a@example.test"}`, http.StatusNotFound, "not_found"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec, body := do(t, mux, http.MethodPatch, "/api/recipients/"+tt.id+"/contact", tt.body)
+			if rec.Code != tt.status || body["code"] != tt.code {
+				t.Fatalf("got %d %v, want %d %s", rec.Code, body["code"], tt.status, tt.code)
+			}
+			if _, ok := body["ids"]; ok {
+				t.Errorf("error must not name other recipients: %v", body)
+			}
+		})
+	}
+	if len(audit.got) != 1 {
+		t.Errorf("failed fixes must not be audited: %+v", audit.got)
 	}
 }
