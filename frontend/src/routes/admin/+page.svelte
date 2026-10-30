@@ -242,10 +242,10 @@
 		margin-bottom: 2rem;
 	}
 	.card {
-		border: 1px solid #ddd;
+		border: 1px solid var(--color-border);
 		border-radius: 6px;
 		padding: 1rem 1.25rem;
-		background: #fafafa;
+		background: var(--color-surface-muted);
 	}
 	.card h2 {
 		margin-top: 0;
@@ -258,7 +258,7 @@
 		font-variant-numeric: tabular-nums;
 	}
 	.sub {
-		color: #555;
+		color: var(--color-text-muted);
 		font-size: 0.9em;
 		margin-top: 0.25rem;
 	}
@@ -284,30 +284,17 @@
 		gap: 0.5rem;
 	}
 	.checks .ok span {
-		color: #1a7f37;
+		color: var(--color-success);
 	}
 	.checks .warn {
-		color: #8a4b00;
+		color: var(--color-warning);
 	}
 	.links li {
 		margin: 0.4rem 0;
 	}
-	table {
-		border-collapse: collapse;
-		width: 100%;
-	}
-	th,
-	td {
-		border-bottom: 1px solid #ddd;
-		padding: 0.35rem 0.5rem;
-		text-align: left;
-	}
-	.error {
-		color: #b00020;
-	}
 	.divider {
 		border: 0;
-		border-top: 1px solid #ddd;
+		border-top: 1px solid var(--color-border);
 		margin: 1rem 0 0.75rem 0;
 	}
 	.profile-box {
@@ -320,26 +307,26 @@
 		margin-bottom: 0.5rem;
 	}
 	.badge-warn {
-		background: #fff3cd;
-		color: #8a4b00;
-		border: 1px solid #ffeeba;
+		background: var(--color-warning-soft);
+		color: var(--color-warning);
+		border: 1px solid var(--color-warning-border);
 		border-radius: 4px;
 		font-size: 0.75rem;
 		font-weight: 600;
 		padding: 0.15rem 0.4rem;
 	}
 	.points-low {
-		color: #b00020;
+		color: var(--color-danger);
 		font-weight: 700;
 	}
 	.points-ok {
-		color: #1a7f37;
+		color: var(--color-success);
 		font-weight: 600;
 	}
 	.badge-test {
 		font-size: 0.8em;
 		font-weight: normal;
-		color: #666;
+		color: var(--color-text-muted);
 		margin-left: 0.25rem;
 	}
 </style>

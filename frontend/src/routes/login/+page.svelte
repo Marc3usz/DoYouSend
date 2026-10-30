@@ -40,7 +40,9 @@
 			Hasło
 			<input name="password" type="password" autocomplete="current-password" required />
 		</label>
-		<button type="submit" disabled={submitting}>{submitting ? 'Loguję…' : 'Zaloguj'}</button>
+		<button type="submit" class="primary" disabled={submitting}
+			>{submitting ? 'Loguję…' : 'Zaloguj'}</button
+		>
 	</form>
 
 	<p class="hint">
@@ -51,12 +53,13 @@
 
 <style>
 	section {
-		max-width: 24rem;
-		margin: 2rem auto;
-	}
-	.lead,
-	.hint {
-		color: #555;
+		max-width: 26rem;
+		margin: var(--space-6) auto;
+		padding: var(--space-5) var(--space-6);
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow);
 	}
 	form {
 		display: flex;
@@ -70,21 +73,7 @@
 		gap: 0.25rem;
 		font-weight: 600;
 	}
-	input {
-		font: inherit;
-		font-weight: normal;
-		padding: 0.5rem;
-		border: 1px solid #bbb;
-		border-radius: 4px;
-	}
 	button {
-		font: inherit;
-		padding: 0.5rem 1rem;
-		margin-top: 0.5rem;
-	}
-	.error {
-		border: 1px solid #c00;
-		background: #fff4f4;
-		padding: 0 1rem;
+		margin-top: var(--space-2);
 	}
 </style>

@@ -24,10 +24,10 @@
 <h1>Odbiorcy</h1>
 
 <p class="actions">
-	<a href="/odbiorcy/nowy">Dodaj odbiorcę</a>
-	<a href="/odbiorcy/import">Import z pliku</a>
-	<a href="/odbiorcy/do-poprawy">Do poprawy</a>
-	<a href="/grupy">Grupy</a>
+	<a class="button primary" href="/odbiorcy/nowy">Dodaj odbiorcę</a>
+	<a class="button" href="/odbiorcy/import">Import z pliku</a>
+	<a class="button" href="/odbiorcy/do-poprawy">Do poprawy</a>
+	<a class="button" href="/grupy">Grupy</a>
 </p>
 
 {#if data.counts && !filtered}
@@ -141,7 +141,8 @@
 <style>
 	.actions {
 		display: flex;
-		gap: 1rem;
+		flex-wrap: wrap;
+		gap: var(--space-2);
 	}
 	.filters {
 		display: flex;
@@ -155,35 +156,13 @@
 		flex-direction: column;
 		font-size: 0.9rem;
 	}
-	.notice {
-		border: 1px solid #2a7;
-		background: #f2fbf6;
-		padding: 0.5rem 1rem;
-	}
-	.error {
-		border: 1px solid #c00;
-		background: #fff4f4;
-		padding: 0.5rem 1rem;
-	}
-	table {
-		border-collapse: collapse;
-		width: 100%;
-		margin-bottom: 1rem;
-	}
-	th,
-	td {
-		border-bottom: 1px solid #ddd;
-		padding: 0.35rem 0.5rem;
-		text-align: left;
-		vertical-align: top;
-	}
 	.issue {
 		display: inline-block;
 		margin-right: 0.35rem;
 		padding: 0 0.4rem;
 		border-radius: 0.25rem;
-		background: #fff1d6;
-		color: #6b4500;
+		background: var(--color-warning-soft);
+		color: var(--color-warning);
 		font-size: 0.85rem;
 	}
 	.pager {

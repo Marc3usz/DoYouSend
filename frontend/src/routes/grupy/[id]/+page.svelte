@@ -131,7 +131,7 @@
 				{#if data.moreCandidates}
 					<p class="note">Pokazano pierwsze wyniki — zawęź wyszukiwanie, jeśli brakuje osoby.</p>
 				{/if}
-				<button type="submit">Dodaj zaznaczone</button>
+				<button type="submit" class="primary">Dodaj zaznaczone</button>
 			</form>
 		{/if}
 	{/if}
@@ -163,37 +163,15 @@
 <style>
 	.meta,
 	.note {
-		color: #555;
-	}
-	.notice {
-		border: 1px solid #2a7;
-		background: #f2fbf6;
-		padding: 0.5rem 1rem;
-	}
-	.error {
-		border: 1px solid #c00;
-		background: #fff4f4;
-		padding: 0.5rem 1rem;
-	}
-	table {
-		border-collapse: collapse;
-		width: 100%;
-		margin-bottom: 1rem;
-	}
-	th,
-	td {
-		border-bottom: 1px solid #ddd;
-		padding: 0.35rem 0.5rem;
-		text-align: left;
-		vertical-align: top;
+		color: var(--color-text-muted);
 	}
 	.issue {
 		display: inline-block;
 		margin-right: 0.35rem;
 		padding: 0 0.4rem;
 		border-radius: 0.25rem;
-		background: #fff1d6;
-		color: #6b4500;
+		background: var(--color-warning-soft);
+		color: var(--color-warning);
 		font-size: 0.85rem;
 	}
 	.search {
@@ -209,22 +187,8 @@
 		background: none;
 		border: none;
 		padding: 0;
-		color: #b00;
+		color: var(--color-danger);
 		text-decoration: underline;
 		cursor: pointer;
-	}
-	.danger {
-		color: #fff;
-		background: #b00;
-		border: 1px solid #900;
-		padding: 0.3rem 0.8rem;
-	}
-	.visually-hidden {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		overflow: hidden;
-		clip: rect(0 0 0 0);
-		white-space: nowrap;
 	}
 </style>
