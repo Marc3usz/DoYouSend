@@ -4,6 +4,8 @@
 - **Data:** 2026-09-30
 - **Uczestnicy:** Marc3usz (DEV A) proponuje, MichalK252 (DEV C) decyduje i implementuje
 - **Zmienia:** część „E-mail” w ADR-0003. Część „SMS” (SMSAPI) zostaje bez zmian.
+- **Zmieniona częściowo przez:** ADR-0014 (punkt „Bez SDK”; po jego akceptacji wysyłka
+  używa oficjalnego SDK, a reszta tego ADR-u obowiązuje bez zmian).
 
 ## Kontekst
 
