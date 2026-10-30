@@ -92,6 +92,7 @@ type Draft struct {
 // iam audit log to it, so delivery does not depend on iam.
 type BatchAuditor interface {
 	BatchConfirmed(ctx context.Context, b Batch)
+	BatchRetried(ctx context.Context, b Batch)
 }
 
 // Service turns a confirmed draft into a sent, recorded batch.
@@ -328,6 +329,9 @@ func (s *Service) RetryBatch(ctx context.Context, batchID string) (Batch, error)
 	if err != nil {
 		return Batch{}, fmt.Errorf("retry batch: %w", err)
 	}
+	if s.auditor != nil {
+		s.auditor.BatchRetried(ctx, batch)
+	}
 	return s.dispatch(context.WithoutCancel(ctx), batch)
 }
 
@@ -344,6 +348,9 @@ func (s *Service) StartRetry(ctx context.Context, batchID string) (Batch, error)
 	}
 	if fresh, err := s.store.Batch(ctx, batchID); err == nil {
 		batch = fresh
+	}
+	if s.auditor != nil {
+		s.auditor.BatchRetried(ctx, batch)
 	}
 	go func(b Batch) {
 		defer s.running.Done()

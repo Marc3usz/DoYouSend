@@ -520,3 +520,37 @@ func TestPGDeliveryReportConsumer_StartCleaner(t *testing.T) {
 		t.Errorf("cleaner did not prune second old report on ticker, count = %d", count)
 	}
 }
+
+func TestPGDeliveryReportConsumer_DeterministicLockOrdering(t *testing.T) {
+	pool := dbtest.New(t)
+	setupDeliveryFixtures(t, pool)
+	consumer := NewPGDeliveryReportConsumer(pool, nil)
+
+	ctx := context.Background()
+
+	// Reports in opposite order executed concurrently to verify no deadlocks
+	reports1 := []DeliveryReport{
+		{ProviderMessageID: "msg-b", Channel: ChannelSMS, Status: StatusDelivered},
+		{ProviderMessageID: "msg-a", Channel: ChannelEmail, Status: StatusDelivered},
+		{ProviderMessageID: "msg-c", Channel: ChannelSMS, Status: StatusFailed, ErrorMessage: "temporary"},
+	}
+	reports2 := []DeliveryReport{
+		{ProviderMessageID: "msg-c", Channel: ChannelSMS, Status: StatusDelivered},
+		{ProviderMessageID: "msg-b", Channel: ChannelSMS, Status: StatusDelivered},
+		{ProviderMessageID: "msg-a", Channel: ChannelEmail, Status: StatusDelivered},
+	}
+
+	errCh := make(chan error, 2)
+	go func() {
+		errCh <- consumer.ConsumeDeliveryReports(ctx, reports1)
+	}()
+	go func() {
+		errCh <- consumer.ConsumeDeliveryReports(ctx, reports2)
+	}()
+
+	for i := 0; i < 2; i++ {
+		if err := <-errCh; err != nil {
+			t.Fatalf("concurrent ConsumeDeliveryReports error: %v", err)
+		}
+	}
+}
