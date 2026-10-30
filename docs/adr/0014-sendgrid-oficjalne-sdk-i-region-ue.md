@@ -28,6 +28,10 @@ Sprawdzone w kodzie SDK, bo zmienia to sposób użycia:
   i wstrzykiwalnego klienta (testy).
 - SDK ciągnie drugą zależność, `github.com/sendgrid/rest` (`v2.6.9+incompatible`).
   Oba moduły są bez `go.mod` (stąd `+incompatible`).
+- Ostatnie stabilne wydanie to `v3.16.1` z 2025-05-29. Nowsza linia `v4` istnieje tylko jako
+  kandydaci (`v4.0.0-rc.10`), więc przypinamy stabilną `v3`. `SetDataResidency` jest opisane
+  w dokumentacji pakietu tak samo, jak użyte w adapterze: tylko `eu` i `global`, a dokumentacja
+  nic nie mówi o kluczach ani kontach per region.
 - `rest.Client` pozwala podać własny `*http.Client`, a `rest.Response` zwraca nagłówki
   (potrzebny `X-Message-Id`). Kody 4xx/5xx nie są błędem Go, więc klasyfikację
   trwały/do ponowienia zostawiamy po naszej stronie.
@@ -65,7 +69,8 @@ taka jak SMS (`CLAUDE.md`, zasada 4).
 - **Dobre:** typy żądania utrzymuje producent, region UE to jedna zmienna, a host dla
   `mail/send` i `credits` jest wybierany w jednym miejscu.
 - **Złe:** dwie nowe zależności uruchomieniowe spoza stdlib, obie `+incompatible` i bez
-  gwarancji semver. Rośnie powierzchnia łańcucha dostaw, a aktualizacje trzeba świadomie
+  gwarancji semver. Ostatnie stabilne wydanie ma ponad rok, a następna linia (`v4`) jest
+  w wersjach `rc`, więc za jakiś czas możemy stanąć przed migracją. Rośnie powierzchnia łańcucha dostaw, a aktualizacje trzeba świadomie
   przeglądać. Adapter nadal ma własny kod HTTP dla `credits`, więc nie znika całkowicie.
 - **Domyślnie `SENDGRID_REGION=global`** (zachowanie sprzed zmiany), żeby PR nie zmieniał
   niczego po cichu. Przed produkcją trzeba ustawić `eu` (warunek z ADR-0008).
