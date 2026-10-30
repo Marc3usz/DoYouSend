@@ -32,6 +32,7 @@ var (
 // Channel identifies the delivery channel.
 type Channel string
 
+// Delivery channels supported by the system.
 const (
 	ChannelEmail Channel = "email"
 	ChannelSMS   Channel = "sms"

@@ -139,7 +139,7 @@ func (sg *SendGrid) Send(ctx context.Context, msg providers.Message) (providers.
 			fmt.Errorf("send email to recipient %s: %w", msg.RecipientID, err),
 		)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Limit how much of the response body we read to avoid unbounded memory use.
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -296,7 +296,7 @@ func (sg *SendGrid) GetProfile(ctx context.Context) (Profile, error) {
 	if err != nil {
 		return Profile{}, fmt.Errorf("sendgrid get profile: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8192))
 	if err != nil {

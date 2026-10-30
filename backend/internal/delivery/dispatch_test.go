@@ -353,7 +353,7 @@ func TestDispatchWithObserverTracksProgress(t *testing.T) {
 	})
 
 	var observed []Status
-	obs := DeliveryObserverFunc(func(_ context.Context, _ string, del Delivery) error {
+	obs := ObserverFunc(func(_ context.Context, _ string, del Delivery) error {
 		observed = append(observed, del.Status)
 		return nil
 	})
@@ -379,7 +379,7 @@ func TestDispatchWithObserverContinuesOnObserverError(t *testing.T) {
 	})
 
 	calls := 0
-	obs := DeliveryObserverFunc(func(_ context.Context, _ string, _ Delivery) error {
+	obs := ObserverFunc(func(_ context.Context, _ string, _ Delivery) error {
 		calls++
 		return errors.New("observer boom")
 	})
