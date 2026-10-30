@@ -84,7 +84,8 @@ const actionTexts: Record<string, string> = {
 	user_updated: 'Zmiana konta',
 	password_reset: 'Nadanie nowego hasła',
 	password_changed: 'Zmiana własnego hasła',
-	batch_sent: 'Zatwierdzenie wysyłki'
+	batch_sent: 'Zatwierdzenie wysyłki',
+	batch_retried: 'Ponowienie wysyłki'
 };
 
 /** A Polish name for an audit action; actions of other domains show as they are. */

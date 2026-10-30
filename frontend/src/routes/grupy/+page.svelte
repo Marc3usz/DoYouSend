@@ -106,29 +106,7 @@
 
 <style>
 	.note {
-		color: #555;
-	}
-	.notice {
-		border: 1px solid #2a7;
-		background: #f2fbf6;
-		padding: 0.5rem 1rem;
-	}
-	.error {
-		border: 1px solid #c00;
-		background: #fff4f4;
-		padding: 0.5rem 1rem;
-	}
-	table {
-		border-collapse: collapse;
-		width: 100%;
-		margin-bottom: 1.5rem;
-	}
-	th,
-	td {
-		border-bottom: 1px solid #ddd;
-		padding: 0.35rem 0.5rem;
-		text-align: left;
-		vertical-align: top;
+		color: var(--color-text-muted);
 	}
 	h2 {
 		margin-top: 1.5rem;

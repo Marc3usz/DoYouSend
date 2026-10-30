@@ -98,7 +98,7 @@
 
 <style>
 	.lead {
-		color: #555;
+		color: var(--color-text-muted);
 		max-width: 42rem;
 	}
 	.tabs {
@@ -106,7 +106,7 @@
 		flex-wrap: wrap;
 		gap: 0.25rem 1rem;
 		margin: 1rem 0;
-		border-bottom: 1px solid #ddd;
+		border-bottom: 1px solid var(--color-border);
 	}
 	.tabs a {
 		padding: 0.35rem 0;
@@ -117,50 +117,20 @@
 		border-bottom-color: currentColor;
 		font-weight: 600;
 	}
-	.notice {
-		border: 1px solid #d98a00;
-		background: #fff8e8;
-		padding: 0.5rem 1rem;
-	}
-	.error {
-		border: 1px solid #c00;
-		background: #fff4f4;
-		padding: 0.5rem 1rem;
-	}
 	.ok {
-		color: #1b6b43;
-	}
-	table {
-		border-collapse: collapse;
-		width: 100%;
-		margin-bottom: 1rem;
-	}
-	th,
-	td {
-		border-bottom: 1px solid #ddd;
-		padding: 0.35rem 0.5rem;
-		text-align: left;
-		vertical-align: top;
+		color: var(--color-success);
 	}
 	.issue {
 		display: inline-block;
 		margin-right: 0.35rem;
 		padding: 0 0.4rem;
 		border-radius: 0.25rem;
-		background: #fff1d6;
-		color: #6b4500;
+		background: var(--color-warning-soft);
+		color: var(--color-warning);
 		font-size: 0.85rem;
 	}
-	.visually-hidden {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		overflow: hidden;
-		clip: rect(0 0 0 0);
-		white-space: nowrap;
-	}
 	.issue.severe {
-		background: #fde2e2;
-		color: #7a1010;
+		background: var(--color-danger-soft);
+		color: var(--color-danger-hover);
 	}
 </style>

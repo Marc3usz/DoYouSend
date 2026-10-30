@@ -1313,6 +1313,12 @@ components:
           type: array
           description: Odbiorcy bez wartosci dla uzytego placeholdera (np. puste imie). Nie sa wliczani do licznikow SMS/e-mail.
           items: { type: string, format: uuid }
+        sampleBody:
+          type: string
+          description: Przykladowo wyrenderowana tresc dla pierwszego odbiorcy z podstawionymi danymi
+        sampleRecipientName:
+          type: string
+          description: Imie i nazwisko odbiorcy, dla ktorego wyrenderowano sampleBody
 
     BatchStatus:
       type: string
@@ -1394,6 +1400,10 @@ components:
             recipientIds:
               type: array
               description: Osoby wybrane recznie, poza grupami
+              items: { type: string, format: uuid }
+            excludedRecipientIds:
+              type: array
+              description: Osoby wykluczone z tej wysylki
               items: { type: string, format: uuid }
             recipients:
               type: array

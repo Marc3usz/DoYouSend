@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/Marc3usz/DoYouSend/backend/internal/platform/httpx"
 )
 
 type mockUsageStore struct {
@@ -200,6 +202,13 @@ func TestHandleUsageStats_InvalidBatchUUID(t *testing.T) {
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("got status %d, want %d", rr.Code, http.StatusBadRequest)
 	}
+	var errBody httpx.ErrorBody
+	if err := json.NewDecoder(rr.Body).Decode(&errBody); err != nil {
+		t.Fatalf("failed to decode JSON error body: %v", err)
+	}
+	if errBody.Code != "invalid_request" {
+		t.Errorf("error code = %q, want invalid_request", errBody.Code)
+	}
 }
 
 func TestHandleUsageStats_InvalidDateParam(t *testing.T) {
@@ -215,6 +224,13 @@ func TestHandleUsageStats_InvalidDateParam(t *testing.T) {
 
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("got status %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+	var errBody httpx.ErrorBody
+	if err := json.NewDecoder(rr.Body).Decode(&errBody); err != nil {
+		t.Fatalf("failed to decode JSON error body: %v", err)
+	}
+	if errBody.Code != "invalid_request" {
+		t.Errorf("error code = %q, want invalid_request", errBody.Code)
 	}
 
 	req2 := httptest.NewRequest(http.MethodGet, "/api/stats/sms?to=not-a-date", nil)

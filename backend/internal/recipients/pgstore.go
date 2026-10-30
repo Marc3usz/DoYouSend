@@ -31,6 +31,7 @@ func (e *DuplicateContactError) Error() string {
 	return e.Field + ": " + ErrDuplicateContact.Error()
 }
 
+// Is makes errors.Is(err, ErrDuplicateContact) match a DuplicateContactError.
 func (e *DuplicateContactError) Is(target error) bool {
 	return target == ErrDuplicateContact
 }
