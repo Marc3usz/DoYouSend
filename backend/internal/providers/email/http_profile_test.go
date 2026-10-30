@@ -16,7 +16,7 @@ type mockProfiler struct {
 	err     error
 }
 
-func (m *mockProfiler) GetProfile(ctx context.Context) (email.Profile, error) {
+func (m *mockProfiler) GetProfile(_ context.Context) (email.Profile, error) {
 	if m.err != nil {
 		return email.Profile{}, m.err
 	}

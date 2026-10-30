@@ -56,7 +56,7 @@ func (c *PGDeliveryReportConsumer) ConsumeDeliveryReports(ctx context.Context, r
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	// Cast $1 to channel_status enum to prevent Postgres from inferring $1 as text due to string literals in IN.
 	const updateQuery = `

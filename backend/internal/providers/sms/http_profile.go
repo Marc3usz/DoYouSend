@@ -52,10 +52,6 @@ func HandleProfile(profiler Profiler, logger *slog.Logger) http.Handler {
 			return
 		}
 
-		httpx.JSON(w, http.StatusOK, ProfileResponse{
-			Points:   profile.Points,
-			Name:     profile.Name,
-			UserType: profile.UserType,
-		})
+		httpx.JSON(w, http.StatusOK, ProfileResponse(profile))
 	})
 }

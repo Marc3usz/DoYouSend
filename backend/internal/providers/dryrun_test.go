@@ -11,7 +11,7 @@ type mockProvider struct {
 	sendCalled bool
 }
 
-func (m *mockProvider) Send(ctx context.Context, msg Message) (Result, error) {
+func (m *mockProvider) Send(_ context.Context, _ Message) (Result, error) {
 	m.sendCalled = true
 	return Result{ProviderMessageID: "real-id"}, nil
 }

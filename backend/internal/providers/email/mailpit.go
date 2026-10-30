@@ -103,7 +103,7 @@ func (m *Mailpit) Send(ctx context.Context, msg providers.Message) (providers.Re
 	if err != nil {
 		return providers.Result{}, classifySMTPError(msg.RecipientID, err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if dl, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(dl)
@@ -126,7 +126,7 @@ func (m *Mailpit) Send(ctx context.Context, msg providers.Message) (providers.Re
 	if err != nil {
 		return providers.Result{}, classifySMTPError(msg.RecipientID, err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	if m.cfg.Username != "" {
 		auth := smtp.PlainAuth("", m.cfg.Username, m.cfg.Password, m.cfg.Host)

@@ -233,7 +233,7 @@ func newSMSProvider(cfg Config, logger *slog.Logger) (providers.Provider, error)
 		if cfg.SMSAPIKey == "" {
 			return nil, fmt.Errorf("SMS_API_KEY is required when SMS_PROVIDER=smsapi")
 		}
-		return sms.NewSMSAPI(sms.SMSAPIConfig{
+		return sms.NewAPI(sms.APIConfig{
 			APIKey:     cfg.SMSAPIKey,
 			SenderName: cfg.SMSSenderName,
 			TestMode:   cfg.SMSAPITestMode,

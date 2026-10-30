@@ -6,6 +6,7 @@ import "github.com/Marc3usz/DoYouSend/backend/internal/providers"
 // (deliveries.status, channel_status enum in 0001_init.sql).
 type Status = providers.DeliveryStatus
 
+// Delivery statuses re-exported from providers.
 const (
 	StatusPending   = providers.StatusPending
 	StatusSending   = providers.StatusSending
@@ -17,6 +18,7 @@ const (
 // BatchStatus mirrors the batch_status enum in 0001_init.sql.
 type BatchStatus string
 
+// Batch statuses mirroring the batch_status enum.
 const (
 	BatchDraft          BatchStatus = "draft"
 	BatchScheduled      BatchStatus = "scheduled"

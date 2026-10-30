@@ -106,7 +106,7 @@ func TestEnvOr(t *testing.T) {
 	t.Parallel()
 
 	key := "TEST_PROVIDER_UNSET_XYZ"
-	os.Unsetenv(key)
+	_ = os.Unsetenv(key)
 
 	if got := envOr(key, "default"); got != "default" {
 		t.Errorf("envOr(%q, %q) = %q, want %q", key, "default", got, "default")
@@ -425,8 +425,8 @@ func TestProviders_SMSProfiler_LiveSMSAPIReturnsSMSAPI(t *testing.T) {
 		t.Fatal("expected non-nil SMSProfiler for live smsapi provider")
 	}
 
-	if _, ok := profiler.(*sms.SMSAPI); !ok {
-		t.Errorf("profiler type = %T, want *sms.SMSAPI", profiler)
+	if _, ok := profiler.(*sms.API); !ok {
+		t.Errorf("profiler type = %T, want *sms.API", profiler)
 	}
 }
 func TestProviders_EmailProfiler_DryRunRealSendGridReturnsNil(t *testing.T) {

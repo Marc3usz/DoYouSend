@@ -10,6 +10,7 @@ import (
 // to deliveries.status based on reports from the provider.
 type DeliveryStatus string
 
+// Delivery statuses mirroring the channel_status database enum.
 const (
 	StatusPending   DeliveryStatus = "pending"
 	StatusSending   DeliveryStatus = "sending"

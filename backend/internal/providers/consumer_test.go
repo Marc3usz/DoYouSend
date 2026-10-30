@@ -11,7 +11,7 @@ func TestDeliveryReportConsumerFunc(t *testing.T) {
 	called := false
 	var gotReports []DeliveryReport
 
-	fn := DeliveryReportConsumerFunc(func(ctx context.Context, reports []DeliveryReport) error {
+	fn := DeliveryReportConsumerFunc(func(_ context.Context, reports []DeliveryReport) error {
 		called = true
 		gotReports = reports
 		return nil
