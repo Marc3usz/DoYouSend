@@ -1,7 +1,6 @@
 package email
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -11,15 +10,25 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"net/mail"
+	netmail "net/mail"
 	"strings"
 	"time"
+
+	"github.com/sendgrid/rest"
+	"github.com/sendgrid/sendgrid-go"
+	"github.com/sendgrid/sendgrid-go/helpers/mail"
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
 )
 
-// sendgridAPIURL is the production endpoint. Tests override it via SendGridConfig.BaseURL.
-const sendgridAPIURL = "https://api.sendgrid.com"
+// Data-residency regions understood by SendGridConfig.Region (ADR-0014).
+// maxErrorDetail caps the provider response text copied into error messages.
+const maxErrorDetail = 4096
+
+const (
+	RegionGlobal = "global" // api.sendgrid.com
+	RegionEU     = "eu"     // api.eu.sendgrid.com
+)
 
 // SendGridConfig holds the credentials and settings for the SendGrid adapter.
 // Values come from the environment via setup.ConfigFromEnv.
@@ -36,8 +45,12 @@ type SendGridConfig struct {
 	// Useful for integration tests.
 	Sandbox bool
 
-	// BaseURL overrides the API endpoint. Empty means the production URL.
-	// Tests set this to an httptest.Server URL.
+	// Region selects the SendGrid data-residency host: RegionGlobal (default when
+	// empty) or RegionEU. Any other value is rejected by NewSendGrid.
+	Region string
+
+	// BaseURL overrides the API host and wins over Region. It exists for tests,
+	// which set it to an httptest.Server URL.
 	BaseURL string
 
 	// HTTPClient is the client used for API calls. If nil, a client with a
@@ -52,10 +65,10 @@ type SendGridConfig struct {
 // message body stays identical to the SMS body (CLAUDE.md, rule 4).
 type SendGrid struct {
 	cfg        SendGridConfig
-	client     *http.Client
-	url        string
+	client     *rest.Client // wraps our own *http.Client; never sendgrid.DefaultClient (ADR-0014)
+	host       string
 	creditsURL string
-	fromAddr   sgAddress // parsed once in NewSendGrid
+	fromAddr   *mail.Email // parsed once in NewSendGrid
 	logger     *slog.Logger
 }
 
@@ -67,13 +80,13 @@ func NewSendGrid(cfg SendGridConfig, logger *slog.Logger) (*SendGrid, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	client := cfg.HTTPClient
-	if client == nil {
-		client = &http.Client{Timeout: 15 * time.Second}
+	httpClient := cfg.HTTPClient
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 15 * time.Second}
 	}
-	base := cfg.BaseURL
-	if base == "" {
-		base = sendgridAPIURL
+	base, err := resolveHost(cfg)
+	if err != nil {
+		return nil, err
 	}
 
 	from, err := parseFromAddress(cfg.From)
@@ -83,8 +96,8 @@ func NewSendGrid(cfg SendGridConfig, logger *slog.Logger) (*SendGrid, error) {
 
 	return &SendGrid{
 		cfg:        cfg,
-		client:     client,
-		url:        base + "/v3/mail/send",
+		client:     &rest.Client{HTTPClient: httpClient},
+		host:       base,
 		creditsURL: base + "/v3/user/credits",
 		fromAddr:   from,
 		logger:     logger,
@@ -117,36 +130,19 @@ func (sg *SendGrid) Send(ctx context.Context, msg providers.Message) (providers.
 		)
 	}
 
-	body, err := sg.buildRequestBody(msg)
-	if err != nil {
-		return providers.Result{}, providers.PermanentError(
-			fmt.Errorf("send email to recipient %s: build request: %w", msg.RecipientID, err),
-		)
-	}
+	req := sg.buildRequest(msg)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, sg.url, bytes.NewReader(body))
-	if err != nil {
-		return providers.Result{}, providers.TransientError(
-			fmt.Errorf("send email to recipient %s: create request: %w", msg.RecipientID, err),
-		)
-	}
-	req.Header.Set("Authorization", "Bearer "+sg.cfg.APIKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := sg.client.Do(req)
+	resp, err := sg.client.SendWithContext(ctx, req)
 	if err != nil {
 		return providers.Result{}, providers.TransientError(
 			fmt.Errorf("send email to recipient %s: %w", msg.RecipientID, err),
 		)
 	}
-	defer resp.Body.Close()
-
-	// Limit how much of the response body we read to avoid unbounded memory use.
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	header := http.Header(resp.Headers)
 
 	// SendGrid returns 202 Accepted on normal send, 200 OK in sandbox mode.
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		msgID := resp.Header.Get("X-Message-Id")
+		msgID := header.Get("X-Message-Id")
 		// In sandbox mode SendGrid does not return X-Message-Id; generate a
 		// synthetic one so Result always carries a non-empty ID.
 		if msgID == "" {
@@ -160,8 +156,12 @@ func (sg *SendGrid) Send(ctx context.Context, msg providers.Message) (providers.
 		return providers.Result{ProviderMessageID: msgID}, nil
 	}
 
-	detail := string(respBody)
-	return providers.Result{}, classifyHTTPError(msg.RecipientID, resp.StatusCode, detail, resp.Header)
+	// rest.Client reads the whole response; cap what ends up in the error text.
+	detail := resp.Body
+	if len(detail) > maxErrorDetail {
+		detail = detail[:maxErrorDetail]
+	}
+	return providers.Result{}, classifyHTTPError(msg.RecipientID, resp.StatusCode, detail, header)
 }
 
 // classifyHTTPError maps SendGrid HTTP status codes to permanent or transient errors.
@@ -192,15 +192,15 @@ func classifyHTTPError(recipientID string, status int, detail string, header htt
 
 // parseFromAddress splits an RFC 5322 address (e.g. "Szkola <no-reply@example.test>")
 // into the email and optional display name that SendGrid expects in separate fields.
-func parseFromAddress(from string) (sgAddress, error) {
+func parseFromAddress(from string) (*mail.Email, error) {
 	if from == "" {
-		return sgAddress{}, fmt.Errorf("sender address is empty")
+		return nil, fmt.Errorf("sender address is empty")
 	}
-	addr, err := mail.ParseAddress(from)
+	addr, err := netmail.ParseAddress(from)
 	if err != nil {
-		return sgAddress{}, err
+		return nil, err
 	}
-	return sgAddress{Email: addr.Address, Name: addr.Name}, nil
+	return mail.NewEmail(addr.Name, addr.Address), nil
 }
 
 // syntheticMessageID generates a placeholder message ID when the API does not
@@ -211,72 +211,54 @@ func syntheticMessageID() string {
 	return fmt.Sprintf("sandbox-%d-%s", time.Now().UnixNano(), hex.EncodeToString(b[:]))
 }
 
-// --- SendGrid v3 mail/send request body ---
+// --- SendGrid v3 mail/send request ---
 
-type sgMailSend struct {
-	Personalizations []sgPersonalization `json:"personalizations"`
-	From             sgAddress           `json:"from"`
-	Subject          string              `json:"subject"`
-	Content          []sgContent         `json:"content"`
-	TrackingSettings sgTracking          `json:"tracking_settings"`
-	MailSettings     *sgMailSettings     `json:"mail_settings,omitempty"`
-	CustomArgs       map[string]string   `json:"custom_args,omitempty"`
-}
-
-type sgPersonalization struct {
-	To []sgAddress `json:"to"`
-}
-
-type sgAddress struct {
-	Email string `json:"email"`
-	Name  string `json:"name,omitempty"`
-}
-
-type sgContent struct {
-	Type  string `json:"type"`
-	Value string `json:"value"`
-}
-
-type sgTracking struct {
-	ClickTracking sgToggle `json:"click_tracking"`
-	OpenTracking  sgToggle `json:"open_tracking"`
-}
-
-type sgToggle struct {
-	Enable bool `json:"enable"`
-}
-
-type sgMailSettings struct {
-	SandboxMode sgToggle `json:"sandbox_mode"`
-}
-
-func (sg *SendGrid) buildRequestBody(msg providers.Message) ([]byte, error) {
-	payload := sgMailSend{
-		Personalizations: []sgPersonalization{
-			{To: []sgAddress{{Email: msg.To}}},
-		},
-		From:    sg.fromAddr,
-		Subject: msg.Subject,
-		Content: []sgContent{
-			{Type: "text/plain", Value: msg.Body},
-		},
-		TrackingSettings: sgTracking{
-			ClickTracking: sgToggle{Enable: false},
-			OpenTracking:  sgToggle{Enable: false},
-		},
-		CustomArgs: map[string]string{
-			"recipient_id": msg.RecipientID,
-		},
+// resolveHost returns the API host for cfg: BaseURL when set (tests), otherwise the
+// host of the selected data-residency region, taken from the SDK (ADR-0014).
+func resolveHost(cfg SendGridConfig) (string, error) {
+	if cfg.BaseURL != "" {
+		return cfg.BaseURL, nil
 	}
+	region := cfg.Region
+	if region == "" {
+		region = RegionGlobal
+	}
+	req, err := sendgrid.SetDataResidency(sendgrid.GetRequest("", "", ""), region)
+	if err != nil {
+		return "", fmt.Errorf("sendgrid region %q: %w", cfg.Region, err)
+	}
+	return req.BaseURL, nil
+}
+
+// buildRequest assembles the mail/send request with the SDK types. The body is the
+// rendered body untouched, as text/plain, with click and open tracking off so links
+// stay identical to the SMS (CLAUDE.md, rule 4).
+func (sg *SendGrid) buildRequest(msg providers.Message) rest.Request {
+	p := mail.NewPersonalization()
+	p.AddTos(mail.NewEmail("", msg.To))
+
+	m := mail.NewV3Mail().
+		SetFrom(sg.fromAddr).
+		AddPersonalizations(p).
+		AddContent(mail.NewContent("text/plain", msg.Body)).
+		SetTrackingSettings(&mail.TrackingSettings{
+			ClickTracking: &mail.ClickTrackingSetting{Enable: boolPtr(false)},
+			OpenTracking:  &mail.OpenTrackingSetting{Enable: boolPtr(false)},
+		}).
+		SetCustomArg("recipient_id", msg.RecipientID)
+	m.Subject = msg.Subject
 
 	if sg.cfg.Sandbox {
-		payload.MailSettings = &sgMailSettings{
-			SandboxMode: sgToggle{Enable: true},
-		}
+		m.SetMailSettings(&mail.MailSettings{SandboxMode: mail.NewSetting(true)})
 	}
 
-	return json.Marshal(payload)
+	req := sendgrid.GetRequest(sg.cfg.APIKey, "/v3/mail/send", sg.host)
+	req.Method = http.MethodPost
+	req.Body = mail.GetRequestBody(m)
+	return req
 }
+
+func boolPtr(b bool) *bool { return &b }
 
 // GetProfile fetches the SendGrid account credit limits from GET /v3/user/credits.
 func (sg *SendGrid) GetProfile(ctx context.Context) (Profile, error) {
@@ -292,7 +274,7 @@ func (sg *SendGrid) GetProfile(ctx context.Context) (Profile, error) {
 	req.Header.Set("Authorization", "Bearer "+sg.cfg.APIKey)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := sg.client.Do(req)
+	resp, err := sg.client.HTTPClient.Do(req)
 	if err != nil {
 		return Profile{}, fmt.Errorf("sendgrid get profile: %w", err)
 	}
