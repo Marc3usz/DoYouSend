@@ -14,6 +14,8 @@ var (
 	ErrRecipientInUse = errors.New("recipient appears in the batch history")
 	ErrInvalidInput   = errors.New("invalid input")
 	ErrInvalidParams  = errors.New("invalid request parameters")
+	// ErrContactNotFixable: FixContact was asked to change a channel that works.
+	ErrContactNotFixable = errors.New("contact channel has no issue to fix")
 )
 
 // ValidationError carries every field problem of one rejected request. It
@@ -329,6 +331,76 @@ func (s *Service) Update(ctx context.Context, id string, in Input) (Recipient, e
 		return Recipient{}, fmt.Errorf("update recipient %s: %w", id, err)
 	}
 	return updated, nil
+}
+
+// ContactFix is what a sender may change through FixContact: a nil field
+// stays as it is.
+type ContactFix struct {
+	Email *string
+	Phone *string
+}
+
+// FixContact fills in a missing or invalid e-mail address or phone number
+// (ADR-0013). Unlike Update it is open to senders, so it only touches a
+// channel that has an issue: a working contact is never overwritten
+// (ErrContactNotFixable). It returns the updated recipient and the channels
+// it changed.
+func (s *Service) FixContact(ctx context.Context, id string, fix ContactFix) (Recipient, []Channel, error) {
+	id, err := checkID(id)
+	if err != nil {
+		return Recipient{}, nil, err
+	}
+	var errs []FieldError
+	for _, f := range []struct {
+		name  string
+		value *string
+	}{{"email", fix.Email}, {"phone", fix.Phone}} {
+		if f.value != nil && strings.TrimSpace(*f.value) == "" {
+			errs = append(errs, FieldError{Field: f.name, Message: "must not be empty"})
+		}
+	}
+	if fix.Email == nil && fix.Phone == nil {
+		errs = append(errs, FieldError{Field: "email", Message: "give an e-mail address or a phone number"})
+	}
+	if len(errs) > 0 {
+		return Recipient{}, nil, &ValidationError{Fields: errs}
+	}
+
+	current, err := s.store.GetRecipient(ctx, id)
+	if err != nil {
+		return Recipient{}, nil, fmt.Errorf("get recipient %s: %w", id, err)
+	}
+	in := Input{
+		FirstName: current.FirstName, LastName: current.LastName,
+		Email: current.Email, Phone: current.Phone,
+		Type: current.Type, Classes: &current.Classes,
+	}
+	var fixed []Channel
+	if fix.Email != nil {
+		if !current.HasIssue(ChannelEmail) {
+			return Recipient{}, nil, fmt.Errorf("fix e-mail of %s: %w", id, ErrContactNotFixable)
+		}
+		in.Email = *fix.Email
+		fixed = append(fixed, ChannelEmail)
+	}
+	if fix.Phone != nil {
+		if !current.HasIssue(ChannelSMS) {
+			return Recipient{}, nil, fmt.Errorf("fix phone of %s: %w", id, ErrContactNotFixable)
+		}
+		in.Phone = *fix.Phone
+		fixed = append(fixed, ChannelSMS)
+	}
+
+	r, err := s.checkInput(ctx, id, in)
+	if err != nil {
+		return Recipient{}, nil, err
+	}
+	r.ID = id
+	updated, err := s.store.UpdateRecipient(ctx, r)
+	if err != nil {
+		return Recipient{}, nil, fmt.Errorf("fix contact of %s: %w", id, err)
+	}
+	return updated, fixed, nil
 }
 
 // Delete removes a recipient. Someone already messaged cannot be deleted:

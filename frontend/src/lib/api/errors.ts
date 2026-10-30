@@ -7,6 +7,7 @@ export const errorCodes = [
 	'empty_selection',
 	'not_found',
 	'duplicate_contact',
+	'contact_not_fixable',
 	'recipient_in_use',
 	'name_taken',
 	'system_group',

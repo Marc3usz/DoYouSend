@@ -100,6 +100,12 @@ describe('audit texts', () => {
 			)
 		).toBe('odbiorcy: 9, grupy: 1, części SMS: 7');
 	});
+	it('describes a contact fix by its channels only', () => {
+		expect(actionText('recipient_contact_fixed')).toBe('Uzupełnienie kontaktu odbiorcy');
+		expect(
+			detailsText(entry({ action: 'recipient_contact_fixed', details: { channels: 'email,sms' } }))
+		).toBe('kanały: e-mail, SMS');
+	});
 	it('describes details in Polish', () => {
 		expect(detailsText(entry({ details: { role: 'admin', disabled: 'true' } }))).toBe(
 			'rola: administrator, zablokowane'
