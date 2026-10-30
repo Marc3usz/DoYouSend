@@ -60,7 +60,7 @@ func TestNewSendGridEURegionUsesEUHostForCredits(t *testing.T) {
 // The SDK's package-level client has no timeout and is shared state; the adapter
 // must send through the *http.Client it was given (ADR-0014).
 func TestSendUsesInjectedHTTPClient(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("X-Message-Id", "abc123")
 		w.WriteHeader(http.StatusAccepted)
 	}))

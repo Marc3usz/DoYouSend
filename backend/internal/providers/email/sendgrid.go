@@ -25,6 +25,7 @@ import (
 // maxErrorDetail caps the provider response text copied into error messages.
 const maxErrorDetail = 4096
 
+// Supported SendGrid data-residency regions.
 const (
 	RegionGlobal = "global" // api.sendgrid.com
 	RegionEU     = "eu"     // api.eu.sendgrid.com
