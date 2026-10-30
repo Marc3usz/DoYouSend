@@ -57,6 +57,7 @@ export type BatchRecipient = {
 export type BatchDetail = BatchSummary & {
 	body: string;
 	recipientIds: string[];
+	excludedRecipientIds?: string[];
 	recipients: BatchRecipient[];
 };
 

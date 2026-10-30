@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/groups"
 )
@@ -28,6 +29,10 @@ type Estimate struct {
 	Summary Summary
 	// RenderFailedIDs are recipients lacking a value for a used placeholder.
 	RenderFailedIDs []string
+	// SampleBody is the body rendered for a sample recipient (e.g. first resolved, or fallback example).
+	SampleBody string
+	// SampleRecipientName is the name of the recipient whose data was used for SampleBody.
+	SampleRecipientName string
 }
 
 // Previewer builds the pre-send Estimate for a draft.
@@ -55,6 +60,11 @@ func (p *Previewer) Preview(ctx context.Context, body string, sel groups.Selecti
 
 	sel = sel.Normalize()
 	if len(sel.GroupIDs) == 0 && len(sel.RecipientIDs) == 0 {
+		if body != "" && len(est.UnknownPlaceholders) == 0 {
+			sample, _ := Render(body, RecipientFields("Jan", "Kowalski"))
+			est.SampleBody = sample
+			est.SampleRecipientName = "Jan Kowalski (dane przykładowe)"
+		}
 		return est, nil
 	}
 	res, err := p.resolver.Resolve(ctx, sel)
@@ -74,6 +84,24 @@ func (p *Previewer) Preview(ctx context.Context, body string, sel groups.Selecti
 	est.Summary, err = Summarize(msgs, p.pricePerPartMilli)
 	if err != nil {
 		return Estimate{}, fmt.Errorf("preview message: %w", err)
+	}
+
+	for _, r := range res.Recipients {
+		text, err := Render(body, RecipientFields(r.Recipient.FirstName, r.Recipient.LastName))
+		if err == nil {
+			est.SampleBody = text
+			fullName := strings.TrimSpace(r.Recipient.FirstName + " " + r.Recipient.LastName)
+			if fullName == "" {
+				fullName = r.Recipient.ID
+			}
+			est.SampleRecipientName = fullName
+			break
+		}
+	}
+	if est.SampleBody == "" && body != "" && len(est.UnknownPlaceholders) == 0 {
+		sample, _ := Render(body, RecipientFields("Jan", "Kowalski"))
+		est.SampleBody = sample
+		est.SampleRecipientName = "Jan Kowalski (dane przykładowe)"
 	}
 	return est, nil
 }

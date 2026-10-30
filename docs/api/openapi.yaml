@@ -368,6 +368,8 @@ paths:
         przez kilka grup wystepuje raz. Braki danych kontaktowych sa raportowane w issues,
         nie filtrowane - decyzje (poprawic, wykluczyc, wyslac czesciowo) podejmuje wysylajacy.
         Nieistniejace ID nie sa bledem, tylko trafiaja do unknownGroupIds / unknownRecipientIds.
+        Adres e-mail i telefon (recipient.email / recipient.phone) widzi tylko administrator;
+        wysylajacy dostaje null, a braki odczytuje z recipient.issues i channels (ADR-0010).
       requestBody:
         required: true
         content:
@@ -1269,6 +1271,12 @@ components:
           type: array
           description: Odbiorcy bez wartosci dla uzytego placeholdera (np. puste imie). Nie sa wliczani do licznikow SMS/e-mail.
           items: { type: string, format: uuid }
+        sampleBody:
+          type: string
+          description: Przykladowo wyrenderowana tresc dla pierwszego odbiorcy z podstawionymi danymi
+        sampleRecipientName:
+          type: string
+          description: Imie i nazwisko odbiorcy, dla ktorego wyrenderowano sampleBody
 
     BatchStatus:
       type: string
@@ -1350,6 +1358,10 @@ components:
             recipientIds:
               type: array
               description: Osoby wybrane recznie, poza grupami
+              items: { type: string, format: uuid }
+            excludedRecipientIds:
+              type: array
+              description: Osoby wykluczone z tej wysylki
               items: { type: string, format: uuid }
             recipients:
               type: array

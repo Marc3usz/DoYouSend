@@ -82,7 +82,7 @@ func main() {
 		groupStore := groups.NewPGStore(pool)
 		resolver := groups.NewResolver(groupStore, recipientStore)
 		groupService := groups.NewService(groupStore, recipientStore)
-		groups.NewHandler(groupService, resolver, logger).Register(mux)
+		groups.NewHandler(groupService, resolver, logger).WithContactAccess(isAdmin).Register(mux)
 		smsPrice, err := messaging.ParsePrice(os.Getenv("SMS_PRICE_PER_PART_PLN"))
 		if err != nil {
 			logger.Error("invalid SMS_PRICE_PER_PART_PLN (see .env.example)", "err", err)
@@ -203,6 +203,24 @@ func (a batchAudit) BatchConfirmed(ctx context.Context, b delivery.Batch) {
 		"groups":     strconv.Itoa(len(b.Groups)),
 		"smsParts":   strconv.Itoa(b.SMSParts),
 	})
+}
+
+func (a batchAudit) BatchRetried(ctx context.Context, b delivery.Batch) {
+	callerID := b.CreatedBy
+	if u, ok := iam.UserFrom(ctx); ok && u.ID != "" {
+		callerID = u.ID
+	}
+	a.log.Record(ctx, callerID, iam.ActionBatchRetried, "batch", b.ID, map[string]string{
+		"recipients": strconv.Itoa(b.Counts.Recipients),
+		"groups":     strconv.Itoa(len(b.Groups)),
+		"smsParts":   strconv.Itoa(b.SMSParts),
+	})
+}
+
+// isAdmin reports whether the request comes from a logged-in administrator.
+func isAdmin(ctx context.Context) bool {
+	u, ok := iam.UserFrom(ctx)
+	return ok && u.IsAdmin()
 }
 
 // currentCaller adapts the iam session user to what the batch endpoints need.

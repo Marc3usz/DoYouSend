@@ -92,6 +92,7 @@ type Draft struct {
 // iam audit log to it, so delivery does not depend on iam.
 type BatchAuditor interface {
 	BatchConfirmed(ctx context.Context, b Batch)
+	BatchRetried(ctx context.Context, b Batch)
 }
 
 // Service turns a confirmed draft into a sent, recorded batch.
@@ -228,18 +229,19 @@ func (s *Service) record(ctx context.Context, d Draft) (Batch, bool, error) {
 	plan := NewPlan(d.Subject, d.Body, res.Recipients)
 	parts := plan.smsParts()
 	batch, err := s.store.CreateBatch(ctx, Batch{
-		Subject:        d.Subject,
-		Body:           d.Body,
-		CreatedBy:      d.CreatedBy,
-		CreatedByName:  d.CreatedByName,
-		IdempotencyKey: d.IdempotencyKey,
-		RequestHash:    hash,
-		Groups:         refs,
-		RecipientIDs:   d.Selection.Normalize().RecipientIDs,
-		Status:         BatchRunning,
-		SMSParts:       parts,
-		CostMilli:      int64(parts) * s.pricePerPartMilli,
-		Plan:           plan,
+		Subject:              d.Subject,
+		Body:                 d.Body,
+		CreatedBy:            d.CreatedBy,
+		CreatedByName:        d.CreatedByName,
+		IdempotencyKey:       d.IdempotencyKey,
+		RequestHash:          hash,
+		Groups:               refs,
+		RecipientIDs:         d.Selection.Normalize().RecipientIDs,
+		ExcludedRecipientIDs: d.Selection.Normalize().ExcludedRecipientIDs,
+		Status:               BatchRunning,
+		SMSParts:             parts,
+		CostMilli:            int64(parts) * s.pricePerPartMilli,
+		Plan:                 plan,
 	})
 	if errors.Is(err, ErrDuplicateKey) {
 		// A concurrent request with the same key won the race.
@@ -327,6 +329,9 @@ func (s *Service) RetryBatch(ctx context.Context, batchID string) (Batch, error)
 	if err != nil {
 		return Batch{}, fmt.Errorf("retry batch: %w", err)
 	}
+	if s.auditor != nil {
+		s.auditor.BatchRetried(ctx, batch)
+	}
 	return s.dispatch(context.WithoutCancel(ctx), batch)
 }
 
@@ -343,6 +348,9 @@ func (s *Service) StartRetry(ctx context.Context, batchID string) (Batch, error)
 	}
 	if fresh, err := s.store.Batch(ctx, batchID); err == nil {
 		batch = fresh
+	}
+	if s.auditor != nil {
+		s.auditor.BatchRetried(ctx, batch)
 	}
 	go func(b Batch) {
 		defer s.running.Done()

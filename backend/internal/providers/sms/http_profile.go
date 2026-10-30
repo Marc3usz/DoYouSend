@@ -24,7 +24,10 @@ func HandleProfile(profiler Profiler, logger *slog.Logger) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			httpx.Error(w, http.StatusMethodNotAllowed, httpx.ErrorBody{
+				Code:    "invalid_request",
+				Message: "method not allowed",
+			})
 			return
 		}
 

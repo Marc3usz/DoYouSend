@@ -32,6 +32,8 @@ export type SendEstimate = {
 	/** Thousandths of a złoty: 1000 = 1 zł. */
 	costMilli: number;
 	renderFailedIds: string[];
+	sampleBody?: string;
+	sampleRecipientName?: string;
 };
 
 /** Pre-send summary of a draft: POST /messages/preview. */
