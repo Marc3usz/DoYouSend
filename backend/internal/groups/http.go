@@ -164,7 +164,7 @@ func (h *Handler) changeMembers(w http.ResponseWriter, r *http.Request, change f
 		h.writeError(w, r, err)
 		return
 	}
-	httpx.JSON(w, http.StatusOK, membershipJSON{Changed: c.Changed, Unchanged: c.Unchanged})
+	httpx.JSON(w, http.StatusOK, membershipJSON(c))
 }
 
 func (h *Handler) resolve(w http.ResponseWriter, r *http.Request) {

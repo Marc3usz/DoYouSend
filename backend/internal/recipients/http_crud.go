@@ -155,10 +155,7 @@ func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, err)
 		return
 	}
-	httpx.JSON(w, http.StatusOK, statsJSON{
-		Total: st.Total, Parents: st.Parents, Students: st.Students,
-		WithoutEmail: st.WithoutEmail, WithoutPhone: st.WithoutPhone, Unreachable: st.Unreachable,
-	})
+	httpx.JSON(w, http.StatusOK, statsJSON(st))
 }
 
 // writeError maps a service error to its status and stable code. Unexpected

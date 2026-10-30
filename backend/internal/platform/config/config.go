@@ -10,6 +10,7 @@ import (
 	"strconv"
 )
 
+// Config is the API configuration read from the environment (see .env.example).
 type Config struct {
 	AppEnv      string
 	APIPort     string
@@ -23,6 +24,7 @@ type Config struct {
 	SessionCookieSecure bool
 }
 
+// Load reads Config from the environment, applying the development defaults.
 func Load() (Config, error) {
 	cfg := Config{
 		AppEnv:      env("APP_ENV", "development"),
