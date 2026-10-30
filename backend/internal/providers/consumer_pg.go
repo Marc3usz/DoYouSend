@@ -106,15 +106,37 @@ func (c *PGDeliveryReportConsumer) ConsumeDeliveryReports(ctx context.Context, r
 		  )
 	`
 
+	var lockMsgIDs, lockChannels []string
+	seen := make(map[string]bool)
 	for _, r := range reports {
 		if r.ProviderMessageID == "" {
 			continue
 		}
+		k := r.ProviderMessageID + ":" + string(r.Channel)
+		if !seen[k] {
+			seen[k] = true
+			lockMsgIDs = append(lockMsgIDs, r.ProviderMessageID)
+			lockChannels = append(lockChannels, string(r.Channel))
+		}
+	}
 
-		// Acquire transaction-level advisory lock per (provider_message_id, channel)
-		// to serialize concurrent executions of consumer and dispatcher's SaveDelivery/SaveOutcome (Issue #42, ADR-0011).
-		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1 || ':' || $2))`, r.ProviderMessageID, string(r.Channel)); err != nil {
-			return fmt.Errorf("lock provider_message_id %s: %w", r.ProviderMessageID, err)
+	if len(lockMsgIDs) > 0 {
+		// Acquire transaction advisory locks ordered deterministically to prevent deadlocks
+		// with concurrent delivery report consumers and dispatcher's SaveDelivery/SaveOutcome (Review #44, ADR-0011).
+		_, err := tx.Exec(ctx, `
+			SELECT pg_advisory_xact_lock(hashtext(m || ':' || c))
+			FROM unnest($1::text[], $2::text[]) AS t(m, c)
+			WHERE m IS NOT NULL AND m <> ''
+			ORDER BY hashtext(m || ':' || c)`,
+			lockMsgIDs, lockChannels)
+		if err != nil {
+			return fmt.Errorf("lock deliveries for reports: %w", err)
+		}
+	}
+
+	for _, r := range reports {
+		if r.ProviderMessageID == "" {
+			continue
 		}
 
 		var errText *string

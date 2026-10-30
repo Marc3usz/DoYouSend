@@ -39,13 +39,13 @@ func (s *PGStore) CreateBatch(ctx context.Context, b Batch) (Batch, error) {
 		// so created_by and confirmed_by are the same person.
 		err := tx.QueryRow(ctx, `
 			INSERT INTO message_batches (subject, body, status, created_by, confirmed_by,
-				selected_groups, selected_recipient_ids, recipient_count, sms_part_count,
+				selected_groups, selected_recipient_ids, excluded_recipient_ids, recipient_count, sms_part_count,
 				estimated_cost, confirmed_at, idempotency_key, request_hash)
-			VALUES ($1, $2, $3::text::batch_status, $4, $4, $5, $6::uuid[], $7, $8, $9::bigint / 1000.0, now(),
-				nullif($10, '')::uuid, nullif($11, ''))
+			VALUES ($1, $2, $3::text::batch_status, $4, $4, $5, $6::uuid[], $7::uuid[], $8, $9, $10::bigint / 1000.0, now(),
+				nullif($11, '')::uuid, nullif($12, ''))
 			RETURNING id::text, created_at, (SELECT full_name FROM users WHERE id = created_by)`,
 			b.Subject, b.Body, string(b.Status), b.CreatedBy, groupsJSON, nonNil(b.RecipientIDs),
-			len(b.Plan.Recipients), b.SMSParts, b.CostMilli, b.IdempotencyKey, b.RequestHash,
+			nonNil(b.ExcludedRecipientIDs), len(b.Plan.Recipients), b.SMSParts, b.CostMilli, b.IdempotencyKey, b.RequestHash,
 		).Scan(&b.ID, &b.CreatedAt, &b.CreatedByName)
 		if constraint, ok := database.UniqueViolation(err); ok && constraint == "message_batches_idempotency_key" {
 			return ErrDuplicateKey
@@ -62,6 +62,7 @@ func (s *PGStore) CreateBatch(ctx context.Context, b Batch) (Batch, error) {
 	b.Counts = b.Plan.Counts()
 	b.Groups = append([]GroupRef(nil), b.Groups...)
 	b.RecipientIDs = append([]string(nil), b.RecipientIDs...)
+	b.ExcludedRecipientIDs = append([]string(nil), b.ExcludedRecipientIDs...)
 	return b, nil
 }
 
@@ -293,12 +294,12 @@ func (s *PGStore) Batch(ctx context.Context, id string) (Batch, error) {
 	err := pgx.BeginTxFunc(ctx, s.pool, snapshot, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `
 			SELECT b.id::text, b.subject, b.body, b.created_by::text, u.full_name, b.selected_groups,
-				b.selected_recipient_ids::text[], b.status::text, b.sms_part_count,
+				b.selected_recipient_ids::text[], coalesce(b.excluded_recipient_ids::text[], '{}'::text[]), b.status::text, b.sms_part_count,
 				(b.estimated_cost * 1000)::bigint, b.created_at, b.finished_at,
 				coalesce(b.idempotency_key::text, ''), coalesce(b.request_hash, '')
 			FROM message_batches b JOIN users u ON u.id = b.created_by
 			WHERE b.id = $1`, id,
-		).Scan(&b.ID, &b.Subject, &b.Body, &b.CreatedBy, &b.CreatedByName, &groupsJSON, &b.RecipientIDs,
+		).Scan(&b.ID, &b.Subject, &b.Body, &b.CreatedBy, &b.CreatedByName, &groupsJSON, &b.RecipientIDs, &b.ExcludedRecipientIDs,
 			&status, &b.SMSParts, &b.CostMilli, &b.CreatedAt, &finishedAt, &b.IdempotencyKey, &b.RequestHash)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrBatchNotFound
@@ -317,6 +318,9 @@ func (s *PGStore) Batch(ctx context.Context, id string) (Batch, error) {
 	}
 	b.Status = BatchStatus(status)
 	b.Counts = b.Plan.Counts()
+	if len(b.ExcludedRecipientIDs) == 0 {
+		b.ExcludedRecipientIDs = nil
+	}
 	if finishedAt != nil {
 		b.FinishedAt = *finishedAt
 	}
@@ -456,12 +460,12 @@ func (s *PGStore) ResetFailedDeliveries(ctx context.Context, batchID string) (Ba
 
 		err = tx.QueryRow(ctx, `
 			SELECT b.id::text, b.subject, b.body, b.created_by::text, u.full_name, b.selected_groups,
-				b.selected_recipient_ids::text[], b.status::text, b.sms_part_count,
+				b.selected_recipient_ids::text[], coalesce(b.excluded_recipient_ids::text[], '{}'::text[]), b.status::text, b.sms_part_count,
 				(b.estimated_cost * 1000)::bigint, b.created_at, b.finished_at,
 				coalesce(b.idempotency_key::text, ''), coalesce(b.request_hash, '')
 			FROM message_batches b JOIN users u ON u.id = b.created_by
 			WHERE b.id = $1`, id,
-		).Scan(&b.ID, &b.Subject, &b.Body, &b.CreatedBy, &b.CreatedByName, &groupsJSON, &b.RecipientIDs,
+		).Scan(&b.ID, &b.Subject, &b.Body, &b.CreatedBy, &b.CreatedByName, &groupsJSON, &b.RecipientIDs, &b.ExcludedRecipientIDs,
 			&status, &b.SMSParts, &b.CostMilli, &b.CreatedAt, &finishedAt, &b.IdempotencyKey, &b.RequestHash)
 		if err != nil {
 			return fmt.Errorf("query batch: %w", err)
@@ -478,6 +482,9 @@ func (s *PGStore) ResetFailedDeliveries(ctx context.Context, batchID string) (Ba
 	}
 	b.Status = BatchStatus(status)
 	b.Counts = b.Plan.Counts()
+	if len(b.ExcludedRecipientIDs) == 0 {
+		b.ExcludedRecipientIDs = nil
+	}
 	if finishedAt != nil {
 		b.FinishedAt = *finishedAt
 	}

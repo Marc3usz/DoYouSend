@@ -152,29 +152,13 @@
 		<p class="hint">
 			Przekaż hasło osobiście, nie e-mailem. Użytkownik może poprosić o nowe w każdej chwili.
 		</p>
-		<button type="submit">Utwórz konto</button>
+		<button type="submit" class="primary">Utwórz konto</button>
 	</form>
 </section>
 
 <style>
-	.lead,
-	.hint {
-		color: #555;
-	}
-	table {
-		border-collapse: collapse;
-		width: 100%;
-		margin-bottom: 2rem;
-	}
-	th,
-	td {
-		border-bottom: 1px solid #ddd;
-		padding: 0.4rem 0.5rem;
-		text-align: left;
-		vertical-align: top;
-	}
 	tr.disabled td {
-		color: #777;
+		color: var(--color-text-muted);
 	}
 	.inline {
 		display: inline-flex;
@@ -204,24 +188,13 @@
 		gap: 0.25rem;
 		font-weight: 600;
 	}
-	input:not([type='hidden']),
-	select {
-		font: inherit;
-		font-weight: normal;
-		padding: 0.35rem;
-	}
 	button {
 		font: inherit;
 		align-self: flex-start;
 		padding: 0.3rem 0.8rem;
 	}
-	.field-error,
-	.error {
-		color: #b00020;
-		font-weight: normal;
-	}
 	.done {
-		color: #1a7f37;
+		color: var(--color-success);
 	}
 	@media (max-width: 48rem) {
 		table,
@@ -236,7 +209,7 @@
 			display: none;
 		}
 		tr {
-			border-bottom: 2px solid #ddd;
+			border-bottom: 2px solid var(--color-border);
 			padding: 0.5rem 0;
 		}
 		td {

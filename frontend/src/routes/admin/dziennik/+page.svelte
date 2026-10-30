@@ -48,26 +48,12 @@
 
 <style>
 	.lead {
-		color: #555;
+		color: var(--color-text-muted);
 		max-width: 42rem;
-	}
-	table {
-		border-collapse: collapse;
-		width: 100%;
-	}
-	th,
-	td {
-		border-bottom: 1px solid #ddd;
-		padding: 0.35rem 0.5rem;
-		text-align: left;
-		vertical-align: top;
 	}
 	.pager {
 		display: flex;
 		gap: 1rem;
 		margin-top: 1rem;
-	}
-	.error {
-		color: #b00020;
 	}
 </style>

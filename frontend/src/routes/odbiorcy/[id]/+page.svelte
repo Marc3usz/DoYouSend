@@ -74,27 +74,11 @@
 
 <style>
 	.meta {
-		color: #555;
-	}
-	.notice {
-		border: 1px solid #2a7;
-		background: #f2fbf6;
-		padding: 0.5rem 1rem;
+		color: var(--color-text-muted);
 	}
 	.issues {
-		border: 1px solid #e0b453;
-		background: #fff8e8;
+		border: 1px solid var(--color-warning-border);
+		background: var(--color-warning-soft);
 		padding: 0.5rem 1rem 0.5rem 2rem;
-	}
-	.error {
-		border: 1px solid #c00;
-		background: #fff4f4;
-		padding: 0.5rem 1rem;
-	}
-	.danger {
-		color: #fff;
-		background: #b00;
-		border: 1px solid #900;
-		padding: 0.3rem 0.8rem;
 	}
 </style>

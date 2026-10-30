@@ -46,7 +46,9 @@ type Batch struct {
 	Groups         []GroupRef
 	// RecipientIDs are the people picked by hand, outside any group.
 	RecipientIDs []string
-	Status       BatchStatus
+	// ExcludedRecipientIDs are the people explicitly excluded from this send.
+	ExcludedRecipientIDs []string
+	Status               BatchStatus
 	// SMSParts is the number of SMS parts the batch was planned with; CostMilli their
 	// price in thousandths of a złoty (see messaging.ParsePrice).
 	SMSParts  int

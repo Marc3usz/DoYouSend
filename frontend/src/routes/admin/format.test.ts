@@ -90,6 +90,7 @@ describe('audit texts', () => {
 	it('names known actions and passes others through', () => {
 		expect(actionText('user_created')).toBe('Utworzenie konta');
 		expect(actionText('batch_sent')).toBe('Zatwierdzenie wysyłki');
+		expect(actionText('batch_retried')).toBe('Ponowienie wysyłki');
 		expect(actionText('group_deleted')).toBe('group_deleted');
 	});
 	it('describes a confirmed batch by its size only', () => {
