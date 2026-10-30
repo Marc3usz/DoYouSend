@@ -8,6 +8,7 @@ import (
 // Type distinguishes who a recipient is in the school context.
 type Type string
 
+// Recipient types.
 const (
 	TypeParent  Type = "parent"
 	TypeStudent Type = "student"

@@ -27,6 +27,7 @@ const ClassNamespace = "733b2535-1e27-428a-a23d-c275f4eab3fa"
 // Audience says whom a class group covers.
 type Audience string
 
+// Audiences of the built-in and class groups.
 const (
 	AudienceStudents Audience = "students"
 	AudienceParents  Audience = "parents"

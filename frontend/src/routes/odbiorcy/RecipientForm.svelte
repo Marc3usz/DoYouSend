@@ -129,7 +129,9 @@
 		<p class="hint">Numer bez kierunkowego zostanie zapisany jako polski (+48).</p>
 	</fieldset>
 
-	<button type="submit" disabled={saving}>{saving ? 'Zapisuję…' : submitLabel}</button>
+	<button type="submit" class="primary" disabled={saving}
+		>{saving ? 'Zapisuję…' : submitLabel}</button
+	>
 </form>
 
 <style>
@@ -147,32 +149,16 @@
 	label {
 		display: flex;
 		flex-direction: column;
-		gap: 0.2rem;
+		gap: var(--space-1);
+	}
+	.row label {
 		flex: 1 1 14rem;
 	}
 	fieldset {
 		display: flex;
 		flex-direction: column;
 		gap: 0.6rem;
-		border: 1px solid #ddd;
-	}
-	[aria-invalid='true'] {
-		border-color: #c00;
-	}
-	.field-error {
-		color: #c00;
-		font-size: 0.85rem;
-		margin: 0;
-	}
-	.hint {
-		color: #555;
-		font-size: 0.85rem;
-		margin: 0;
-	}
-	.error {
-		border: 1px solid #c00;
-		background: #fff4f4;
-		padding: 0.5rem 1rem;
+		border: 1px solid var(--color-border);
 	}
 	button {
 		align-self: flex-start;

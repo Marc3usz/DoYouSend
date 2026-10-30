@@ -13,11 +13,15 @@ import (
 // Contact issue types come from package recipients, which owns the contact
 // data rules; the aliases keep this package's API (ADR-0007) unchanged.
 type (
-	Channel      = recipients.Channel
-	IssueReason  = recipients.IssueReason
+	// Channel is a delivery channel (e-mail or SMS).
+	Channel = recipients.Channel
+	// IssueReason says why a channel cannot be used.
+	IssueReason = recipients.IssueReason
+	// ContactIssue is one unusable channel of a recipient.
 	ContactIssue = recipients.ContactIssue
 )
 
+// Channels and issue reasons, re-exported from package recipients.
 const (
 	ChannelEmail = recipients.ChannelEmail
 	ChannelSMS   = recipients.ChannelSMS

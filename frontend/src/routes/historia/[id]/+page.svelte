@@ -86,9 +86,9 @@
 </dl>
 
 <div class="batch-actions">
-	<a href="/wiadomosci?kopia={batch.id}" class="btn-copy">Użyj jako podstawy nowej wiadomości</a>
+	<a href="/wiadomosci?kopia={batch.id}" class="button">Użyj jako podstawy nowej wiadomości</a>
 	{#if batch.failedCount > 0 && !stillSending(batch.status)}
-		<button type="button" class="btn-retry" onclick={onRetry} disabled={retrying}>
+		<button type="button" class="primary" onclick={onRetry} disabled={retrying}>
 			{retrying ? 'Uruchamianie ponowienia…' : `Ponów nieudane wiadomości (${batch.failedCount})`}
 		</button>
 	{/if}
@@ -144,43 +144,28 @@
 	.body {
 		white-space: pre-wrap;
 		font: inherit;
-		background: #fafafa;
-		border: 1px solid #ddd;
+		background: var(--color-surface-muted);
+		border: 1px solid var(--color-border);
 		border-radius: 4px;
 		padding: 0.75rem;
 		max-width: 42rem;
 	}
-	table {
-		border-collapse: collapse;
-		width: 100%;
-	}
-	th,
-	td {
-		border-bottom: 1px solid #ddd;
-		padding: 0.35rem 0.5rem;
-		text-align: left;
-		vertical-align: top;
-	}
 	.status.done_with_errors,
 	.bad,
 	.delivery.failed {
-		color: #b00020;
+		color: var(--color-danger);
 	}
 	.status.running,
 	.warn,
 	.delivery.pending,
 	.delivery.sending {
-		color: #8a4b00;
+		color: var(--color-warning);
 	}
 	.delivery.delivered {
-		color: #1a7f37;
+		color: var(--color-success);
 	}
 	.delivery.none {
-		color: #777;
-	}
-	.hint {
-		color: #555;
-		font-size: 0.9em;
+		color: var(--color-text-muted);
 	}
 	.batch-actions {
 		display: flex;
@@ -188,38 +173,5 @@
 		align-items: center;
 		gap: 0.75rem;
 		margin: 1.25rem 0;
-	}
-	.btn-copy {
-		display: inline-block;
-		text-decoration: none;
-		color: #1d4ed8;
-		border: 1px solid #1d4ed8;
-		border-radius: 4px;
-		padding: 0.4rem 0.75rem;
-		font: inherit;
-		background: #fff;
-	}
-	.btn-copy:hover {
-		background: #eff6ff;
-	}
-	.btn-retry {
-		background: #b00020;
-		color: #fff;
-		border: 1px solid #b00020;
-		border-radius: 4px;
-		padding: 0.4rem 0.75rem;
-		font: inherit;
-		cursor: pointer;
-	}
-	.btn-retry:hover:not(:disabled) {
-		background: #8e0019;
-	}
-	.btn-retry:disabled {
-		opacity: 0.6;
-		cursor: default;
-	}
-	.error {
-		color: #b00020;
-		margin: 0.5rem 0;
 	}
 </style>
