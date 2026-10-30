@@ -3,7 +3,7 @@
 	import { retryBatch } from '$lib/api/batches';
 	import { errorBody } from '$lib/api/errors';
 	import type { PageProps } from './$types';
-	import { costText, recipientsText, smsText } from '../../wiadomosci/estimate';
+	import { costText, plural, recipientsText, smsText } from '../../wiadomosci/estimate';
 	import {
 		batchStatusLabels,
 		dateTimeText,
@@ -17,6 +17,9 @@
 
 	let { data }: PageProps = $props();
 	const batch = $derived(data.batch);
+	const retriedCount = $derived(
+		batch.recipients.reduce((sum, r) => sum + r.deliveries.filter((d) => d.attempts > 1).length, 0)
+	);
 
 	let retrying = $state(false);
 	let retryError = $state<string | null>(null);
@@ -83,6 +86,18 @@
 	</dd>
 	<dt>SMS</dt>
 	<dd>{smsText(batch.totalSmsParts)}, {costText(batch.costMilli)}</dd>
+	{#if retriedCount > 0}
+		<dt>Ponowienia</dt>
+		<dd>
+			{retriedCount}
+			{plural(
+				retriedCount,
+				'wiadomość ponawiana',
+				'wiadomości ponawiane',
+				'wiadomości ponawianych'
+			)}
+		</dd>
+	{/if}
 </dl>
 
 <div class="batch-actions">
