@@ -10,7 +10,8 @@ export const CONFIRM_PHRASE = 'WYSYŁAJ';
 export const groupLabels: Record<SettingItem['group'], string> = {
 	general: 'Tryb wysyłki',
 	email: 'E-mail',
-	sms: 'SMS'
+	sms: 'SMS',
+	notion: 'Import odbiorców z Notion'
 };
 
 type Label = { label: string; hint?: string };
@@ -72,6 +73,22 @@ export const settingLabels: Record<string, Label> = {
 	smsapi_dlr_token: {
 		label: 'Token raportów doręczeń SMSAPI',
 		hint: 'Pusty = raporty doręczeń wyłączone.'
+	},
+	notion_token: {
+		label: 'Token integracji Notion',
+		hint: 'Internal Integration Secret (ntn_…) integracji z uprawnieniem tylko do odczytu.'
+	},
+	notion_database_id: {
+		label: 'Baza Notion z odbiorcami',
+		hint: 'Wklej link do bazy (⋯ → Copy link). Bazę trzeba udostępnić integracji (⋯ → Connections).'
+	},
+	notion_data_source_id: {
+		label: 'Źródło danych Notion',
+		hint: 'Tylko gdy baza ma kilka źródeł danych: ⋯ → Manage data sources → Copy ID.'
+	},
+	notion_property_map: {
+		label: 'Mapowanie kolumn Notion',
+		hint: 'Gdy kolumny nie nazywają się jak w szablonie (Imię, Nazwisko, E-mail, Telefon, Typ, Klasa), np. „Name=imię, Mail=e-mail”.'
 	}
 };
 
@@ -177,6 +194,11 @@ function fieldText(key: string): string {
 			return 'Podaj numer portu od 1 do 65535.';
 		case 'email_from':
 			return 'Podaj adres, np. Szkoła <sekretariat@szkola.pl>.';
+		case 'notion_database_id':
+		case 'notion_data_source_id':
+			return 'Wklej link skopiowany z Notion albo identyfikator (32 znaki).';
+		case 'notion_property_map':
+			return 'Podaj pary „kolumna w Notion=kolumna importu” oddzielone przecinkami, np. Name=imię, Mail=e-mail.';
 		default:
 			return 'Niepoprawna wartość.';
 	}

@@ -6,6 +6,7 @@ import type {
 	ImportFieldError,
 	ImportFileError,
 	ImportReport,
+	NotionImportError,
 	RecipientType
 } from '$lib/api/recipients';
 
@@ -80,4 +81,48 @@ export function duplicateText(duplicate: ImportDuplicate): string {
 
 export function recipientTypeLabel(type: RecipientType): string {
 	return type === 'parent' ? 'rodzic' : 'uczeń';
+}
+
+const notionErrorTexts: Record<NotionImportError['code'], string> = {
+	notion_not_configured:
+		'Import z Notion nie jest skonfigurowany. Administrator ustawia token integracji i link do bazy w Ustawieniach.',
+	notion_invalid_config:
+		'Ustawienia Notion są niepoprawne — sprawdź link do bazy i mapowanie kolumn w Ustawieniach.',
+	notion_ambiguous_source:
+		'Baza Notion ma kilka źródeł danych. Wskaż jedno w Ustawieniach (pole „Źródło danych Notion”).',
+	notion_no_source:
+		'Integracja nie widzi żadnego źródła danych w tej bazie. Sprawdź, czy baza jest udostępniona integracji.',
+	notion_unauthorized: 'Notion odrzucił token integracji. Wpisz aktualny token w Ustawieniach.',
+	notion_not_found:
+		'Notion nie znalazł bazy. Udostępnij ją integracji (⋯ → Connections) albo popraw link w Ustawieniach.',
+	notion_unavailable: 'Notion nie odpowiada albo ogranicza ruch. Spróbuj ponownie za chwilę.',
+	empty_file: 'Baza Notion nie ma żadnego wiersza.',
+	missing_columns:
+		'W bazie Notion brakuje wymaganych kolumn: imię, nazwisko, e-mail, telefon i typ. Zmień nazwy kolumn albo ustaw mapowanie w Ustawieniach.',
+	too_many_rows: 'Baza Notion ma za dużo wierszy — limit to 5000 osób.',
+	internal:
+		'Nie udało się zapisać odbiorców. Nic nie zostało zapisane — spróbuj ponownie za chwilę.'
+};
+
+/** Text for a failed Notion check or import; undefined means the request itself failed. */
+export function notionErrorText(error: NotionImportError | undefined): FileErrorText {
+	if (!error) {
+		return { text: 'Nie udało się połączyć z serwerem. Spróbuj ponownie za chwilę.' };
+	}
+	return { text: notionErrorTexts[error.code], detail: error.message };
+}
+
+/** Whether the administrator can fix the error in the settings panel. */
+export function notionErrorInSettings(error: NotionImportError | undefined): boolean {
+	return (
+		error !== undefined &&
+		[
+			'notion_not_configured',
+			'notion_invalid_config',
+			'notion_ambiguous_source',
+			'notion_unauthorized',
+			'notion_not_found',
+			'missing_columns'
+		].includes(error.code)
+	);
 }

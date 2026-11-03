@@ -446,5 +446,12 @@ func normalize(d Def, raw string) (string, string) {
 	if len(v) > 4096 {
 		return "", "longer than 4096 characters"
 	}
+	if d.Normalize != nil && v != "" {
+		nv, err := d.Normalize(v)
+		if err != nil {
+			return "", err.Error()
+		}
+		v = nv
+	}
 	return v, ""
 }

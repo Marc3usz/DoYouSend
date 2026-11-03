@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '$lib/api/client';
-import { importFileError, importFileErrorCodes } from '$lib/api/recipients';
+import {
+	importFileError,
+	importFileErrorCodes,
+	notionImportError,
+	notionImportErrorCodes
+} from '$lib/api/recipients';
 import {
 	duplicateText,
 	fieldErrorText,
 	fileErrorText,
+	notionErrorInSettings,
+	notionErrorText,
 	recipientTypeLabel,
 	saveErrorText,
 	savedSummary
@@ -104,5 +111,32 @@ describe('savedSummary', () => {
 		expect(savedSummary({ valid: [{ row: 2, recipient }], invalid: [], duplicates: [] })).toBe(
 			'Zapisano odbiorców: 1.'
 		);
+	});
+});
+
+describe('notionErrorText', () => {
+	it('has a Polish text for every contract code', () => {
+		for (const code of notionImportErrorCodes) {
+			const { text, detail } = notionErrorText({ code, message: 'detail' });
+			expect(text, code).not.toBe('');
+			expect(detail).toBe('detail');
+		}
+	});
+
+	it('points configuration problems at the settings panel only', () => {
+		expect(notionErrorInSettings({ code: 'notion_unauthorized', message: '' })).toBe(true);
+		expect(notionErrorInSettings({ code: 'notion_unavailable', message: '' })).toBe(false);
+		expect(notionErrorInSettings(undefined)).toBe(false);
+	});
+});
+
+describe('notionImportError', () => {
+	it('reads a contract error body and ignores anything else', () => {
+		const body = { code: 'notion_not_found', message: 'Could not find database' };
+		expect(notionImportError(new ApiError(502, 'Bad Gateway', body))).toEqual(body);
+		expect(notionImportError(new ApiError(502, 'Bad Gateway', { code: 'nope', message: '' }))).toBe(
+			undefined
+		);
+		expect(notionImportError(new Error('offline'))).toBe(undefined);
 	});
 });

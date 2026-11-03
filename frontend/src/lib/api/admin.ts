@@ -135,7 +135,7 @@ export function sendingConfig(fetch?: typeof globalThis.fetch): Promise<SendingC
 /** A setting of the sending configuration (SettingItem, ADR-0018). */
 export type SettingItem = {
 	key: string;
-	group: 'general' | 'email' | 'sms';
+	group: 'general' | 'email' | 'sms' | 'notion';
 	kind: 'text' | 'bool' | 'enum' | 'secret' | 'price' | 'port' | 'address';
 	options?: string[];
 	/** null for secrets: only `set` says whether one is stored. */

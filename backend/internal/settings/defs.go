@@ -11,6 +11,12 @@
 // providers/setup.Config (MichalK252, domain C).
 package settings
 
+import (
+	"errors"
+
+	"github.com/Marc3usz/DoYouSend/backend/internal/integrations/notion"
+)
+
 // Kind is how a setting is edited and validated.
 type Kind string
 
@@ -30,6 +36,9 @@ const (
 	GroupGeneral = "general"
 	GroupEmail   = "email"
 	GroupSMS     = "sms"
+	// GroupNotion is the Notion database the recipients import reads
+	// (ADR-0017). It never affects sending.
+	GroupNotion = "notion"
 )
 
 // Def describes one setting.
@@ -40,6 +49,9 @@ type Def struct {
 	Kind    Kind
 	Default string
 	Options []string // KindEnum only
+	// Normalize, when set, checks a non-empty value further and returns
+	// its stored form, e.g. a Notion URL reduced to the ID.
+	Normalize func(string) (string, error)
 }
 
 // Setting keys. They are part of the HTTP contract (docs/api/openapi.yaml).
@@ -65,6 +77,10 @@ const (
 	KeySMSTestMode           = "sms_test_mode"
 	KeySMSPricePerPart       = "sms_price_per_part_pln"
 	KeySMSAPIDeliveryReports = "smsapi_dlr_token"
+	KeyNotionToken           = "notion_token"
+	KeyNotionDatabaseID      = "notion_database_id"
+	KeyNotionDataSourceID    = "notion_data_source_id"
+	KeyNotionPropertyMap     = "notion_property_map"
 )
 
 // defs lists every setting, in display order. Defaults match .env.example and
@@ -93,6 +109,28 @@ var defs = []Def{
 	{Key: KeySMSTestMode, Env: "SMS_TEST_MODE", Group: GroupSMS, Kind: KindBool, Default: "false"},
 	{Key: KeySMSPricePerPart, Env: "SMS_PRICE_PER_PART_PLN", Group: GroupSMS, Kind: KindPrice, Default: "0.08"},
 	{Key: KeySMSAPIDeliveryReports, Env: "SMSAPI_DLR_TOKEN", Group: GroupSMS, Kind: KindSecret},
+
+	{Key: KeyNotionToken, Env: "NOTION_TOKEN", Group: GroupNotion, Kind: KindSecret},
+	{Key: KeyNotionDatabaseID, Env: "NOTION_DATABASE_ID", Group: GroupNotion, Kind: KindText, Normalize: notionID},
+	{Key: KeyNotionDataSourceID, Env: "NOTION_DATA_SOURCE_ID", Group: GroupNotion, Kind: KindText, Normalize: notionID},
+	{Key: KeyNotionPropertyMap, Env: "NOTION_PROPERTY_MAP", Group: GroupNotion, Kind: KindText, Normalize: notionMapping},
+}
+
+// notionID accepts a Notion ID or a URL copied from Notion and keeps the ID.
+func notionID(v string) (string, error) {
+	id, err := notion.ParseID(v)
+	if err != nil {
+		return "", errors.New("must be a Notion ID or a link copied from Notion")
+	}
+	return id, nil
+}
+
+// notionMapping checks a "Notion property=column,..." list.
+func notionMapping(v string) (string, error) {
+	if _, err := notion.ParseMapping(v); err != nil {
+		return "", err
+	}
+	return v, nil
 }
 
 // Defs returns every setting definition in display order.

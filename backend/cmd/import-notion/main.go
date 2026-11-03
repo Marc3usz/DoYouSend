@@ -61,11 +61,10 @@ func run(out io.Writer) error {
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 
-	dataSourceID, err := dataSource(ctx, client)
-	if err != nil {
-		return err
+	pages, err := client.Pages(ctx, os.Getenv("NOTION_DATABASE_ID"), os.Getenv("NOTION_DATA_SOURCE_ID"), recipients.MaxImportRows)
+	if errors.Is(err, notion.ErrNoSource) {
+		return errors.New("set NOTION_DATABASE_ID (or NOTION_DATA_SOURCE_ID)")
 	}
-	pages, err := client.QueryAll(ctx, dataSourceID, recipients.MaxImportRows)
 	if err != nil {
 		return err
 	}
@@ -97,27 +96,6 @@ func run(out io.Writer) error {
 	}
 	printReport(out, report, pages, *apply)
 	return nil
-}
-
-// dataSource picks the data source to read: NOTION_DATA_SOURCE_ID when set,
-// otherwise the only data source of NOTION_DATABASE_ID.
-func dataSource(ctx context.Context, c *notion.Client) (string, error) {
-	if raw := strings.TrimSpace(os.Getenv("NOTION_DATA_SOURCE_ID")); raw != "" {
-		return notion.ParseID(raw)
-	}
-	raw := strings.TrimSpace(os.Getenv("NOTION_DATABASE_ID"))
-	if raw == "" {
-		return "", errors.New("set NOTION_DATABASE_ID (or NOTION_DATA_SOURCE_ID)")
-	}
-	dbID, err := notion.ParseID(raw)
-	if err != nil {
-		return "", fmt.Errorf("NOTION_DATABASE_ID: %w", err)
-	}
-	ds, err := c.ResolveDataSource(ctx, dbID)
-	if err != nil {
-		return "", err
-	}
-	return ds.ID, nil
 }
 
 // printReport prints counts and, for every rejected row, its row number, the

@@ -116,6 +116,10 @@ const (
 	// ActionRecipientContactFixed is a user filling in a missing contact
 	// (PATCH /recipients/{id}/contact, ADR-0013); entity "recipient", details: channels.
 	ActionRecipientContactFixed = "recipient_contact_fixed"
+	// ActionRecipientsImported is an administrator storing recipients from an
+	// import source (POST /recipients/import/notion, ADR-0017); entity
+	// "recipients", details: source and counts, never names or contacts.
+	ActionRecipientsImported = "recipients_imported"
 )
 
 // Store is the storage the Service needs; PGStore implements it.
