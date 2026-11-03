@@ -1,6 +1,7 @@
 package recipients
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -12,10 +13,24 @@ import (
 
 // Handler serves the recipient CRUD endpoints of docs/api/openapi.yaml.
 // iam.Middleware lets only administrators through, except for GET
-// /recipients/lookup, which any signed-in user may call (iam/policy.go).
+// /recipients/lookup and PATCH /recipients/{id}/contact, which any signed-in
+// user may call (iam/policy.go).
 type Handler struct {
-	svc    *Service
-	logger *slog.Logger
+	svc     *Service
+	logger  *slog.Logger
+	auditor ContactAuditor
+}
+
+// ContactAuditor records who fixed a recipient's contact (ADR-0013). It gets
+// the channel names only, never the values.
+type ContactAuditor interface {
+	ContactFixed(ctx context.Context, recipientID string, channels []Channel)
+}
+
+// WithAuditor makes the handler report every contact fix to a.
+func (h *Handler) WithAuditor(a ContactAuditor) *Handler {
+	h.auditor = a
+	return h
 }
 
 // NewHandler returns a Handler using svc.
@@ -31,6 +46,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/recipients", h.create)
 	mux.HandleFunc("GET /api/recipients/{id}", h.get)
 	mux.HandleFunc("PUT /api/recipients/{id}", h.update)
+	mux.HandleFunc("PATCH /api/recipients/{id}/contact", h.fixContact)
 	mux.HandleFunc("DELETE /api/recipients/{id}", h.delete)
 }
 
@@ -125,6 +141,33 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, toRecipientJSON(rec, nil))
 }
 
+// fixContact lets a sender fill in a missing contact (ADR-0013). It answers
+// with the lookup shape, so it reveals no contact data, and hides who else
+// uses a duplicate value.
+func (h *Handler) fixContact(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Email *string `json:"email"`
+		Phone *string `json:"phone"`
+	}
+	if err := httpx.DecodeJSON(w, r, &body); err != nil {
+		httpx.Error(w, http.StatusBadRequest, httpx.ErrorBody{Code: "invalid_request", Message: "expected a JSON RecipientContactFix"})
+		return
+	}
+	rec, fixed, err := h.svc.FixContact(r.Context(), r.PathValue("id"), ContactFix{Email: body.Email, Phone: body.Phone})
+	if err != nil {
+		var dup *DuplicateContactError
+		if errors.As(err, &dup) {
+			err = &DuplicateContactError{Field: dup.Field}
+		}
+		h.writeError(w, r, err)
+		return
+	}
+	if h.auditor != nil {
+		h.auditor.ContactFixed(r.Context(), rec.ID, fixed)
+	}
+	httpx.JSON(w, http.StatusOK, toLookupJSON(rec))
+}
+
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	if err := h.svc.Delete(r.Context(), r.PathValue("id")); err != nil {
 		h.writeError(w, r, err)
@@ -183,6 +226,8 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) 
 			body.IDs = []string{dup.ExistingID}
 		}
 		httpx.Error(w, http.StatusConflict, body)
+	case errors.Is(err, ErrContactNotFixable):
+		httpx.Error(w, http.StatusConflict, httpx.ErrorBody{Code: "contact_not_fixable", Message: ErrContactNotFixable.Error()})
 	case errors.Is(err, ErrNotFound):
 		httpx.Error(w, http.StatusNotFound, httpx.ErrorBody{Code: "not_found", Message: ErrNotFound.Error()})
 	case errors.Is(err, ErrRecipientInUse):

@@ -85,7 +85,8 @@ const actionTexts: Record<string, string> = {
 	password_reset: 'Nadanie nowego hasła',
 	password_changed: 'Zmiana własnego hasła',
 	batch_sent: 'Zatwierdzenie wysyłki',
-	batch_retried: 'Ponowienie wysyłki'
+	batch_retried: 'Ponowienie wysyłki',
+	recipient_contact_fixed: 'Uzupełnienie kontaktu odbiorcy'
 };
 
 /** A Polish name for an audit action; actions of other domains show as they are. */
@@ -118,6 +119,14 @@ export function detailsText(entry: AuditEntry): string {
 				break;
 			case 'smsParts':
 				out.push(`części SMS: ${value}`);
+				break;
+			case 'channels':
+				out.push(
+					`kanały: ${value
+						.split(',')
+						.map((c) => (c === 'sms' ? 'SMS' : c === 'email' ? 'e-mail' : c))
+						.join(', ')}`
+				);
 				break;
 			default:
 				out.push(`${key}: ${value}`);
