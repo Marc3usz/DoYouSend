@@ -52,6 +52,18 @@ func (im *Importer) Check(ctx context.Context, r io.Reader) (ImportReport, error
 	return im.classifyStored(ctx, rows)
 }
 
+// CheckTable is Check for rows that come from another source than a file,
+// such as a Notion database (ADR-0017). table[0] is the header, named like
+// the columns of an import file; row numbers in the report count the header
+// as row 1, as in a spreadsheet.
+func (im *Importer) CheckTable(ctx context.Context, table [][]string) (ImportReport, error) {
+	rows, err := parseTable(table)
+	if err != nil {
+		return ImportReport{}, err
+	}
+	return im.classifyStored(ctx, rows)
+}
+
 // Import runs Check and stores the rows it reports as valid. Invalid and
 // duplicate rows are left out, not fatal: the report says which and why.
 // Storing is all-or-nothing, so after an error nothing was imported and the
@@ -61,7 +73,20 @@ func (im *Importer) Import(ctx context.Context, r io.Reader) (ImportReport, erro
 	if err != nil {
 		return ImportReport{}, err
 	}
+	return im.save(ctx, rows)
+}
 
+// ImportTable is Import for a table as accepted by CheckTable.
+func (im *Importer) ImportTable(ctx context.Context, table [][]string) (ImportReport, error) {
+	rows, err := parseTable(table)
+	if err != nil {
+		return ImportReport{}, err
+	}
+	return im.save(ctx, rows)
+}
+
+// save classifies parsed rows and stores the valid ones in one transaction.
+func (im *Importer) save(ctx context.Context, rows []parsedRow) (ImportReport, error) {
 	// A contact stored by someone else between the lookup and the insert
 	// makes the unique index refuse the whole batch. One more lookup turns
 	// that row into a reported duplicate instead of failing the import.

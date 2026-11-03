@@ -331,3 +331,20 @@ func recordToRecipient(record []string, cols map[string]int) Recipient {
 		Classes:   ParseClassList(field("classes")),
 	}
 }
+
+// parseTable validates rows that did not come from a file (ADR-0017): table[0]
+// is the header and every later entry one record. It applies the same limits
+// and blank-row skipping as a file, so the report reads the same.
+func parseTable(table [][]string) ([]parsedRow, error) {
+	rows := make([]sourceRow, 0, len(table))
+	for i, record := range table {
+		if isEmptyRecord(record) {
+			continue
+		}
+		rows = append(rows, newSourceRow(i+1, record))
+		if len(rows) > MaxImportRows+1 {
+			return nil, ErrTooManyRows
+		}
+	}
+	return parseRows(rows)
+}
