@@ -314,7 +314,7 @@ func TestSendGrid_ErrorClassification(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				for k, vs := range tc.responseHeader {
 					for _, v := range vs {
 						w.Header().Add(k, v)
@@ -467,7 +467,7 @@ func TestSendGrid_GetProfile_Success(t *testing.T) {
 func TestSendGrid_GetProfile_APIError(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{
@@ -500,7 +500,7 @@ func TestSendGrid_GetProfile_APIError(t *testing.T) {
 func TestSendGrid_GetProfile_5xxNoJSON(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 		_, _ = w.Write([]byte("Bad Gateway"))
 	}))
@@ -528,7 +528,7 @@ func TestSendGrid_GetProfile_5xxNoJSON(t *testing.T) {
 func TestSendGrid_GetProfile_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"remain": `))
@@ -557,7 +557,7 @@ func TestSendGrid_GetProfile_InvalidJSON(t *testing.T) {
 func TestSendGrid_GetProfile_MissingRemain(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"total": 100, "used": 0}`))

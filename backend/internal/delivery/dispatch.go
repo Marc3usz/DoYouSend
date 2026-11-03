@@ -85,22 +85,22 @@ func NewDispatcher(senders []Sender, policy RetryPolicy, logger *slog.Logger) (*
 	return &Dispatcher{senders: byChannel, policy: policy, logger: logger, sleep: sleepCtx}, nil
 }
 
-// DeliveryObserver observes each delivery transition during dispatch.
-type DeliveryObserver interface {
+// Observer observes each delivery transition during dispatch.
+type Observer interface {
 	OnDelivery(ctx context.Context, recipientID string, del Delivery) error
 }
 
-// DeliveryObserverFunc adapts a function to DeliveryObserver.
-type DeliveryObserverFunc func(ctx context.Context, recipientID string, del Delivery) error
+// ObserverFunc adapts a function to Observer.
+type ObserverFunc func(ctx context.Context, recipientID string, del Delivery) error
 
 // OnDelivery calls f(ctx, recipientID, del).
-func (f DeliveryObserverFunc) OnDelivery(ctx context.Context, recipientID string, del Delivery) error {
+func (f ObserverFunc) OnDelivery(ctx context.Context, recipientID string, del Delivery) error {
 	return f(ctx, recipientID, del)
 }
 
 // DispatchWithObserver sends every pending delivery of plan and notifies observer
 // on transitions (marking 'sending' before gateway call, and outcome after gateway call).
-func (d *Dispatcher) DispatchWithObserver(ctx context.Context, plan Plan, obs DeliveryObserver) (Plan, error) {
+func (d *Dispatcher) DispatchWithObserver(ctx context.Context, plan Plan, obs Observer) (Plan, error) {
 	out := plan.clone()
 	var channelPause map[providers.Channel]time.Time
 	for i := range out.Recipients {
@@ -165,12 +165,6 @@ func (d *Dispatcher) DispatchWithObserver(ctx context.Context, plan Plan, obs De
 // instead of being sent again.
 func (d *Dispatcher) Dispatch(ctx context.Context, plan Plan) (Plan, error) {
 	return d.DispatchWithObserver(ctx, plan, nil)
-}
-
-// send tries one delivery until it succeeds, fails for good or runs out of attempts.
-func (d *Dispatcher) send(ctx context.Context, subject, recipientID, body string, del Delivery) Delivery {
-	del, _ = d.sendWithPause(ctx, subject, recipientID, body, del)
-	return del
 }
 
 func (d *Dispatcher) sendWithPause(ctx context.Context, subject, recipientID, body string, del Delivery) (Delivery, time.Duration) {

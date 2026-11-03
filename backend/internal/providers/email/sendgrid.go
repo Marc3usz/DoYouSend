@@ -279,7 +279,7 @@ func (sg *SendGrid) GetProfile(ctx context.Context) (Profile, error) {
 	if err != nil {
 		return Profile{}, fmt.Errorf("sendgrid get profile: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8192))
 	if err != nil {

@@ -21,8 +21,10 @@ import (
 const saveTimeout = 10 * time.Second
 
 var (
+	// ErrEmptySubject means the e-mail subject is empty.
 	ErrEmptySubject = errors.New("e-mail subject is empty")
-	ErrInvalidUser  = errors.New("sender user ID is not valid")
+	// ErrInvalidUser means the sender user ID is not valid.
+	ErrInvalidUser = errors.New("sender user ID is not valid")
 	// ErrUnknownPlaceholders means the body uses a placeholder no recipient can fill.
 	ErrUnknownPlaceholders = errors.New("body uses unknown placeholders")
 	// ErrSelectionChanged means a selected group or person no longer exists.
@@ -51,6 +53,7 @@ func (e *SelectionChangedError) Error() string {
 		len(e.UnknownGroupIDs), len(e.UnknownRecipientIDs))
 }
 
+// Is makes errors.Is(err, ErrSelectionChanged) match a SelectionChangedError.
 func (e *SelectionChangedError) Is(target error) bool { return target == ErrSelectionChanged }
 
 // Resolver expands a selection into the final recipient list. *groups.Resolver satisfies it.
@@ -71,7 +74,7 @@ type PlanDispatcher interface {
 // ObservablePlanDispatcher sends a plan while notifying an observer of delivery progress.
 // *Dispatcher satisfies it.
 type ObservablePlanDispatcher interface {
-	DispatchWithObserver(ctx context.Context, plan Plan, obs DeliveryObserver) (Plan, error)
+	DispatchWithObserver(ctx context.Context, plan Plan, obs Observer) (Plan, error)
 }
 
 // Draft is the message the sender confirms in the composer.
@@ -290,7 +293,7 @@ func requestHash(d Draft) (string, error) {
 func (s *Service) dispatch(ctx context.Context, batch Batch) (Batch, error) {
 	// Each delivery is saved as soon as it is sent (ADR-0011): a delivery report that
 	// arrives mid-batch finds its provider_message_id, and a restart keeps the progress.
-	obs := DeliveryObserverFunc(func(obsCtx context.Context, recipientID string, del Delivery) error {
+	obs := ObserverFunc(func(obsCtx context.Context, recipientID string, del Delivery) error {
 		return s.store.SaveDelivery(context.WithoutCancel(obsCtx), batch.ID, recipientID, del)
 	})
 	var (

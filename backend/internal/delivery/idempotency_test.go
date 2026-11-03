@@ -88,7 +88,7 @@ type raceStore struct {
 	lookups int
 }
 
-func (s *raceStore) BatchByKey(ctx context.Context, by, key string) (Batch, error) {
+func (s *raceStore) BatchByKey(_ context.Context, _, _ string) (Batch, error) {
 	s.lookups++
 	if s.lookups == 1 {
 		return Batch{}, ErrBatchNotFound

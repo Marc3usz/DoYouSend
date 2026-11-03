@@ -55,13 +55,6 @@ func HandleProfile(profiler Profiler, logger *slog.Logger) http.Handler {
 			return
 		}
 
-		httpx.JSON(w, http.StatusOK, ProfileResponse{
-			Provider:       profile.Provider,
-			RemainCredits:  profile.RemainCredits,
-			TotalCredits:   profile.TotalCredits,
-			UsedCredits:    profile.UsedCredits,
-			ResetFrequency: profile.ResetFrequency,
-			NextReset:      profile.NextReset,
-		})
+		httpx.JSON(w, http.StatusOK, ProfileResponse(profile))
 	})
 }

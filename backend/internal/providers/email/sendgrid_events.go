@@ -50,7 +50,7 @@ func VerifySendGridWebhookSignature(publicKeyBase64 string, payload []byte, sign
 
 	sec, err := strconv.ParseInt(strings.TrimSpace(timestamp), 10, 64)
 	if err != nil {
-		return fmt.Errorf("%w: invalid timestamp header: %v", ErrInvalidWebhookSignature, err)
+		return fmt.Errorf("%w: invalid timestamp header: %w", ErrInvalidWebhookSignature, err)
 	}
 	ts := time.Unix(sec, 0)
 	diff := time.Since(ts)
@@ -60,12 +60,12 @@ func VerifySendGridWebhookSignature(publicKeyBase64 string, payload []byte, sign
 
 	der, err := base64.StdEncoding.DecodeString(strings.TrimSpace(publicKeyBase64))
 	if err != nil {
-		return fmt.Errorf("%w: decode public key base64: %v", ErrInvalidWebhookSignature, err)
+		return fmt.Errorf("%w: decode public key base64: %w", ErrInvalidWebhookSignature, err)
 	}
 
 	pub, err := x509.ParsePKIXPublicKey(der)
 	if err != nil {
-		return fmt.Errorf("%w: parse public key: %v", ErrInvalidWebhookSignature, err)
+		return fmt.Errorf("%w: parse public key: %w", ErrInvalidWebhookSignature, err)
 	}
 
 	ecdsaPub, ok := pub.(*ecdsa.PublicKey)
@@ -75,7 +75,7 @@ func VerifySendGridWebhookSignature(publicKeyBase64 string, payload []byte, sign
 
 	sig, err := base64.StdEncoding.DecodeString(strings.TrimSpace(signatureBase64))
 	if err != nil {
-		return fmt.Errorf("%w: decode signature base64: %v", ErrInvalidWebhookSignature, err)
+		return fmt.Errorf("%w: decode signature base64: %w", ErrInvalidWebhookSignature, err)
 	}
 
 	h := sha256.New()

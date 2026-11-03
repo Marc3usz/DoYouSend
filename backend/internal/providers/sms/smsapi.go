@@ -21,9 +21,9 @@ import (
 // DefaultSMSAPIBaseURL is the production SMSAPI endpoint (ADR-0003).
 const DefaultSMSAPIBaseURL = "https://api.smsapi.pl"
 
-// SMSAPIConfig holds configuration details for the SMSAPI REST adapter.
+// APIConfig holds configuration details for the SMSAPI REST adapter.
 // Values come from the environment via setup.ConfigFromEnv.
-type SMSAPIConfig struct {
+type APIConfig struct {
 	// APIKey is the OAuth token / API key (Bearer token). Required.
 	APIKey string
 
@@ -48,23 +48,23 @@ type SMSAPIConfig struct {
 	HTTPClient *http.Client
 }
 
-// SMSAPI delivers SMS messages via the SMSAPI REST API (POST /sms.do).
+// API delivers SMS messages via the SMSAPI REST API (POST /sms.do).
 //
 // It implements providers.Provider and is safe for concurrent use.
 // No vendor SDKs are used (pure net/http).
-type SMSAPI struct {
-	cfg        SMSAPIConfig
+type API struct {
+	cfg        APIConfig
 	client     *http.Client
 	url        string
 	profileURL string
 	logger     *slog.Logger
 }
 
-// NewSMSAPI creates an SMSAPI SMS provider.
+// NewAPI creates an SMSAPI SMS provider.
 // If logger is nil, slog.Default() is used.
 //
 // Returns an error if APIKey is empty.
-func NewSMSAPI(cfg SMSAPIConfig, logger *slog.Logger) (*SMSAPI, error) {
+func NewAPI(cfg APIConfig, logger *slog.Logger) (*API, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -83,7 +83,7 @@ func NewSMSAPI(cfg SMSAPIConfig, logger *slog.Logger) (*SMSAPI, error) {
 	}
 	base = strings.TrimRight(base, "/")
 
-	return &SMSAPI{
+	return &API{
 		cfg:        cfg,
 		client:     client,
 		url:        base + "/sms.do",
@@ -105,7 +105,7 @@ type Profiler interface {
 }
 
 // GetProfile fetches account profile and balance details from SMSAPI GET /profile.
-func (s *SMSAPI) GetProfile(ctx context.Context) (Profile, error) {
+func (s *API) GetProfile(ctx context.Context) (Profile, error) {
 	if ctx.Err() != nil {
 		return Profile{}, ctx.Err()
 	}
@@ -122,7 +122,7 @@ func (s *SMSAPI) GetProfile(ctx context.Context) (Profile, error) {
 	if err != nil {
 		return Profile{}, fmt.Errorf("smsapi get profile: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8192))
 	if err != nil {
@@ -159,7 +159,7 @@ func (s *SMSAPI) GetProfile(ctx context.Context) (Profile, error) {
 }
 
 // Channel returns providers.ChannelSMS.
-func (s *SMSAPI) Channel() providers.Channel {
+func (s *API) Channel() providers.Channel {
 	return providers.ChannelSMS
 }
 
@@ -171,7 +171,7 @@ func (s *SMSAPI) Channel() providers.Channel {
 //   - Permanent errors: validation (11, 12, 18, 26), invalid recipient/blacklisted (13),
 //     invalid sender name (14), auth failure (101, 102), IP filter whitelist (105),
 //     unknown error codes, and 4xx HTTP statuses.
-func (s *SMSAPI) Send(ctx context.Context, msg providers.Message) (providers.Result, error) {
+func (s *API) Send(ctx context.Context, msg providers.Message) (providers.Result, error) {
 	if ctx.Err() != nil {
 		return providers.Result{}, providers.TransientError(
 			fmt.Errorf("send sms to recipient %s: %w", msg.RecipientID, ctx.Err()),
@@ -230,7 +230,7 @@ func (s *SMSAPI) Send(ctx context.Context, msg providers.Message) (providers.Res
 			fmt.Errorf("send sms to recipient %s: %w", msg.RecipientID, err),
 		)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 8192))
 	if err != nil {

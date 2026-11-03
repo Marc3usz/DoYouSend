@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	_ "time/tzdata"
+	_ "time/tzdata" // embed IANA timezone database for Europe/Warsaw in minimal containers
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/httpx"
 )
