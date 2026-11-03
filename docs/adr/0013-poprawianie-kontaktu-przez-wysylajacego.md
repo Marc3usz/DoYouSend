@@ -1,6 +1,7 @@
 # ADR-0013: Poprawianie brakującego kontaktu przez wysyłającego
 
-- **Status:** propozycja — czeka na akceptację MichalK252 (domena B, kreator)
+- **Status:** przyjęta (2026-11-03) — MichalK252 zatwierdził kontrakt (#72) i implementację
+  (#73), a sam dopisał przycisk w kreatorze (#78)
 - **Data:** 2026-10-28
 - **Uczestnicy:** Marc3usz (domeny A i D: odbiorcy, uprawnienia), MichalK252 (domena B: kreator)
 
@@ -48,4 +49,4 @@ Kreator (domena B) pokazuje przy osobie z brakiem przycisk „Popraw” obok „
   podpiętą w `cmd/api` tak jak audyt wsadów.
 - Ryzyko: wysyłający może wpisać błędny adres w miejsce brakującego. Ślad zostaje w dzienniku,
   a administrator widzi i poprawia pełne dane w `/odbiorcy`.
-- Kreator: przycisk „Popraw” w liście osób z brakami (#66) — do zrobienia po scaleniu kontraktu.
+- Kreator: przycisk „Popraw dane” w liście osób z brakami (#66) — zrobiony w #78.

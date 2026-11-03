@@ -1,6 +1,6 @@
 # ADR-0014: Oficjalne SDK SendGrid za adapterem i region UE
 
-- **Status:** propozycja
+- **Status:** przyjęta (2026-11-03) — MichalK252 zatwierdził ADR (#75) i implementację (#76)
 - **Data:** 2026-10-30
 - **Uczestnicy:** Marc3usz (DEV A) proponuje, MichalK252 (DEV C, właściciel `providers`) decyduje
 - **Zmienia:** punkt „Bez SDK” w ADR-0008. Reszta ADR-0008 (Web API v3, jedno wywołanie na
@@ -80,5 +80,5 @@ taka jak SMS (`CLAUDE.md`, zasada 4).
   domeny nadawcy też są per region. Zweryfikować w dokumentacji i w panelu SendGrid.
 - **Poza zakresem:** rezydencja danych bazy, hostingu i logów (osobna decyzja, dotyka
   `platform/` i wdrożenia) oraz region SMSAPI (`api.smsapi.pl`).
-- Do zrobienia po akceptacji: zmienna `SENDGRID_REGION` w `.env.example` i
-  `docs/integracje.md`, odsyłacz w ADR-0008 (zrobiony w tym PR-ze).
+- Zmienna `SENDGRID_REGION` jest w `.env.example` i `docs/integracje.md` (#76), odsyłacz
+  w ADR-0008 dodany razem z tym ADR-em (#75).
