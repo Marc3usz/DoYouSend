@@ -775,8 +775,8 @@ paths:
       summary: Konfiguracja wysylki (tylko do odczytu, bez sekretow)
       description: |
         Operatorzy, tryb DRY_RUN, nadawcy, cena SMS i to, czy klucze i webhooki sa ustawione.
-        Wartosci kluczy nigdy nie sa zwracane. Zmiana wymaga edycji .env na serwerze, a podlaczenie
-        prawdziwego operatora - zgody opiekuna projektu (CLAUDE.md, zasada 3).
+        Wartosci kluczy nigdy nie sa zwracane. Zmienia sie je w PATCH /admin/settings (ADR-0018);
+        podlaczenie prawdziwego operatora wymaga zgody opiekuna projektu (CLAUDE.md, zasada 3).
       responses:
         "200":
           description: OK
@@ -784,6 +784,46 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SendingConfig" }
         "403": { $ref: "#/components/responses/Error" }
+
+  /admin/settings:
+    get:
+      tags: [admin]
+      summary: Ustawienia wysylki edytowane w panelu (ADR-0018)
+      description: |
+        Kazde ustawienie ma wartosc efektywna i jej zrodlo: panel > zmienna srodowiskowa > domyslna.
+        Sekrety (kind=secret) nigdy nie sa zwracane: value jest null, a set mowi, czy sa ustawione.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Settings" }
+        "403": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [admin]
+      summary: Zmienia ustawienia; operatorzy sa przebudowywani bez restartu
+      description: |
+        Tylko podane klucze sie zmieniaja; null usuwa wartosc z panelu (wraca .env albo domyslna).
+        Przed zapisem backend buduje operatorow z nowej konfiguracji - gdy sie nie da (np. sendgrid
+        bez klucza), nic nie jest zapisane: 400 invalid_input z polem "config".
+        Zmiana, po ktorej wiadomosci wychodza na zewnatrz (DRY_RUN off i sendgrid albo smsapi), a
+        przedtem nie wychodzily, wymaga confirmLiveSending=true, inaczej 409 confirmation_required.
+        Przy DRY_RUN_LOCK=true na serwerze wylaczenie DRY_RUN daje 409 dry_run_locked.
+        Wsady juz wysylane koncza wysylke z operatorem aktualnym w chwili kazdej wiadomosci.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SettingsChange" }
+      responses:
+        "200":
+          description: Zapisano i zastosowano
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Settings" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
 
   /admin/providers/sms/profile:
     get:
@@ -1025,6 +1065,46 @@ components:
         items:
           type: array
           items: { $ref: "#/components/schemas/SenderIdentity" }
+
+    Settings:
+      type: object
+      required: [dryRun, dryRunLocked, sendsExternally, items]
+      properties:
+        dryRun:          { type: boolean, description: "DRY_RUN w mocy (uwzglednia DRY_RUN_LOCK)" }
+        dryRunLocked:    { type: boolean, description: "DRY_RUN_LOCK=true na serwerze: panelu nie wolno wylaczyc DRY_RUN" }
+        sendsExternally: { type: boolean, description: "DRY_RUN off i co najmniej jeden prawdziwy operator" }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/SettingItem" }
+
+    SettingItem:
+      type: object
+      required: [key, group, kind, value, set, source, envVar, unreadable]
+      properties:
+        key:
+          type: string
+          enum: [dry_run, email_provider, email_from, smtp_host, smtp_port, smtp_username, smtp_password,
+                 sendgrid_api_key, sendgrid_sandbox, sendgrid_region, sendgrid_webhook_public_key,
+                 sendgrid_sender_address, sendgrid_sender_city, sendgrid_sender_zip, sendgrid_sender_country,
+                 sms_provider, sms_api_key, sms_sender_name, sms_test_mode, sms_price_per_part_pln, smsapi_dlr_token]
+        group:   { type: string, enum: [general, email, sms] }
+        kind:    { type: string, enum: [text, bool, enum, secret, price, port, address] }
+        options: { type: array, items: { type: string }, description: "Dla kind=enum" }
+        value:   { type: string, nullable: true, description: "null dla sekretow; bool jako \"true\"/\"false\"" }
+        set:     { type: boolean }
+        source:  { type: string, enum: [panel, env, default] }
+        envVar:  { type: string, description: "Zmienna srodowiskowa uzywana, gdy panel nie ma wartosci" }
+        unreadable: { type: boolean, description: "Sekret z panelu nie daje sie odszyfrowac (zmieniony klucz) - wpisz ponownie" }
+
+    SettingsChange:
+      type: object
+      required: [values]
+      properties:
+        values:
+          type: object
+          description: "Klucz SettingItem.key -> nowa wartosc (string) albo null (usun wartosc z panelu)"
+          additionalProperties: { type: string, nullable: true }
+        confirmLiveSending: { type: boolean, default: false }
 
     SMSProfile:
       type: object
@@ -1347,6 +1427,8 @@ components:
             - not_supported        # operacja nieobslugiwana przez skonfigurowanego operatora (501)
             - provider_error       # blad komunikacji z zewnetrznym operatorem (502)
             - batch_running        # POST /batches/{id}/retry: wsad jest obecnie w trakcie wysylki (409)
+            - confirmation_required   # PATCH /admin/settings: wlaczenie prawdziwej wysylki bez confirmLiveSending (409)
+            - dry_run_locked          # PATCH /admin/settings: DRY_RUN_LOCK=true na serwerze (409)
             - sender_not_configured   # /users/{id}/sender: uzytkownik nie ma tozsamosci nadawcy (404)
             - sender_exists           # POST /users/{id}/sender: juz ma tozsamosc (409)
             - sender_already_verified # POST /users/{id}/sender/resend: juz potwierdzona (409)

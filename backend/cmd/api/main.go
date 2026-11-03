@@ -29,6 +29,7 @@ import (
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers/setup"
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers/sms"
 	"github.com/Marc3usz/DoYouSend/backend/internal/recipients"
+	"github.com/Marc3usz/DoYouSend/backend/internal/settings"
 )
 
 func main() {
@@ -53,9 +54,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	// dryRunNow reports the DRY_RUN in effect; the settings panel can change it.
+	dryRunNow := func() bool { return cfg.DryRun }
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		httpx.JSON(w, http.StatusOK, map[string]any{"status": "ok", "dryRun": cfg.DryRun})
+		httpx.JSON(w, http.StatusOK, map[string]any{"status": "ok", "dryRun": dryRunNow()})
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -85,13 +88,19 @@ func main() {
 		resolver := groups.NewResolver(groupStore, recipientStore)
 		groupService := groups.NewService(groupStore, recipientStore)
 		groups.NewHandler(groupService, resolver, logger).WithContactAccess(isAdmin).Register(mux)
-		smsPrice, err := messaging.ParsePrice(os.Getenv("SMS_PRICE_PER_PART_PLN"))
+		// Sending configuration (ADR-0018): panel values from the database win over
+		// .env, which wins over defaults. Providers are rebuilt on every change.
+		settingsSvc, live, err := loadSettings(ctx, pool, logger)
 		if err != nil {
-			logger.Error("invalid SMS_PRICE_PER_PART_PLN (see .env.example)", "err", err)
+			logger.Error("initialize settings", "err", err)
 			os.Exit(1)
 		}
-		mux.Handle("POST /api/messages/preview",
-			messaging.HandlePreview(messaging.NewPreviewer(resolver, smsPrice), logger))
+		dryRunNow = func() bool { return live.Config().DryRun }
+		currentPrice := func() int64 { return settingsSvc.Current().SMSPriceMilli() }
+
+		mux.Handle("POST /api/messages/preview", perRequest(func() http.Handler {
+			return messaging.HandlePreview(messaging.NewPreviewer(resolver, currentPrice()), logger)
+		}))
 		importer := recipients.NewImporter(recipientStore)
 		mux.Handle("POST /api/recipients/import/check", recipients.HandleImportFile(importer.Check, logger))
 		mux.Handle("POST /api/recipients/import", recipients.HandleImportFile(importer.Import, logger))
@@ -99,86 +108,63 @@ func main() {
 		reportConsumer := providers.NewPGDeliveryReportConsumer(pool, logger)
 		reportConsumer.StartCleaner(ctx, 24*time.Hour, 7*24*time.Hour)
 
-		smsToken := strings.TrimSpace(os.Getenv("SMSAPI_DLR_TOKEN"))
-		if smsToken != "" {
-			dlrHandler := sms.HandleSMSAPIDLR(reportConsumer, smsToken, logger)
-			mux.Handle("GET /providers/sms/dlr", dlrHandler)
-			mux.Handle("POST /providers/sms/dlr", dlrHandler)
-			mux.Handle("GET /providers/sms/dlr/{token}", dlrHandler)
-			mux.Handle("POST /providers/sms/dlr/{token}", dlrHandler)
-		} else {
-			logger.Warn("SMSAPI_DLR_TOKEN is not set: SMSAPI DLR webhook routes are disabled")
-		}
-
-		sendgridKey := strings.TrimSpace(os.Getenv("SENDGRID_WEBHOOK_PUBLIC_KEY"))
-		if sendgridKey != "" {
-			mux.Handle("POST /providers/email/events", email.HandleSendGridEvents(reportConsumer, sendgridKey, logger))
-		} else {
-			logger.Warn("SENDGRID_WEBHOOK_PUBLIC_KEY is not set: SendGrid event webhook route is disabled")
-		}
+		// Webhook routes are always registered; without a token or key they answer 404,
+		// as they did when the routes were left out.
+		dlrHandler := cachedBySecret(
+			func() string { return settingsSvc.Current().Value(settings.KeySMSAPIDeliveryReports) },
+			func(token string) http.Handler { return sms.HandleSMSAPIDLR(reportConsumer, token, logger) })
+		mux.Handle("GET /providers/sms/dlr", dlrHandler)
+		mux.Handle("POST /providers/sms/dlr", dlrHandler)
+		mux.Handle("GET /providers/sms/dlr/{token}", dlrHandler)
+		mux.Handle("POST /providers/sms/dlr/{token}", dlrHandler)
+		mux.Handle("POST /providers/email/events", cachedBySecret(
+			func() string { return settingsSvc.Current().Value(settings.KeySendGridWebhookKey) },
+			func(key string) http.Handler { return email.HandleSendGridEvents(reportConsumer, key, logger) }))
 
 		smsUsageStore := sms.NewPGUsageStore(pool)
-		mux.Handle("GET /api/stats/sms", sms.HandleUsageStats(smsUsageStore, smsPrice, logger))
+		mux.Handle("GET /api/stats/sms", perRequest(func() http.Handler {
+			return sms.HandleUsageStats(smsUsageStore, currentPrice(), logger)
+		}))
 
 		emailUsageStore := email.NewPGUsageStore(pool)
 		mux.Handle("GET /api/stats/email", email.HandleUsageStats(emailUsageStore, logger))
 
-		provCfg := setup.ConfigFromEnv()
-		provCfg.DryRun = cfg.DryRun
-		provs, err := setup.New(provCfg, logger)
-		if err != nil {
-			logger.Error("initialize delivery providers", "err", err)
-			os.Exit(1)
-		}
-		logger.Info("delivery providers initialized",
-			"email", provCfg.EmailProvider,
-			"sms", provCfg.SMSProvider,
-			"dryRun", provCfg.DryRun,
-		)
+		mux.Handle("GET /api/admin/providers/sms/profile", perRequest(func() http.Handler {
+			return sms.HandleProfile(live.SMSProfiler(), logger)
+		}))
+		mux.Handle("GET /api/admin/providers/email/profile", perRequest(func() http.Handler {
+			return email.HandleProfile(live.EmailProfiler(), logger)
+		}))
 
-		mux.Handle("GET /api/admin/providers/sms/profile", sms.HandleProfile(provs.SMSProfiler(), logger))
-		mux.Handle("GET /api/admin/providers/email/profile", email.HandleProfile(provs.EmailProfiler(), logger))
-
-		dispatcher, err := provs.Dispatcher(delivery.DefaultRetryPolicy(), logger)
+		dispatcher, err := live.Dispatcher(delivery.DefaultRetryPolicy(), logger)
 		if err != nil {
 			logger.Error("initialize delivery dispatcher", "err", err)
 			os.Exit(1)
 		}
 		batchStore := delivery.NewPGStore(pool)
-		batchService := delivery.NewService(resolver, groupService, dispatcher, batchStore, smsPrice, logger)
+		batchService := delivery.NewService(resolver, groupService, dispatcher, batchStore, currentPrice(), logger)
 		delivery.NewHandler(batchService, batchStore, currentCaller, logger).Register(mux)
 		waitBatches = batchService.Wait
-
-		sending := iam.SendingConfig{
-			DryRun:               cfg.DryRun,
-			EmailProvider:        provCfg.EmailProvider,
-			EmailFrom:            provCfg.EmailFrom,
-			EmailSandbox:         provCfg.SendGridSandbox,
-			EmailCredentialsSet:  provCfg.SendGridAPIKey != "" || provCfg.SMTPPassword != "",
-			EmailEventsWebhook:   sendgridKey != "",
-			SMSProvider:          provCfg.SMSProvider,
-			SMSSenderName:        provCfg.SMSSenderName,
-			SMSTestMode:          provCfg.SMSAPITestMode,
-			SMSCredentialsSet:    provCfg.SMSAPIKey != "",
-			SMSReportsWebhook:    smsToken != "",
-			SMSPricePerPartMilli: smsPrice,
-		}
 		batchService.SetAuditor(batchAudit{log: iamSvc})
-		iam.NewHandler(iamSvc, iam.CookieOptions{Secure: cfg.SessionCookieSecure}, sending, logger).Register(mux)
+
+		iam.NewHandler(iamSvc, iam.CookieOptions{Secure: cfg.SessionCookieSecure}, iam.SendingConfig{}, logger).
+			WithConfigSource(func() iam.SendingConfig { return sendingConfig(settingsSvc.Current()) }).
+			Register(mux)
 
 		// Sender identities (ADR-0016): fake under DRY_RUN, SendGrid otherwise.
-		verifier, liveSenders, err := setup.NewSenderVerifier(provCfg, logger)
-		if err != nil {
-			logger.Error("initialize sender verification", "err", err)
-			os.Exit(1)
-		}
-		senderProvider := "fake"
-		if liveSenders {
-			senderProvider = "sendgrid"
-		}
-		senders := iam.NewSenders(iamSvc, iam.NewPGStore(pool), senderVerifier{v: verifier, cfg: provCfg},
-			iam.SenderOptions{Provider: senderProvider, Live: liveSenders})
+		senders := iam.NewSenders(iamSvc, iam.NewPGStore(pool), senderVerifier{live: live}, senderOptions(live))
 		iam.NewSenderHandler(senders, logger).Register(mux)
+
+		settingsSvc.SetApplier(live)
+		settingsSvc.SetAuditor(iamSvc)
+		settingsSvc.OnChange(func(snap settings.Snapshot) {
+			batchService.SetSMSPrice(snap.SMSPriceMilli())
+			senders.SetOptions(senderOptions(live))
+		})
+		settings.NewHandler(settingsSvc, func(ctx context.Context) string {
+			u, _ := iam.UserFrom(ctx)
+			return u.ID
+		}, logger).Register(mux)
 		handler = iam.Middleware(iamSvc, logger, mux)
 	}
 
@@ -189,7 +175,7 @@ func main() {
 	}
 
 	go func() {
-		logger.Info("api listening", "addr", srv.Addr, "env", cfg.AppEnv, "dryRun", cfg.DryRun)
+		logger.Info("api listening", "addr", srv.Addr, "env", cfg.AppEnv, "dryRun", dryRunNow())
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("server stopped", "err", err)
 			stop()
@@ -266,17 +252,21 @@ func currentCaller(ctx context.Context) (delivery.Caller, bool) {
 }
 
 // senderVerifier adapts the e-mail provider's sender-identity API to iam
-// (ADR-0016) and adds the school's postal address from the environment.
-type senderVerifier struct {
-	v   email.SenderVerifier
-	cfg setup.Config
+// (ADR-0016). It asks live for the current verifier and the school's postal
+// address on every call, so settings-panel changes apply at once.
+type senderVerifier struct{ live *setup.Live }
+
+func (a senderVerifier) verifier() email.SenderVerifier {
+	v, _ := a.live.SenderVerifier()
+	return v
 }
 
 func (a senderVerifier) CreateSender(ctx context.Context, in iam.SenderRequest) (iam.ProviderSender, error) {
-	s, err := a.v.CreateSender(ctx, email.NewSenderIdentity{
+	cfg := a.live.Config()
+	s, err := a.verifier().CreateSender(ctx, email.NewSenderIdentity{
 		Nickname: in.Nickname, FromEmail: in.FromEmail, FromName: in.FromName,
 		ReplyTo: in.ReplyTo, ReplyToName: in.FromName,
-		Address: a.cfg.SenderAddress, City: a.cfg.SenderCity, Zip: a.cfg.SenderZip, Country: a.cfg.SenderCountry,
+		Address: cfg.SenderAddress, City: cfg.SenderCity, Zip: cfg.SenderZip, Country: cfg.SenderCountry,
 	})
 	if err != nil {
 		return iam.ProviderSender{}, senderError(err)
@@ -285,7 +275,7 @@ func (a senderVerifier) CreateSender(ctx context.Context, in iam.SenderRequest) 
 }
 
 func (a senderVerifier) GetSender(ctx context.Context, id string) (iam.ProviderSender, error) {
-	s, err := a.v.GetSender(ctx, id)
+	s, err := a.verifier().GetSender(ctx, id)
 	if err != nil {
 		return iam.ProviderSender{}, senderError(err)
 	}
@@ -293,11 +283,11 @@ func (a senderVerifier) GetSender(ctx context.Context, id string) (iam.ProviderS
 }
 
 func (a senderVerifier) ResendVerification(ctx context.Context, id string) error {
-	return senderError(a.v.ResendVerification(ctx, id))
+	return senderError(a.verifier().ResendVerification(ctx, id))
 }
 
 func (a senderVerifier) DeleteSender(ctx context.Context, id string) error {
-	return senderError(a.v.DeleteSender(ctx, id))
+	return senderError(a.verifier().DeleteSender(ctx, id))
 }
 
 // senderError maps provider errors onto the iam ones; the original stays wrapped.

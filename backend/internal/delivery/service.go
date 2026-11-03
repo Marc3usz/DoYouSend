@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/groups"
@@ -106,7 +107,7 @@ type Service struct {
 	groups            GroupLookup
 	dispatcher        PlanDispatcher
 	store             Store
-	pricePerPartMilli int64
+	pricePerPartMilli atomic.Int64 // changed from the settings panel (ADR-0018)
 	logger            *slog.Logger
 	auditor           BatchAuditor
 	// running tracks Start calls and the dispatches they leave in the background, for
@@ -124,11 +125,16 @@ func NewService(resolver Resolver, lookup GroupLookup, dispatcher PlanDispatcher
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{
-		resolver: resolver, groups: lookup, dispatcher: dispatcher, store: store,
-		pricePerPartMilli: pricePerPartMilli, logger: logger,
+	s := &Service{
+		resolver: resolver, groups: lookup, dispatcher: dispatcher, store: store, logger: logger,
 	}
+	s.pricePerPartMilli.Store(pricePerPartMilli)
+	return s
 }
+
+// SetSMSPrice changes the price of one SMS part for batches recorded from now
+// on; recorded batches keep the cost they were saved with.
+func (s *Service) SetSMSPrice(pricePerPartMilli int64) { s.pricePerPartMilli.Store(pricePerPartMilli) }
 
 // SetAuditor makes every newly recorded batch reach a. A repeated idempotency key
 // records nothing: the confirmation was logged the first time.
@@ -250,7 +256,7 @@ func (s *Service) record(ctx context.Context, d Draft) (Batch, bool, error) {
 		ExcludedRecipientIDs: d.Selection.Normalize().ExcludedRecipientIDs,
 		Status:               BatchRunning,
 		SMSParts:             parts,
-		CostMilli:            int64(parts) * s.pricePerPartMilli,
+		CostMilli:            int64(parts) * s.pricePerPartMilli.Load(),
 		Plan:                 plan,
 	})
 	if errors.Is(err, ErrDuplicateKey) {

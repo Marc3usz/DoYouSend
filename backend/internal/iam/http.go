@@ -35,12 +35,20 @@ type Handler struct {
 	svc     *Service
 	cookies CookieOptions
 	config  SendingConfig
+	source  func() SendingConfig
 	logger  *slog.Logger
 }
 
 // NewHandler returns a Handler using svc.
 func NewHandler(svc *Service, cookies CookieOptions, config SendingConfig, logger *slog.Logger) *Handler {
 	return &Handler{svc: svc, cookies: cookies, config: config, logger: logger}
+}
+
+// WithConfigSource makes GET /admin/config report source() on every request
+// instead of the fixed config, so changes from the settings panel show up.
+func (h *Handler) WithConfigSource(source func() SendingConfig) *Handler {
+	h.source = source
+	return h
 }
 
 // Register adds the routes to mux.
@@ -179,6 +187,9 @@ func (h *Handler) listAudit(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) sendingConfig(w http.ResponseWriter, _ *http.Request) {
 	c := h.config
+	if h.source != nil {
+		c = h.source()
+	}
 	httpx.JSON(w, http.StatusOK, sendingConfigJSON{
 		DryRun: c.DryRun,
 		Email: emailConfigJSON{
