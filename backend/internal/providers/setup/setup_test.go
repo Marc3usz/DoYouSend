@@ -533,3 +533,35 @@ func TestNew_SendGridUnknownRegion(t *testing.T) {
 		t.Fatal("expected an error for an unknown SENDGRID_REGION")
 	}
 }
+
+func TestNewSenderVerifierHonoursDryRun(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      Config
+		wantReal bool
+		wantErr  bool
+	}{
+		{"dry run with sendgrid stays fake", Config{EmailProvider: "sendgrid", SendGridAPIKey: "k", DryRun: true}, false, false},
+		{"mailpit is fake", Config{EmailProvider: "mailpit"}, false, false},
+		{"sendgrid live", Config{EmailProvider: "sendgrid", SendGridAPIKey: "k", SendGridRegion: "eu"}, true, false},
+		{"sendgrid live without key", Config{EmailProvider: "sendgrid"}, false, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v, isReal, err := NewSenderVerifier(tt.cfg, nil)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil {
+				return
+			}
+			if isReal != tt.wantReal {
+				t.Errorf("real = %v, want %v", isReal, tt.wantReal)
+			}
+			_, isFake := v.(*email.FakeSenders)
+			if isFake == tt.wantReal {
+				t.Errorf("verifier type %T, wantReal %v", v, tt.wantReal)
+			}
+		})
+	}
+}

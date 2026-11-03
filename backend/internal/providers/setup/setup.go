@@ -47,6 +47,13 @@ type Config struct {
 	SendGridRegion           string
 	SendGridWebhookPublicKey string
 
+	// Postal address shown in SendGrid sender-verification e-mails
+	// (SENDGRID_SENDER_*, ADR-0016). Optional in the API.
+	SenderAddress string
+	SenderCity    string
+	SenderZip     string
+	SenderCountry string
+
 	// SMSProvider selects the SMS adapter: "fake" (default) or "smsapi".
 	SMSProvider string
 
@@ -75,6 +82,10 @@ func ConfigFromEnv() Config {
 		SendGridSandbox:          envOr("SENDGRID_SANDBOX", "false") == "true",
 		SendGridRegion:           envOr("SENDGRID_REGION", "global"),
 		SendGridWebhookPublicKey: envOr("SENDGRID_WEBHOOK_PUBLIC_KEY", ""),
+		SenderAddress:            envOr("SENDGRID_SENDER_ADDRESS", ""),
+		SenderCity:               envOr("SENDGRID_SENDER_CITY", ""),
+		SenderZip:                envOr("SENDGRID_SENDER_ZIP", ""),
+		SenderCountry:            envOr("SENDGRID_SENDER_COUNTRY", ""),
 		SMSProvider:              envOr("SMS_PROVIDER", "fake"),
 		SMSAPIKey:                envOr("SMS_API_KEY", ""),
 		SMSSenderName:            envOr("SMS_SENDER_NAME", "SZKOLA-TEST"),
@@ -195,6 +206,24 @@ func (p *Providers) EmailProfiler() email.Profiler {
 		return prof
 	}
 	return nil
+}
+
+// NewSenderVerifier returns the sender-identity manager for cfg (ADR-0016).
+// Like every provider call it honours DRY_RUN: with DryRun, or with an e-mail
+// provider other than SendGrid, it is the in-memory email.FakeSenders, which
+// sends no verification e-mail. Live is false in that case.
+func NewSenderVerifier(cfg Config, logger *slog.Logger) (verifier email.SenderVerifier, live bool, err error) {
+	if cfg.DryRun || cfg.EmailProvider != "sendgrid" {
+		return email.NewFakeSenders(logger), false, nil
+	}
+	if cfg.SendGridAPIKey == "" {
+		return nil, false, fmt.Errorf("SENDGRID_API_KEY is required when EMAIL_PROVIDER=sendgrid")
+	}
+	c, err := email.NewSendGridSenders(email.SendGridConfig{APIKey: cfg.SendGridAPIKey, Region: cfg.SendGridRegion}, logger)
+	if err != nil {
+		return nil, false, err
+	}
+	return c, true, nil
 }
 
 // newEmailProvider creates the email provider selected by cfg.EmailProvider.
