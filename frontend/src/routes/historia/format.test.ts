@@ -4,6 +4,7 @@ import {
 	attemptsText,
 	deliveryOf,
 	deliveryText,
+	excludedText,
 	isBatchStatus,
 	pageParam,
 	stillSending
@@ -100,5 +101,22 @@ describe('stillSending', () => {
 	it('only for running batches', () => {
 		expect(stillSending('running')).toBe(true);
 		expect(stillSending('done_with_errors')).toBe(false);
+	});
+});
+
+describe('excludedText', () => {
+	it.each([
+		[1, '1 wykluczona osoba'],
+		[2, '2 wykluczone osoby'],
+		[4, '4 wykluczone osoby'],
+		[5, '5 wykluczonych osób'],
+		[11, '11 wykluczonych osób'],
+		[12, '12 wykluczonych osób'],
+		[14, '14 wykluczonych osób'],
+		[21, '21 wykluczonych osób'],
+		[22, '22 wykluczone osoby'],
+		[25, '25 wykluczonych osób']
+	])('%d -> %s', (n, want) => {
+		expect(excludedText(n)).toBe(want);
 	});
 });
