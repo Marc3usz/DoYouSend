@@ -13,7 +13,7 @@ import {
 	pointsText,
 	setupChecks
 } from './format';
-import { failureOf } from './uzytkownicy/users';
+import { failureOf, senderFailureOf } from './uzytkownicy/users';
 import { loginFailureText } from '../login/messages';
 
 // Intl separates the amount and the currency with a no-break space.
@@ -158,6 +158,21 @@ describe('failure texts', () => {
 		expect(failureOf(apiError(409, { code: 'last_admin', message: 'x' })).failure).toMatch(
 			/ostatni aktywny administrator/
 		);
+	});
+	it('shows the provider text when SendGrid rejects a sender', () => {
+		const got = senderFailureOf(
+			apiError(422, { code: 'sender_rejected', message: 'from_email: already exists' })
+		);
+		expect(got).toEqual({
+			status: 422,
+			failure: 'SendGrid odrzucił zgłoszenie: from_email: already exists'
+		});
+	});
+	it('hides provider outages behind a retry hint', () => {
+		const got = senderFailureOf(apiError(502, { code: 'provider_error', message: 'dial tcp' }));
+		expect(got.status).toBe(502);
+		expect(got.failure).not.toMatch(/dial/);
+		expect(senderFailureOf(new TypeError('fetch failed')).status).toBe(500);
 	});
 	it('does not reveal why a login failed', () => {
 		const got = loginFailureText(apiError(401, { code: 'invalid_credentials', message: 'x' }));

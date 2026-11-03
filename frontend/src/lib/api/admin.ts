@@ -36,6 +36,57 @@ export function resetPassword(
 	});
 }
 
+/** The SenderIdentity schema: a user's e-mail sender identity (ADR-0016). */
+export type SenderIdentity = {
+	userId: string;
+	provider: string;
+	fromEmail: string;
+	fromName: string;
+	status: 'pending' | 'verified' | 'missing';
+	createdAt: string;
+	checkedAt: string | null;
+	verifiedAt: string | null;
+};
+
+/** The SenderIdentityList schema; `live` is false when no e-mail really goes out (DRY_RUN). */
+export type SenderIdentityList = { provider: string; live: boolean; items: SenderIdentity[] };
+
+/** GET /admin/senders: every identity as last checked, without asking the provider. */
+export function listSenders(fetch?: typeof globalThis.fetch): Promise<SenderIdentityList> {
+	return api<SenderIdentityList>('/admin/senders', { fetch });
+}
+
+function senderPath(userId: string): string {
+	return `/users/${encodeURIComponent(userId)}/sender`;
+}
+
+/** POST /users/{id}/sender: the provider e-mails a confirmation link to the user's address. */
+export function requestSender(
+	userId: string,
+	fetch?: typeof globalThis.fetch
+): Promise<SenderIdentity> {
+	return api<SenderIdentity>(senderPath(userId), { method: 'POST', fetch });
+}
+
+/** GET /users/{id}/sender: a pending identity is checked with the provider first. */
+export function senderStatus(
+	userId: string,
+	fetch?: typeof globalThis.fetch
+): Promise<SenderIdentity> {
+	return api<SenderIdentity>(senderPath(userId), { fetch });
+}
+
+export function resendSenderVerification(
+	userId: string,
+	fetch?: typeof globalThis.fetch
+): Promise<void> {
+	return api<void>(`${senderPath(userId)}/resend`, { method: 'POST', fetch });
+}
+
+export function removeSender(userId: string, fetch?: typeof globalThis.fetch): Promise<void> {
+	return api<void>(senderPath(userId), { method: 'DELETE', fetch });
+}
+
 export type AuditEntry = {
 	id: number;
 	userId: string | null;
@@ -79,6 +130,45 @@ export type SendingConfig = {
 
 export function sendingConfig(fetch?: typeof globalThis.fetch): Promise<SendingConfig> {
 	return api<SendingConfig>('/admin/config', { fetch });
+}
+
+/** A setting of the sending configuration (SettingItem, ADR-0018). */
+export type SettingItem = {
+	key: string;
+	group: 'general' | 'email' | 'sms';
+	kind: 'text' | 'bool' | 'enum' | 'secret' | 'price' | 'port' | 'address';
+	options?: string[];
+	/** null for secrets: only `set` says whether one is stored. */
+	value: string | null;
+	set: boolean;
+	source: 'panel' | 'env' | 'default';
+	envVar: string;
+	unreadable: boolean;
+};
+
+export type Settings = {
+	dryRun: boolean;
+	dryRunLocked: boolean;
+	sendsExternally: boolean;
+	items: SettingItem[];
+};
+
+/** GET /admin/settings. */
+export function getSettings(fetch?: typeof globalThis.fetch): Promise<Settings> {
+	return api<Settings>('/admin/settings', { fetch });
+}
+
+/** PATCH /admin/settings: null drops the panel value (back to .env or the default). */
+export function updateSettings(
+	values: Record<string, string | null>,
+	confirmLiveSending: boolean,
+	fetch?: typeof globalThis.fetch
+): Promise<Settings> {
+	return api<Settings>('/admin/settings', {
+		method: 'PATCH',
+		body: { values, confirmLiveSending },
+		fetch
+	});
 }
 
 export type SmsProfile = {

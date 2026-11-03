@@ -86,7 +86,11 @@ const actionTexts: Record<string, string> = {
 	password_changed: 'Zmiana własnego hasła',
 	batch_sent: 'Zatwierdzenie wysyłki',
 	batch_retried: 'Ponowienie wysyłki',
-	recipient_contact_fixed: 'Uzupełnienie kontaktu odbiorcy'
+	recipient_contact_fixed: 'Uzupełnienie kontaktu odbiorcy',
+	settings_changed: 'Zmiana ustawień wysyłki',
+	sender_verification_requested: 'Zgłoszenie nadawcy e-mail do weryfikacji',
+	sender_verification_resent: 'Ponowne wysłanie linku weryfikacji nadawcy',
+	sender_identity_removed: 'Usunięcie nadawcy e-mail'
 };
 
 /** A Polish name for an audit action; actions of other domains show as they are. */
