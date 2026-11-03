@@ -667,6 +667,92 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
 
+  /users/{id}/sender:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [admin]
+      summary: Tozsamosc nadawcy e-mail uzytkownika (ADR-0016)
+      description: |
+        Gdy tozsamosc czeka na potwierdzenie (pending), status jest najpierw sprawdzany u operatora
+        (SendGrid GET /v3/verified_senders), wiec odpowiedz jest aktualna. Potwierdzona nie jest
+        sprawdzana ponownie. 404 sender_not_configured = uzytkownik nie ma tozsamosci,
+        502 provider_error = operator nie odpowiedzial (szczegoly tylko w logu).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SenderIdentity" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [admin]
+      summary: Zaklada uzytkownikowi tozsamosc nadawcy (SendGrid Single Sender Verification)
+      description: |
+        Adres nadawcy = adres logowania uzytkownika, nazwa = imie i nazwisko, odpowiedzi na ten
+        sam adres. SendGrid wysyla na ten adres link potwierdzajacy; do klikniecia status to
+        pending. Bez body. Przy DRY_RUN=true albo EMAIL_PROVIDER innym niz sendgrid dziala atrapa
+        (provider "fake"): nic nie jest wysylane, a pierwsze sprawdzenie statusu zwraca verified.
+        400 invalid_input = konto zablokowane, 404 not_found = brak uzytkownika,
+        409 sender_exists = juz ma tozsamosc, 422 sender_rejected = operator odrzucil zadanie
+        (message = tekst operatora, np. adres juz istnieje), 502 provider_error.
+      responses:
+        "201":
+          description: Utworzono; link potwierdzajacy wyslany
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SenderIdentity" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [admin]
+      summary: Usuwa tozsamosc nadawcy u operatora i w aplikacji
+      description: |
+        Jesli operator juz jej nie zna, usuwa tylko wpis w aplikacji. Tozsamosc zalozona przez innego
+        operatora (np. "fake" po przejsciu na sendgrid) jest usuwana tylko lokalnie.
+      responses:
+        "204": { description: Usunieto }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+
+  /users/{id}/sender/resend:
+    post:
+      tags: [admin]
+      summary: Ponownie wysyla link potwierdzajacy
+      description: |
+        409 sender_already_verified = juz potwierdzona; 409 sender_missing = operator jej nie zna
+        (status zmienia sie na missing - usun i zaloz ponownie); 422 sender_rejected = tozsamosc
+        zalozona u innego operatora.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204": { description: Wyslano }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+
+  /admin/senders:
+    get:
+      tags: [admin]
+      summary: Wszystkie tozsamosci nadawcow, ze stanem z ostatniego sprawdzenia
+      description: Nie odpytuje operatora (do tego sluzy GET /users/{id}/sender).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SenderIdentityList" }
+        "403": { $ref: "#/components/responses/Error" }
+
   /audit:
     get:
       tags: [admin]
@@ -911,6 +997,34 @@ components:
             credentialsSet:    { type: boolean }
             reportsWebhook:    { type: boolean, description: "Czy raporty doreczen SMSAPI sa wlaczone" }
             pricePerPartMilli: { type: integer, format: int64 }
+
+    SenderIdentity:
+      type: object
+      required: [userId, provider, fromEmail, fromName, status, createdAt, checkedAt, verifiedAt]
+      properties:
+        userId:     { type: string, format: uuid }
+        provider:   { type: string, description: "sendgrid albo fake (DRY_RUN / lokalnie)" }
+        fromEmail:  { type: string, format: email }
+        fromName:   { type: string }
+        status:
+          type: string
+          enum: [pending, verified, missing]
+          description: |
+            pending = czeka na klikniecie linku, verified = operator przyjmuje ten adres jako From,
+            missing = operator jej juz nie zna (usunieta poza aplikacja).
+        createdAt:  { type: string, format: date-time }
+        checkedAt:  { type: string, format: date-time, nullable: true, description: Ostatnie sprawdzenie u operatora }
+        verifiedAt: { type: string, format: date-time, nullable: true }
+
+    SenderIdentityList:
+      type: object
+      required: [provider, live, items]
+      properties:
+        provider: { type: string, description: "Operator, u ktorego beda zakladane nowe tozsamosci" }
+        live:     { type: boolean, description: "false = atrapa: e-mail z linkiem nie jest wysylany" }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/SenderIdentity" }
 
     SMSProfile:
       type: object
@@ -1233,6 +1347,11 @@ components:
             - not_supported        # operacja nieobslugiwana przez skonfigurowanego operatora (501)
             - provider_error       # blad komunikacji z zewnetrznym operatorem (502)
             - batch_running        # POST /batches/{id}/retry: wsad jest obecnie w trakcie wysylki (409)
+            - sender_not_configured   # /users/{id}/sender: uzytkownik nie ma tozsamosci nadawcy (404)
+            - sender_exists           # POST /users/{id}/sender: juz ma tozsamosc (409)
+            - sender_already_verified # POST /users/{id}/sender/resend: juz potwierdzona (409)
+            - sender_missing          # POST /users/{id}/sender/resend: operator jej nie zna (409)
+            - sender_rejected         # POST /users/{id}/sender: operator odrzucil; message = jego tekst, mozna pokazac (422)
             - no_failed_deliveries # POST /batches/{id}/retry: wsad nie ma nieudanych dostaw do ponowienia (409)
             - internal
         message: { type: string, description: "Szczegol diagnostyczny po angielsku, nie do wyswietlania wprost" }
