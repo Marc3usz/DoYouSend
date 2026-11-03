@@ -4,7 +4,8 @@
 	import { sendBatch } from '$lib/api/batches';
 	import { resolveSelection, type ResolvedRecipient } from '$lib/api/groups';
 	import { previewMessage, type SendEstimate } from '$lib/api/messages';
-	import { lookupRecipients, type RecipientLookup } from '$lib/api/recipients';
+	import { fixRecipientContact, lookupRecipients, type RecipientLookup } from '$lib/api/recipients';
+	import { contactFixErrorText, missingChannels, validateContactFixInput } from './fix';
 	import { recipientTypeLabel } from '../odbiorcy/messages';
 	import type { PageProps } from './$types';
 	import {
@@ -50,6 +51,58 @@
 	function unexcludeRecipient(id: string) {
 		excludedRecipientIds = excludedRecipientIds.filter((x) => x !== id);
 		excludedPeople = excludedPeople.filter((p) => p.id !== id);
+	}
+
+	let refreshTrigger = $state(0);
+	let fixingRecipientId = $state<string | null>(null);
+	let fixEmail = $state('');
+	let fixPhone = $state('');
+	let fixError = $state<string | null>(null);
+	let isFixingSaving = $state(false);
+	let fixSuccessMessage = $state<string | null>(null);
+
+	function startFixing(inc: ResolvedRecipient) {
+		fixingRecipientId = inc.recipient.id;
+		fixEmail = '';
+		fixPhone = '';
+		fixError = null;
+		fixSuccessMessage = null;
+	}
+
+	function cancelFixing() {
+		fixingRecipientId = null;
+		fixEmail = '';
+		fixPhone = '';
+		fixError = null;
+	}
+
+	async function submitFix(inc: ResolvedRecipient) {
+		const needs = missingChannels(inc.channels);
+		const valErr = validateContactFixInput({ email: fixEmail, phone: fixPhone }, needs);
+		if (valErr) {
+			fixError = valErr;
+			return;
+		}
+
+		const patch: { email?: string; phone?: string } = {};
+		if (needs.needsEmail && fixEmail.trim()) patch.email = fixEmail.trim();
+		if (needs.needsPhone && fixPhone.trim()) patch.phone = fixPhone.trim();
+
+		isFixingSaving = true;
+		fixError = null;
+		try {
+			await fixRecipientContact(inc.recipient.id, patch);
+			const name = `${inc.recipient.firstName} ${inc.recipient.lastName}`.trim();
+			fixSuccessMessage = `Uzupełniono dane kontaktowe dla: ${name}.`;
+			fixingRecipientId = null;
+			fixEmail = '';
+			fixPhone = '';
+			refreshTrigger++;
+		} catch (err) {
+			fixError = contactFixErrorText(err);
+		} finally {
+			isFixingSaving = false;
+		}
 	}
 
 	const incompleteRecipients = $derived(resolvedRecipients.filter((r) => r.channels.length < 2));
@@ -175,6 +228,7 @@
 	);
 
 	$effect(() => {
+		if (refreshTrigger < 0) return;
 		// The subject does not change the estimate, so typing it triggers no request.
 		const draft = {
 			subject: untrack(() => subject),
@@ -205,6 +259,7 @@
 	});
 
 	$effect(() => {
+		if (refreshTrigger < 0) return;
 		const sel = {
 			groupIds: [...selectedGroupIds],
 			recipientIds: [...selectedRecipientIds],
@@ -355,33 +410,106 @@
 					{/if}
 				</div>
 
+				{#if fixSuccessMessage}
+					<p class="notice" role="status">
+						{fixSuccessMessage}
+					</p>
+				{/if}
+
 				{#if incompleteRecipients.length > 0}
 					<div class="incomplete-section">
 						<h4 class="incomplete-heading">
 							Osoby z niepełnymi danymi kontaktowymi ({incompleteRecipients.length})
 						</h4>
 						<p class="hint">
-							Te osoby nie mają kompletu danych kontaktowych. Zgodnie z wymaganiami możesz wykluczyć
-							je z tej wysyłki:
+							Te osoby nie mają kompletu danych kontaktowych. Możesz uzupełnić brakujące dane przed
+							wysyłką lub wykluczyć odbiorcę z tej wiadomości:
 						</p>
 						<ul class="incomplete-list">
 							{#each incompleteRecipients as inc (inc.recipient.id)}
+								{@const needs = missingChannels(inc.channels)}
 								<li>
-									<div class="inc-details">
-										<strong>{inc.recipient.lastName} {inc.recipient.firstName}</strong>
-										<span class="inc-badge">
-											{#if inc.channels.length === 0}
-												brak e-maila i telefonu
-											{:else if !inc.channels.includes('email')}
-												brak e-maila (tylko SMS)
-											{:else}
-												brak telefonu (tylko e-mail)
-											{/if}
-										</span>
+									<div class="inc-row">
+										<div class="inc-details">
+											<strong>{inc.recipient.lastName} {inc.recipient.firstName}</strong>
+											<span class="inc-badge">
+												{#if inc.channels.length === 0}
+													brak e-maila i telefonu
+												{:else if needs.needsEmail}
+													brak e-maila (tylko SMS)
+												{:else}
+													brak telefonu (tylko e-mail)
+												{/if}
+											</span>
+										</div>
+										<div class="inc-actions">
+											<button type="button" class="button btn-fix" onclick={() => startFixing(inc)}>
+												Popraw dane
+											</button>
+											<button
+												type="button"
+												class="btn-exclude"
+												onclick={() => excludeRecipient(inc)}
+											>
+												Wyklucz z wysyłki
+											</button>
+										</div>
 									</div>
-									<button type="button" class="btn-exclude" onclick={() => excludeRecipient(inc)}>
-										Wyklucz z wysyłki
-									</button>
+
+									{#if fixingRecipientId === inc.recipient.id}
+										<div class="fix-form">
+											<div class="fix-heading">
+												Uzupełnij brakujące dane: <strong
+													>{inc.recipient.firstName} {inc.recipient.lastName}</strong
+												>
+											</div>
+											{#if fixError}
+												<div class="alert-warning" role="alert">{fixError}</div>
+											{/if}
+											<div class="fix-inputs">
+												{#if needs.needsEmail}
+													<label class="fix-label">
+														<span>Adres e-mail:</span>
+														<input
+															type="email"
+															placeholder="np. jan.kowalski@example.test"
+															bind:value={fixEmail}
+															disabled={isFixingSaving}
+														/>
+													</label>
+												{/if}
+												{#if needs.needsPhone}
+													<label class="fix-label">
+														<span>Numer telefonu:</span>
+														<input
+															type="tel"
+															placeholder="np. +48 500 100 101"
+															bind:value={fixPhone}
+															disabled={isFixingSaving}
+														/>
+													</label>
+												{/if}
+											</div>
+											<div class="fix-buttons">
+												<button
+													type="button"
+													class="button primary"
+													disabled={isFixingSaving}
+													onclick={() => submitFix(inc)}
+												>
+													{isFixingSaving ? 'Zapisywanie...' : 'Zapisz'}
+												</button>
+												<button
+													type="button"
+													class="button"
+													disabled={isFixingSaving}
+													onclick={cancelFixing}
+												>
+													Anuluj
+												</button>
+											</div>
+										</div>
+									{/if}
 								</li>
 							{/each}
 						</ul>
@@ -782,12 +910,17 @@
 	}
 	.incomplete-list li {
 		display: flex;
+		flex-direction: column;
+		padding: 0.5rem;
+		background: var(--color-surface);
+		border: 1px solid var(--color-warning-border);
+		border-radius: var(--radius);
+		gap: 0.5rem;
+	}
+	.inc-row {
+		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 0.35rem 0.5rem;
-		background: var(--color-surface);
-		border: 1px solid var(--color-warning-soft);
-		border-radius: 4px;
 		gap: 0.5rem;
 	}
 	.inc-details {
@@ -798,6 +931,28 @@
 	.inc-badge {
 		font-size: 0.8em;
 		color: var(--color-warning);
+	}
+	.inc-actions {
+		display: flex;
+		gap: 0.4rem;
+		align-items: center;
+	}
+	.btn-fix {
+		min-height: 0;
+		font-weight: 600;
+		background: var(--color-primary-soft);
+		color: var(--color-primary);
+		border: 1px solid var(--color-primary);
+		border-radius: 4px;
+		padding: 0.2rem 0.6rem;
+		font-size: 0.85em;
+		cursor: pointer;
+		margin: 0;
+		white-space: nowrap;
+	}
+	.btn-fix:hover:not(:disabled) {
+		background: var(--color-primary);
+		color: var(--color-on-primary);
 	}
 	.btn-exclude {
 		min-height: 0;
@@ -814,6 +969,42 @@
 	}
 	.btn-exclude:hover {
 		background: var(--color-danger-soft);
+	}
+	.fix-form {
+		padding: 0.6rem 0.75rem;
+		background: var(--color-surface-muted);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius);
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+	.fix-heading {
+		font-size: 0.9em;
+		color: var(--color-text);
+	}
+	.fix-inputs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.75rem;
+	}
+	.fix-label {
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+		font-size: 0.85em;
+		color: var(--color-text-muted);
+		flex: 1 1 12rem;
+	}
+	.fix-buttons {
+		display: flex;
+		gap: 0.5rem;
+		margin-top: 0.25rem;
+	}
+	.fix-buttons .button {
+		min-height: 0;
+		padding: 0.25rem 0.75rem;
+		font-size: 0.85em;
 	}
 	.excluded-section {
 		margin-top: 1rem;
