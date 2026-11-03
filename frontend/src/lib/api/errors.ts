@@ -24,6 +24,12 @@ export const errorCodes = [
 	'self_lockout',
 	'batch_running',
 	'no_failed_deliveries',
+	'provider_error',
+	'sender_not_configured',
+	'sender_exists',
+	'sender_already_verified',
+	'sender_missing',
+	'sender_rejected',
 	'internal'
 ] as const;
 

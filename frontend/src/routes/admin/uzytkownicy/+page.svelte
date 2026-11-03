@@ -3,7 +3,7 @@
 	import { roleLabels } from '$lib/access';
 	import type { PageProps } from './$types';
 	import { dateTimeText } from '../format';
-	import type { NewUserValues } from './users';
+	import { senderStatusLabels, type NewUserValues } from './users';
 
 	let { data, form }: PageProps = $props();
 
@@ -18,6 +18,7 @@
 	const createFields: Record<string, string> = $derived(
 		(createForm && 'fields' in createForm ? createForm.fields : undefined) ?? {}
 	);
+	const senderOf = (id: string) => data.senders?.items.find((s) => s.userId === id);
 	const rowMessage = (id: string) =>
 		form && form.action !== 'create' && 'id' in form && form.id === id ? form : null;
 </script>
@@ -33,6 +34,13 @@
 	<strong>Wysyłający</strong> (dyrektor lub upoważniony pracownik) tworzy i wysyła komunikaty.
 </p>
 
+{#if data.senders && !data.senders.live}
+	<p class="hint">
+		Nadawcy e-mail działają w trybie testowym (DRY_RUN lub operator inny niż SendGrid): zgłoszenie
+		niczego nie wysyła, a pierwsze sprawdzenie od razu pokazuje adres jako potwierdzony.
+	</p>
+{/if}
+
 {#if data.loadFailed}
 	<p class="error" role="alert">Nie udało się wczytać listy kont. Odśwież stronę.</p>
 {:else}
@@ -40,7 +48,7 @@
 		<thead>
 			<tr
 				><th>Imię i nazwisko</th><th>E-mail</th><th>Rola</th><th>Stan</th><th>Ostatnie logowanie</th
-				><th>Akcje</th></tr
+				><th>Nadawca e-mail</th><th>Akcje</th></tr
 			>
 		</thead>
 		<tbody>
@@ -63,6 +71,47 @@
 					</td>
 					<td>{user.disabled ? 'zablokowane' : 'aktywne'}</td>
 					<td>{dateTimeText(user.lastLoginAt)}</td>
+					<td>
+						{#if data.senders === null}
+							<span class="muted">niedostępne</span>
+						{:else}
+							{@const sender = senderOf(user.id)}
+							<div class="actions">
+								{#if sender}
+									<span class="badge badge-{sender.status}"
+										>{senderStatusLabels[sender.status]}</span
+									>
+									<div class="inline">
+										{#if sender.status !== 'verified'}
+											<form method="POST" action="?/senderCheck" use:enhance class="inline">
+												<input type="hidden" name="id" value={user.id} />
+												<button type="submit">Sprawdź</button>
+											</form>
+										{/if}
+										{#if sender.status === 'pending'}
+											<form method="POST" action="?/senderResend" use:enhance class="inline">
+												<input type="hidden" name="id" value={user.id} />
+												<button type="submit">Wyślij link ponownie</button>
+											</form>
+										{/if}
+										<form method="POST" action="?/senderRemove" use:enhance class="inline">
+											<input type="hidden" name="id" value={user.id} />
+											<button type="submit">Usuń</button>
+										</form>
+									</div>
+								{:else if !user.disabled}
+									<form method="POST" action="?/senderRequest" use:enhance class="inline">
+										<input type="hidden" name="id" value={user.id} />
+										<button type="submit" title="SendGrid wyśle link potwierdzający na {user.email}"
+											>Zgłoś do weryfikacji</button
+										>
+									</form>
+								{:else}
+									<span class="muted">—</span>
+								{/if}
+							</div>
+						{/if}
+					</td>
 					<td>
 						<div class="actions">
 							{#if !isSelf}
@@ -195,6 +244,21 @@
 	}
 	.done {
 		color: var(--color-success);
+	}
+	.muted {
+		color: var(--color-text-muted);
+	}
+	.badge {
+		font-size: 0.85em;
+		padding: 0.1rem 0.45rem;
+		border-radius: 999px;
+		border: 1px solid var(--color-border);
+	}
+	.badge-verified {
+		color: var(--color-success);
+	}
+	.badge-missing {
+		color: var(--color-danger);
 	}
 	@media (max-width: 48rem) {
 		table,

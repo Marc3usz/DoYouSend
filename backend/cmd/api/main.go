@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -164,6 +165,20 @@ func main() {
 		}
 		batchService.SetAuditor(batchAudit{log: iamSvc})
 		iam.NewHandler(iamSvc, iam.CookieOptions{Secure: cfg.SessionCookieSecure}, sending, logger).Register(mux)
+
+		// Sender identities (ADR-0016): fake under DRY_RUN, SendGrid otherwise.
+		verifier, liveSenders, err := setup.NewSenderVerifier(provCfg, logger)
+		if err != nil {
+			logger.Error("initialize sender verification", "err", err)
+			os.Exit(1)
+		}
+		senderProvider := "fake"
+		if liveSenders {
+			senderProvider = "sendgrid"
+		}
+		senders := iam.NewSenders(iamSvc, iam.NewPGStore(pool), senderVerifier{v: verifier, cfg: provCfg},
+			iam.SenderOptions{Provider: senderProvider, Live: liveSenders})
+		iam.NewSenderHandler(senders, logger).Register(mux)
 		handler = iam.Middleware(iamSvc, logger, mux)
 	}
 
@@ -248,4 +263,56 @@ func currentCaller(ctx context.Context) (delivery.Caller, bool) {
 		return delivery.Caller{}, false
 	}
 	return delivery.Caller{ID: u.ID, FullName: u.FullName, IsAdmin: u.IsAdmin()}, true
+}
+
+// senderVerifier adapts the e-mail provider's sender-identity API to iam
+// (ADR-0016) and adds the school's postal address from the environment.
+type senderVerifier struct {
+	v   email.SenderVerifier
+	cfg setup.Config
+}
+
+func (a senderVerifier) CreateSender(ctx context.Context, in iam.SenderRequest) (iam.ProviderSender, error) {
+	s, err := a.v.CreateSender(ctx, email.NewSenderIdentity{
+		Nickname: in.Nickname, FromEmail: in.FromEmail, FromName: in.FromName,
+		ReplyTo: in.ReplyTo, ReplyToName: in.FromName,
+		Address: a.cfg.SenderAddress, City: a.cfg.SenderCity, Zip: a.cfg.SenderZip, Country: a.cfg.SenderCountry,
+	})
+	if err != nil {
+		return iam.ProviderSender{}, senderError(err)
+	}
+	return iam.ProviderSender{ID: s.ID, Verified: s.Verified}, nil
+}
+
+func (a senderVerifier) GetSender(ctx context.Context, id string) (iam.ProviderSender, error) {
+	s, err := a.v.GetSender(ctx, id)
+	if err != nil {
+		return iam.ProviderSender{}, senderError(err)
+	}
+	return iam.ProviderSender{ID: s.ID, Verified: s.Verified}, nil
+}
+
+func (a senderVerifier) ResendVerification(ctx context.Context, id string) error {
+	return senderError(a.v.ResendVerification(ctx, id))
+}
+
+func (a senderVerifier) DeleteSender(ctx context.Context, id string) error {
+	return senderError(a.v.DeleteSender(ctx, id))
+}
+
+// senderError maps provider errors onto the iam ones; the original stays wrapped.
+func senderError(err error) error {
+	var apiErr *email.SenderAPIError
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, email.ErrSenderNotFound):
+		return fmt.Errorf("%w: %w", iam.ErrSenderGone, err)
+	case errors.As(err, &apiErr) && errors.Is(err, email.ErrSenderRejected) && len(apiErr.Messages) > 0:
+		return &iam.SenderRejectedError{Message: strings.Join(apiErr.Messages, "; ")}
+	case errors.Is(err, email.ErrSenderRejected):
+		return &iam.SenderRejectedError{Message: err.Error()}
+	default:
+		return err
+	}
 }

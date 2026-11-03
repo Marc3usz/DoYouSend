@@ -36,6 +36,57 @@ export function resetPassword(
 	});
 }
 
+/** The SenderIdentity schema: a user's e-mail sender identity (ADR-0016). */
+export type SenderIdentity = {
+	userId: string;
+	provider: string;
+	fromEmail: string;
+	fromName: string;
+	status: 'pending' | 'verified' | 'missing';
+	createdAt: string;
+	checkedAt: string | null;
+	verifiedAt: string | null;
+};
+
+/** The SenderIdentityList schema; `live` is false when no e-mail really goes out (DRY_RUN). */
+export type SenderIdentityList = { provider: string; live: boolean; items: SenderIdentity[] };
+
+/** GET /admin/senders: every identity as last checked, without asking the provider. */
+export function listSenders(fetch?: typeof globalThis.fetch): Promise<SenderIdentityList> {
+	return api<SenderIdentityList>('/admin/senders', { fetch });
+}
+
+function senderPath(userId: string): string {
+	return `/users/${encodeURIComponent(userId)}/sender`;
+}
+
+/** POST /users/{id}/sender: the provider e-mails a confirmation link to the user's address. */
+export function requestSender(
+	userId: string,
+	fetch?: typeof globalThis.fetch
+): Promise<SenderIdentity> {
+	return api<SenderIdentity>(senderPath(userId), { method: 'POST', fetch });
+}
+
+/** GET /users/{id}/sender: a pending identity is checked with the provider first. */
+export function senderStatus(
+	userId: string,
+	fetch?: typeof globalThis.fetch
+): Promise<SenderIdentity> {
+	return api<SenderIdentity>(senderPath(userId), { fetch });
+}
+
+export function resendSenderVerification(
+	userId: string,
+	fetch?: typeof globalThis.fetch
+): Promise<void> {
+	return api<void>(`${senderPath(userId)}/resend`, { method: 'POST', fetch });
+}
+
+export function removeSender(userId: string, fetch?: typeof globalThis.fetch): Promise<void> {
+	return api<void>(senderPath(userId), { method: 'DELETE', fetch });
+}
+
 export type AuditEntry = {
 	id: number;
 	userId: string | null;
