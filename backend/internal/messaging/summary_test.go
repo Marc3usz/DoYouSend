@@ -135,3 +135,55 @@ func TestSummarizeRejectsNegativePrice(t *testing.T) {
 		t.Fatalf("Summarize() error = %v, want %v", err, ErrNegativePrice)
 	}
 }
+
+func TestSummarizeTargetChannels(t *testing.T) {
+	msgs := []RenderedMessage{
+		{Body: "Hej", HasEmail: true, HasPhone: true},
+		{Body: "Hej", HasEmail: true, HasPhone: false},
+		{Body: "Hej", HasEmail: false, HasPhone: true},
+	}
+
+	t.Run("email only", func(t *testing.T) {
+		got, err := Summarize(msgs, 80, "email")
+		if err != nil {
+			t.Fatalf("Summarize() error = %v", err)
+		}
+		// 3 recipients: 2 have email, 1 has no email (unreachable). Partial is 0!
+		// SMS count and cost are 0.
+		want := Summary{
+			Recipients:       3,
+			EmailCount:       2,
+			SMSCount:         0,
+			PartialCount:     0,
+			UnreachableCount: 1,
+			TotalParts:       0,
+			CostMilli:        0,
+		}
+		if got != want {
+			t.Errorf("got %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("sms only", func(t *testing.T) {
+		got, err := Summarize(msgs, 80, "sms")
+		if err != nil {
+			t.Fatalf("Summarize() error = %v", err)
+		}
+		// 3 recipients: 2 have phone, 1 has no phone (unreachable). Partial is 0!
+		// Email count is 0. Total SMS parts: 2, cost: 160.
+		want := Summary{
+			Recipients:           3,
+			EmailCount:           0,
+			SMSCount:             2,
+			PartialCount:         0,
+			UnreachableCount:     1,
+			MinPartsPerRecipient: 1,
+			MaxPartsPerRecipient: 1,
+			TotalParts:           2,
+			CostMilli:            160,
+		}
+		if got != want {
+			t.Errorf("got %+v, want %+v", got, want)
+		}
+	})
+}

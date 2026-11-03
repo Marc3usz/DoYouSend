@@ -56,6 +56,19 @@
 	}
 
 	let refreshTrigger = $state(0);
+	let channelMode = $state<'both' | 'email' | 'sms'>('both');
+	const targetChannels = $derived<('email' | 'sms')[]>(
+		channelMode === 'email' ? ['email'] : channelMode === 'sms' ? ['sms'] : ['email', 'sms']
+	);
+
+	function activeNeeds(inc: ResolvedRecipient) {
+		const full = missingChannels(inc.channels);
+		return {
+			needsEmail: channelMode !== 'sms' && full.needsEmail,
+			needsPhone: channelMode !== 'email' && full.needsPhone
+		};
+	}
+
 	let fixingRecipientId = $state<string | null>(null);
 	let fixEmail = $state('');
 	let fixPhone = $state('');
@@ -79,7 +92,7 @@
 	}
 
 	async function submitFix(inc: ResolvedRecipient) {
-		const needs = missingChannels(inc.channels);
+		const needs = activeNeeds(inc);
 		const valErr = validateContactFixInput({ email: fixEmail, phone: fixPhone }, needs);
 		if (valErr) {
 			fixError = valErr;
@@ -107,7 +120,13 @@
 		}
 	}
 
-	const incompleteRecipients = $derived(resolvedRecipients.filter((r) => r.channels.length < 2));
+	const incompleteRecipients = $derived(
+		resolvedRecipients.filter((r) => {
+			if (channelMode === 'email') return !r.channels.includes('email');
+			if (channelMode === 'sms') return !r.channels.includes('sms');
+			return r.channels.length < 2;
+		})
+	);
 
 	$effect(() => {
 		if (resolvedRecipients.length > 0 && excludedRecipientIds.length > 0) {
@@ -143,7 +162,9 @@
 	// reuses it, so the backend returns the same batch instead of sending twice.
 	let idempotencyKey = '';
 
-	const ready = $derived(canConfirm(subject, estimate, counting) && failure === null);
+	const ready = $derived(
+		canConfirm(subject, estimate, counting, targetChannels) && failure === null
+	);
 
 	function openConfirmation() {
 		idempotencyKey = newIdempotencyKey();
@@ -206,6 +227,7 @@
 				{
 					subject,
 					body,
+					channels: targetChannels,
 					selection: {
 						groupIds: [...selectedGroupIds],
 						recipientIds: [...selectedRecipientIds],
@@ -235,6 +257,7 @@
 		const draft = {
 			subject: untrack(() => subject),
 			body,
+			channels: targetChannels,
 			selection: {
 				groupIds: [...selectedGroupIds],
 				recipientIds: [...selectedRecipientIds],
@@ -319,8 +342,49 @@
 <div class="composer">
 	<form class="draft" onsubmit={(e) => e.preventDefault()}>
 		<fieldset class="frozen" disabled={confirming}>
-			<label for="subject">Temat e-maila</label>
-			<input id="subject" name="subject" type="text" bind:value={subject} autocomplete="off" />
+			<div class="channel-mode-container">
+				<span class="channel-mode-title">Kanały wysyłki</span>
+				<div class="channel-mode-group" role="radiogroup" aria-label="Kanały wysyłki">
+					<label class="channel-radio-label" class:selected={channelMode === 'both'}>
+						<input type="radio" name="channelMode" value="both" bind:group={channelMode} />
+						<span class="channel-radio-content">
+							<strong class="channel-name">E-mail i SMS</strong>
+							<span class="channel-desc">Dwa kanały jednocześnie (zalecane)</span>
+						</span>
+					</label>
+					<label class="channel-radio-label" class:selected={channelMode === 'email'}>
+						<input type="radio" name="channelMode" value="email" bind:group={channelMode} />
+						<span class="channel-radio-content">
+							<strong class="channel-name">Tylko E-mail</strong>
+							<span class="channel-desc">Wysyłka wyłącznie e-mailem (brak kosztu SMS)</span>
+						</span>
+					</label>
+					<label class="channel-radio-label" class:selected={channelMode === 'sms'}>
+						<input type="radio" name="channelMode" value="sms" bind:group={channelMode} />
+						<span class="channel-radio-content">
+							<strong class="channel-name">Tylko SMS</strong>
+							<span class="channel-desc">Szybkie powiadomienie na telefon</span>
+						</span>
+					</label>
+				</div>
+			</div>
+
+			{#if channelMode !== 'sms'}
+				<label for="subject">Temat e-maila</label>
+				<input id="subject" name="subject" type="text" bind:value={subject} autocomplete="off" />
+			{:else}
+				<label for="subject" class="optional-label">
+					Temat e-maila <span class="hint-tag">(niewymagany przy wysyłce tylko SMS)</span>
+				</label>
+				<input
+					id="subject"
+					name="subject"
+					type="text"
+					bind:value={subject}
+					placeholder="Opcjonalny (wiadomość zostanie wysłana wyłącznie przez SMS)"
+					autocomplete="off"
+				/>
+			{/if}
 
 			<label for="body">Treść wiadomości</label>
 			<textarea id="body" name="body" rows="8" bind:value={body} aria-describedby="body-hint"
@@ -340,13 +404,19 @@
 							>
 						{/if}
 					</div>
-					{#if subject.trim()}
+					{#if channelMode !== 'sms' && subject.trim()}
 						<p class="preview-subject"><strong>Temat e-maila:</strong> {subject}</p>
 					{/if}
 					<div class="preview-body">{estimate?.sampleBody || body}</div>
 					<p class="preview-note">
-						E-mail i SMS mają tę samą treść; <code>{'{{imie}}'}</code> i
-						<code>{'{{nazwisko}}'}</code> każdy odbiorca dostaje ze swoimi danymi.
+						{#if channelMode === 'email'}
+							Wiadomość zostanie wysłana wyłącznie na adresy e-mail odbiorców.
+						{:else if channelMode === 'sms'}
+							Wiadomość zostanie wysłana wyłącznie przez SMS na numery telefonów.
+						{:else}
+							E-mail i SMS mają tę samą treść; <code>{'{{imie}}'}</code> i
+							<code>{'{{nazwisko}}'}</code> każdy odbiorca dostaje ze swoimi danymi.
+						{/if}
 					</p>
 				</div>
 			{/if}
@@ -439,15 +509,29 @@
 				{#if incompleteRecipients.length > 0}
 					<div class="incomplete-section">
 						<h4 class="incomplete-heading">
-							Osoby z niepełnymi danymi kontaktowymi ({incompleteRecipients.length})
+							{#if channelMode === 'email'}
+								Osoby bez adresu e-mail ({incompleteRecipients.length})
+							{:else if channelMode === 'sms'}
+								Osoby bez numeru telefonu ({incompleteRecipients.length})
+							{:else}
+								Osoby z niepełnymi danymi kontaktowymi ({incompleteRecipients.length})
+							{/if}
 						</h4>
 						<p class="hint">
-							Te osoby nie mają kompletu danych kontaktowych. Możesz uzupełnić brakujące dane przed
-							wysyłką lub wykluczyć odbiorcę z tej wiadomości:
+							{#if channelMode === 'email'}
+								Te osoby nie mają adresu e-mail wymaganego do tej wysyłki. Możesz uzupełnić
+								brakujący adres lub wykluczyć odbiorcę z tej wysyłki:
+							{:else if channelMode === 'sms'}
+								Te osoby nie mają numeru telefonu wymaganego do tej wysyłki. Możesz uzupełnić
+								brakujący numer lub wykluczyć odbiorcę z tej wysyłki:
+							{:else}
+								Te osoby nie mają kompletu danych kontaktowych. Możesz uzupełnić brakujące dane
+								przed wysyłką lub wykluczyć odbiorcę z tej wiadomości:
+							{/if}
 						</p>
 						<ul class="incomplete-list">
 							{#each incompleteRecipients as inc (inc.recipient.id)}
-								{@const needs = missingChannels(inc.channels)}
+								{@const needs = activeNeeds(inc)}
 								<li>
 									<div class="inc-row">
 										<div class="inc-details">
@@ -456,9 +540,9 @@
 												{#if inc.channels.length === 0}
 													brak e-maila i telefonu
 												{:else if needs.needsEmail}
-													brak e-maila (tylko SMS)
-												{:else}
-													brak telefonu (tylko e-mail)
+													brak e-maila
+												{:else if needs.needsPhone}
+													brak telefonu
 												{/if}
 											</span>
 										</div>
@@ -577,7 +661,9 @@
 		{#if estimate}
 			<div aria-live="polite">
 				<p class="template">
-					{#if estimate.template.parts === 0}
+					{#if channelMode === 'email'}
+						Tryb: <strong>Tylko E-mail</strong> (wiadomość nie zużywa pakietu SMS).
+					{:else if estimate.template.parts === 0}
 						Wpisz treść, żeby zobaczyć liczbę SMS-ów.
 					{:else}
 						Sama treść: <strong>{smsText(estimate.template.parts)}</strong> na odbiorcę
@@ -587,7 +673,7 @@
 						</span>
 					{/if}
 				</p>
-				{#if estimate.template.encoding === 'UCS2'}
+				{#if channelMode !== 'email' && estimate.template.encoding === 'UCS2'}
 					<p class="hint">
 						Polskie litery lub emoji wymuszają kodowanie UCS-2: 70 znaków w jednym SMS-ie zamiast
 						160. Treść zostanie wysłana bez zmian.
@@ -599,18 +685,22 @@
 						<dt>Odbiorcy</dt>
 						<dd>{estimate.recipientCount}</dd>
 						{#if renders}
-							<dt>E-maile</dt>
-							<dd>{estimate.emailCount}</dd>
-							<dt>SMS-y do</dt>
-							<dd>{recipientsText(estimate.smsCount)}</dd>
-							{#if estimate.smsCount > 0}
-								<dt>Części SMS na odbiorcę</dt>
-								<dd>{partsText(estimate.minPartsPerRecipient, estimate.maxPartsPerRecipient)}</dd>
+							{#if channelMode !== 'sms'}
+								<dt>E-maile</dt>
+								<dd>{estimate.emailCount}</dd>
 							{/if}
-							<dt>Łącznie</dt>
-							<dd>{smsText(estimate.totalSmsParts)}</dd>
-							<dt class="cost">Szacowany koszt</dt>
-							<dd class="cost">{costText(estimate.costMilli)}</dd>
+							{#if channelMode !== 'email'}
+								<dt>SMS-y do</dt>
+								<dd>{recipientsText(estimate.smsCount)}</dd>
+								{#if estimate.smsCount > 0}
+									<dt>Części SMS na odbiorcę</dt>
+									<dd>{partsText(estimate.minPartsPerRecipient, estimate.maxPartsPerRecipient)}</dd>
+								{/if}
+								<dt>Łącznie</dt>
+								<dd>{smsText(estimate.totalSmsParts)}</dd>
+								<dt class="cost">Szacowany koszt</dt>
+								<dd class="cost">{costText(estimate.costMilli)}</dd>
+							{/if}
 						{/if}
 					</dl>
 				{:else}
@@ -633,7 +723,9 @@
 			<section class="confirm" aria-labelledby="confirm-heading">
 				<h3 id="confirm-heading">Zatwierdź wysyłkę</h3>
 				<p>{confirmText(estimate)}</p>
-				<p>Szacowany koszt SMS: <strong>{costText(estimate.costMilli)}</strong></p>
+				{#if channelMode !== 'email'}
+					<p>Szacowany koszt SMS: <strong>{costText(estimate.costMilli)}</strong></p>
+				{/if}
 				{#if estimate.sampleBody}
 					<div class="confirm-preview">
 						<small
@@ -645,7 +737,13 @@
 					</div>
 				{/if}
 				<p class="hint">
-					Wysyłki nie da się cofnąć. Każdy odbiorca dostanie tę samą treść e-mailem i SMS-em.
+					{#if channelMode === 'email'}
+						Wysyłki nie da się cofnąć. Każdy odbiorca dostanie wiadomość e-mail.
+					{:else if channelMode === 'sms'}
+						Wysyłki nie da się cofnąć. Każdy odbiorca dostanie wiadomość SMS.
+					{:else}
+						Wysyłki nie da się cofnąć. Każdy odbiorca dostanie tę samą treść e-mailem i SMS-em.
+					{/if}
 				</p>
 				{#if sendFailure}
 					<p class="error" role="alert">{sendFailure}</p>
@@ -663,7 +761,7 @@
 			<button type="button" class="primary" onclick={openConfirmation} disabled={!ready}>
 				Dalej: zatwierdź wysyłkę
 			</button>
-			{#if !ready && estimate && hasRecipients && subject.trim() === ''}
+			{#if !ready && estimate && hasRecipients && channelMode !== 'sms' && subject.trim() === ''}
 				<p class="hint">Uzupełnij temat e-maila, żeby zatwierdzić wysyłkę.</p>
 			{/if}
 		{/if}
@@ -1085,5 +1183,62 @@
 	}
 	.copy-banner-dismiss:hover {
 		color: var(--color-text);
+	}
+	.channel-mode-container {
+		margin-bottom: 1.5rem;
+		padding: 1rem;
+		background: var(--color-surface-muted, #f8fafc);
+		border: 1px solid var(--color-border, #e2e8f0);
+		border-radius: 8px;
+	}
+	.channel-mode-title {
+		display: block;
+		font-weight: 600;
+		font-size: 0.95rem;
+		margin-bottom: 0.75rem;
+		color: var(--color-text, #1e293b);
+	}
+	.channel-mode-group {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+		gap: 0.75rem;
+	}
+	.channel-radio-label {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.6rem;
+		padding: 0.75rem 1rem;
+		border: 1px solid var(--color-border, #cbd5e1);
+		border-radius: 6px;
+		background: var(--color-surface, #ffffff);
+		cursor: pointer;
+		transition: all 150ms ease;
+	}
+	.channel-radio-label:hover {
+		border-color: var(--color-primary, #2563eb);
+		background: var(--color-surface-hover, #f1f5f9);
+	}
+	.channel-radio-label.selected {
+		border-color: var(--color-primary, #2563eb);
+		background: #eff6ff;
+		box-shadow: 0 0 0 1px var(--color-primary, #2563eb);
+	}
+	.channel-radio-content {
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+	}
+	.channel-name {
+		font-size: 0.95rem;
+		color: var(--color-text, #0f172a);
+	}
+	.channel-desc {
+		font-size: 0.8rem;
+		color: var(--color-text-muted, #64748b);
+	}
+	.optional-label .hint-tag {
+		font-weight: normal;
+		font-size: 0.85em;
+		color: var(--color-text-muted, #64748b);
 	}
 </style>

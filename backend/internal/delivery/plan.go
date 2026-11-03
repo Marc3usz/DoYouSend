@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/groups"
 	"github.com/Marc3usz/DoYouSend/backend/internal/messaging"
@@ -46,10 +47,15 @@ type Plan struct {
 }
 
 // NewPlan renders body for every resolved recipient and prepares one pending delivery
-// per usable channel. A recipient listed twice is planned once (CLAUDE.md rule 6).
+// per usable channel among targetChannels (defaulting to both e-mail and SMS).
+// A recipient listed twice is planned once (CLAUDE.md rule 6).
 // A body that does not render for someone fails only that person's deliveries; the
 // rest of the batch is planned as usual (CLAUDE.md rule 5).
-func NewPlan(subject, body string, list []groups.Resolved) Plan {
+func NewPlan(subject, body string, list []groups.Resolved, targetChannels ...providers.Channel) Plan {
+	targets := targetChannels
+	if len(targets) == 0 {
+		targets = []providers.Channel{providers.ChannelEmail, providers.ChannelSMS}
+	}
 	plan := Plan{Subject: subject, Recipients: make([]PlannedRecipient, 0, len(list))}
 	seen := make(map[string]bool, len(list))
 	for _, r := range list {
@@ -57,18 +63,32 @@ func NewPlan(subject, body string, list []groups.Resolved) Plan {
 			continue
 		}
 		seen[r.Recipient.ID] = true
-		plan.Recipients = append(plan.Recipients, planRecipient(body, r))
+		plan.Recipients = append(plan.Recipients, planRecipient(body, r, targets))
 	}
 	return plan
 }
 
-func planRecipient(body string, r groups.Resolved) PlannedRecipient {
+func planRecipient(body string, r groups.Resolved, targets []providers.Channel) PlannedRecipient {
+	hasEmail := slices.Contains(targets, providers.ChannelEmail) && r.CanReach(groups.ChannelEmail)
+	hasPhone := slices.Contains(targets, providers.ChannelSMS) && r.CanReach(groups.ChannelSMS)
+
+	usableCount := 0
+	if hasEmail {
+		usableCount++
+	}
+	if hasPhone {
+		usableCount++
+	}
+
+	isPartial := len(targets) > 1 && usableCount == 1
+	isUnreachable := usableCount == 0
+
 	pr := PlannedRecipient{
 		RecipientID: r.Recipient.ID,
 		FirstName:   r.Recipient.FirstName,
 		LastName:    r.Recipient.LastName,
-		Partial:     r.Partial(),
-		Unreachable: r.Unreachable(),
+		Partial:     isPartial,
+		Unreachable: isUnreachable,
 	}
 
 	rendered, renderErr := messaging.Render(body, messaging.RecipientFields(r.Recipient.FirstName, r.Recipient.LastName))
@@ -79,12 +99,15 @@ func planRecipient(body string, r groups.Resolved) PlannedRecipient {
 		pr.Body = rendered
 	}
 
-	for _, c := range r.Channels() {
-		d := Delivery{Channel: providers.Channel(c), Status: StatusPending, Parts: 1}
+	for _, c := range targets {
+		if (c == providers.ChannelEmail && !hasEmail) || (c == providers.ChannelSMS && !hasPhone) {
+			continue
+		}
+		d := Delivery{Channel: c, Status: StatusPending, Parts: 1}
 		switch c {
-		case groups.ChannelEmail:
+		case providers.ChannelEmail:
 			d.To = r.Recipient.Email
-		case groups.ChannelSMS:
+		case providers.ChannelSMS:
 			d.To = r.Recipient.Phone
 			d.Parts = messaging.MeasureSMS(pr.Body).Parts
 		}

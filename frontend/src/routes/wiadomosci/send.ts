@@ -21,10 +21,17 @@ export function newIdempotencyKey(
 }
 
 /** Whether the draft may be confirmed: the backend would refuse it otherwise. */
-export function canConfirm(subject: string, est: SendEstimate | null, counting: boolean): boolean {
+export function canConfirm(
+	subject: string,
+	est: SendEstimate | null,
+	counting: boolean,
+	channels?: ('email' | 'sms')[]
+): boolean {
+	const requiresSubject = !channels || channels.includes('email');
+	const subjectOk = !requiresSubject || subject.trim() !== '';
 	return (
 		!counting &&
-		subject.trim() !== '' &&
+		subjectOk &&
 		est !== null &&
 		est.recipientCount > 0 &&
 		est.template.parts > 0 &&
@@ -34,11 +41,17 @@ export function canConfirm(subject: string, est: SendEstimate | null, counting: 
 
 /** One sentence the sender confirms: who gets what over which channel. */
 export function confirmText(est: SendEstimate): string {
-	const emails = `${est.emailCount} ${plural(est.emailCount, 'e-mail', 'e-maile', 'e-maili')}`;
-	const sms = est.smsCount > 0 ? ` i ${smsText(est.totalSmsParts)}` : '';
+	const parts: string[] = [];
+	if (est.emailCount > 0) {
+		parts.push(`${est.emailCount} ${plural(est.emailCount, 'e-mail', 'e-maile', 'e-maili')}`);
+	}
+	if (est.smsCount > 0) {
+		parts.push(smsText(est.totalSmsParts));
+	}
+	const what = parts.length > 0 ? parts.join(' i ') : '0 wiadomości';
 	// "do" takes the genitive: do 1 odbiorcy, do 3 odbiorców.
 	const n = est.recipientCount;
-	return `Wyślesz ${emails}${sms} do ${n} ${n === 1 ? 'odbiorcy' : 'odbiorców'}.`;
+	return `Wyślesz ${what} do ${n} ${n === 1 ? 'odbiorcy' : 'odbiorców'}.`;
 }
 
 /** Text for a confirmation the backend refused or that did not reach it. */

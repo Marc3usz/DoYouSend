@@ -15,6 +15,7 @@ import (
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/groups"
 	"github.com/Marc3usz/DoYouSend/backend/internal/messaging"
+	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
 )
 
 // saveTimeout bounds recording the outcome after dispatch.
@@ -81,6 +82,7 @@ type ObservablePlanDispatcher interface {
 type Draft struct {
 	Subject   string
 	Body      string
+	Channels  []providers.Channel
 	Selection groups.Selection
 	// CreatedBy is the ID of the signed-in user confirming the send.
 	CreatedBy     string
@@ -229,7 +231,12 @@ func (s *Service) record(ctx context.Context, d Draft) (Batch, bool, error) {
 		return Batch{}, false, fmt.Errorf("send batch: %w", err)
 	}
 
-	plan := NewPlan(d.Subject, d.Body, res.Recipients)
+	targets := d.Channels
+	if len(targets) == 0 {
+		targets = []providers.Channel{providers.ChannelEmail, providers.ChannelSMS}
+	}
+
+	plan := NewPlan(d.Subject, d.Body, res.Recipients, targets...)
 	parts := plan.smsParts()
 	batch, err := s.store.CreateBatch(ctx, Batch{
 		Subject:              d.Subject,
@@ -277,7 +284,13 @@ func (s *Service) replay(ctx context.Context, d Draft, hash string) (Batch, erro
 // key reused for another message. Selection order and repeats do not matter.
 func requestHash(d Draft) (string, error) {
 	sel := d.Selection.Normalize()
+	channels := make([]string, len(d.Channels))
+	for i, c := range d.Channels {
+		channels[i] = string(c)
+	}
+	slices.Sort(channels)
 	data, err := json.Marshal([]any{d.Subject, d.Body,
+		channels,
 		slices.Sorted(slices.Values(sel.GroupIDs)),
 		slices.Sorted(slices.Values(sel.RecipientIDs)),
 		slices.Sorted(slices.Values(sel.ExcludedRecipientIDs))})
@@ -365,8 +378,9 @@ func (s *Service) StartRetry(ctx context.Context, batchID string) (Batch, error)
 }
 
 func checkDraft(d Draft) error {
+	requiresSubject := len(d.Channels) == 0 || slices.Contains(d.Channels, providers.ChannelEmail)
 	switch {
-	case strings.TrimSpace(d.Subject) == "":
+	case requiresSubject && strings.TrimSpace(d.Subject) == "":
 		return ErrEmptySubject
 	case strings.TrimSpace(d.Body) == "":
 		return messaging.ErrEmptyBody

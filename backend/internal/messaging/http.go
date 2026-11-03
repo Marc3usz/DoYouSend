@@ -20,7 +20,18 @@ func HandlePreview(p *Previewer, logger *slog.Logger) http.HandlerFunc {
 			return
 		}
 
-		est, err := p.Preview(r.Context(), draft.Body, draft.Selection.toSelection())
+		for _, c := range draft.Channels {
+			if c != "email" && c != "sms" {
+				httpx.Error(w, http.StatusBadRequest, httpx.ErrorBody{
+					Code:    "invalid_input",
+					Message: "invalid channels",
+					Fields:  []httpx.FieldError{{Field: "channels", Message: "channel must be email or sms"}},
+				})
+				return
+			}
+		}
+
+		est, err := p.Preview(r.Context(), draft.Body, draft.Selection.toSelection(), draft.Channels...)
 		var invalid *groups.ValidationError
 		switch {
 		case err == nil:
@@ -46,6 +57,7 @@ type (
 	draftJSON struct {
 		Subject   string        `json:"subject"`
 		Body      string        `json:"body"`
+		Channels  []string      `json:"channels,omitempty"`
 		Selection selectionJSON `json:"selection"`
 	}
 	selectionJSON struct {

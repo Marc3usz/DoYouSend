@@ -290,3 +290,34 @@ func TestHTTPRetryBatchAccessAndErrors(t *testing.T) {
 		t.Errorf("retry running batch = %d; want 409", rec.Code)
 	}
 }
+
+func TestHTTPCreateBatchChannelModes(t *testing.T) {
+	env := newHTTPEnv(t, twoRecipients())
+	key := map[string]string{headerKey: testKey}
+
+	// SMS only with empty subject succeeds and only creates SMS deliveries
+	smsJSON := `{"subject":"","body":"Tylko SMS","channels":["sms"],"selection":{"groupIds":["` + groupID + `"]}}`
+	rec := env.do(t, http.MethodPost, "/api/batches", smsJSON, key)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("POST sms only = %d %s, want 202", rec.Code, rec.Body)
+	}
+	got := decode[batchDetailJSON](t, rec)
+	if len(got.Recipients) != 2 {
+		t.Fatalf("got %d recipients, want 2", len(got.Recipients))
+	}
+	for _, r := range got.Recipients {
+		for _, d := range r.Deliveries {
+			if d.Channel != "sms" {
+				t.Errorf("got delivery channel %q, want only sms", d.Channel)
+			}
+		}
+	}
+
+	// Invalid channel is rejected
+	badKey := map[string]string{headerKey: "00000000-0000-4000-8000-000000000099"}
+	badJSON := `{"subject":"S","body":"B","channels":["fax"],"selection":{"groupIds":["` + groupID + `"]}}`
+	recBad := env.do(t, http.MethodPost, "/api/batches", badJSON, badKey)
+	if recBad.Code != http.StatusBadRequest {
+		t.Errorf("POST bad channel = %d, want 400", recBad.Code)
+	}
+}

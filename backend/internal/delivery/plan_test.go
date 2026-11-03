@@ -234,3 +234,54 @@ func TestRetryPlan(t *testing.T) {
 		t.Errorf("original plan modified: %+v", plan.Recipients[0].Deliveries[1])
 	}
 }
+
+func TestNewPlanTargetChannels(t *testing.T) {
+	const (
+		idBoth  = "00000000-0000-4000-8000-000000000001"
+		idEmail = "00000000-0000-4000-8000-000000000002"
+		idSMS   = "00000000-0000-4000-8000-000000000003"
+	)
+	list := []groups.Resolved{
+		resolved(idBoth, "Anna", "anna@example.test", "+48500100101"),
+		resolved(idEmail, "Jan", "jan@example.test", ""),
+		resolved(idSMS, "Ola", "", "+48500100103"),
+	}
+
+	t.Run("email only", func(t *testing.T) {
+		p := NewPlan("Subject", "Tresc", list, providers.ChannelEmail)
+		if len(p.Recipients) != 3 {
+			t.Fatalf("len(Recipients) = %d", len(p.Recipients))
+		}
+		// idBoth: email planned, not partial, not unreachable
+		if p.Recipients[0].Partial || p.Recipients[0].Unreachable || len(p.Recipients[0].Deliveries) != 1 {
+			t.Errorf("idBoth = %+v", p.Recipients[0])
+		}
+		// idEmail: email planned, not partial, not unreachable
+		if p.Recipients[1].Partial || p.Recipients[1].Unreachable || len(p.Recipients[1].Deliveries) != 1 {
+			t.Errorf("idEmail = %+v", p.Recipients[1])
+		}
+		// idSMS: has no email, unreachable in email-only mode, 0 deliveries
+		if p.Recipients[2].Partial || !p.Recipients[2].Unreachable || len(p.Recipients[2].Deliveries) != 0 {
+			t.Errorf("idSMS = %+v", p.Recipients[2])
+		}
+	})
+
+	t.Run("sms only", func(t *testing.T) {
+		p := NewPlan("Subject", "Tresc", list, providers.ChannelSMS)
+		if len(p.Recipients) != 3 {
+			t.Fatalf("len(Recipients) = %d", len(p.Recipients))
+		}
+		// idBoth: sms planned, not partial, not unreachable
+		if p.Recipients[0].Partial || p.Recipients[0].Unreachable || len(p.Recipients[0].Deliveries) != 1 {
+			t.Errorf("idBoth = %+v", p.Recipients[0])
+		}
+		// idEmail: has no phone, unreachable in sms-only mode, 0 deliveries
+		if p.Recipients[1].Partial || !p.Recipients[1].Unreachable || len(p.Recipients[1].Deliveries) != 0 {
+			t.Errorf("idEmail = %+v", p.Recipients[1])
+		}
+		// idSMS: sms planned, not partial, not unreachable
+		if p.Recipients[2].Partial || p.Recipients[2].Unreachable || len(p.Recipients[2].Deliveries) != 1 {
+			t.Errorf("idSMS = %+v", p.Recipients[2])
+		}
+	})
+}

@@ -24,15 +24,32 @@ const apiError = (status: number, body: unknown) => new ApiError(status, 'POST /
 
 describe('canConfirm', () => {
 	it.each([
-		['ready', 'Zebranie', est, false, true],
-		['still counting', 'Zebranie', est, true, false],
-		['blank subject', '   ', est, false, false],
-		['no estimate', 'Zebranie', null, false, false],
-		['nobody selected', 'Zebranie', { ...est, recipientCount: 0 }, false, false],
-		['empty body', 'Zebranie', { ...est, template: { ...est.template, parts: 0 } }, false, false],
-		['unknown placeholder', 'Zebranie', { ...est, unknownPlaceholders: ['klasa'] }, false, false]
-	])('%s', (_, subject, estimate, counting, want) => {
-		expect(canConfirm(subject, estimate, counting)).toBe(want);
+		['ready', 'Zebranie', est, false, undefined, true],
+		['still counting', 'Zebranie', est, true, undefined, false],
+		['blank subject', '   ', est, false, undefined, false],
+		['no estimate', 'Zebranie', null, false, undefined, false],
+		['nobody selected', 'Zebranie', { ...est, recipientCount: 0 }, false, undefined, false],
+		[
+			'empty body',
+			'Zebranie',
+			{ ...est, template: { ...est.template, parts: 0 } },
+			false,
+			undefined,
+			false
+		],
+		[
+			'unknown placeholder',
+			'Zebranie',
+			{ ...est, unknownPlaceholders: ['klasa'] },
+			false,
+			undefined,
+			false
+		],
+		['sms only allows blank subject', '   ', est, false, ['sms'] as ('email' | 'sms')[], true],
+		['email only requires subject', '   ', est, false, ['email'] as ('email' | 'sms')[], false],
+		['email only with subject', 'Zebranie', est, false, ['email'] as ('email' | 'sms')[], true]
+	])('%s', (_, subject, estimate, counting, channels, want) => {
+		expect(canConfirm(subject, estimate, counting, channels)).toBe(want);
 	});
 });
 
@@ -49,6 +66,11 @@ describe('confirmText', () => {
 		expect(confirmText({ ...est, emailCount: 1, smsCount: 0, recipientCount: 1 })).toBe(
 			'Wyślesz 1 e-mail do 1 odbiorcy.'
 		);
+	});
+	it('leaves e-mail out when nobody gets one (SMS only)', () => {
+		expect(
+			confirmText({ ...est, emailCount: 0, smsCount: 3, totalSmsParts: 4, recipientCount: 3 })
+		).toBe('Wyślesz 4 SMS-y do 3 odbiorców.');
 	});
 });
 
