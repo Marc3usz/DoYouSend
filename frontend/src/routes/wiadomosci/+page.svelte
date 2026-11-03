@@ -23,6 +23,8 @@
 
 	let { data }: PageProps = $props();
 
+	let showCopyBanner = $state(true);
+
 	let subject = $state(untrack(() => data.initialDraft?.subject ?? ''));
 	// Sent exactly as typed: the composer never trims or reformats the body.
 	let body = $state(untrack(() => data.initialDraft?.body ?? ''));
@@ -295,6 +297,24 @@
 	Jedna treść trafia do odbiorców jednocześnie e-mailem i SMS-em — w obu kanałach dokładnie taka
 	sama. Temat dotyczy tylko e-maila, więc wszystko, co ważne, wpisz w treść.
 </p>
+
+{#if data.copiedBatchSubject && showCopyBanner}
+	<aside class="copy-banner" role="status" aria-label="Informacja o załadowaniu kopii">
+		<span class="copy-banner-text">
+			Załadowano treść i grupy na podstawie wcześniejszej wysyłki: <strong
+				>{data.copiedBatchSubject}</strong
+			>.
+		</span>
+		<button
+			type="button"
+			class="copy-banner-dismiss"
+			onclick={() => (showCopyBanner = false)}
+			aria-label="Zamknij powiadomienie"
+		>
+			✕
+		</button>
+	</aside>
+{/if}
 
 <div class="composer">
 	<form class="draft" onsubmit={(e) => e.preventDefault()}>
@@ -1037,5 +1057,33 @@
 		color: var(--color-text);
 		border-left: 3px solid var(--color-primary);
 		padding-left: 0.5rem;
+	}
+	.copy-banner {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		background: var(--color-surface-muted);
+		border: 1px solid var(--color-border);
+		border-left: 4px solid var(--color-primary);
+		border-radius: var(--radius-sm, 4px);
+		padding: 0.75rem 1rem;
+		margin: 1rem 0;
+	}
+	.copy-banner-text {
+		color: var(--color-text);
+		font-size: 0.9375rem;
+	}
+	.copy-banner-dismiss {
+		background: transparent;
+		border: none;
+		color: var(--color-text-muted);
+		font-size: 1rem;
+		cursor: pointer;
+		padding: 0.25rem 0.5rem;
+		line-height: 1;
+	}
+	.copy-banner-dismiss:hover {
+		color: var(--color-text);
 	}
 </style>

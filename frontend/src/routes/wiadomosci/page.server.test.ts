@@ -41,7 +41,8 @@ describe('wiadomosci load', () => {
 		expect(got).toEqual({
 			groups,
 			groupsFailed: false,
-			initialDraft: null
+			initialDraft: null,
+			copiedBatchSubject: null
 		});
 	});
 
@@ -56,6 +57,7 @@ describe('wiadomosci load', () => {
 		expect(got).toEqual({
 			groups,
 			groupsFailed: false,
+			copiedBatchSubject: 'Zebranie rodziców',
 			initialDraft: {
 				subject: 'Zebranie rodziców',
 				body: 'Wiadomość testowa dla {{imie}}',
@@ -103,7 +105,8 @@ describe('wiadomosci load', () => {
 		expect(got).toEqual({
 			groups,
 			groupsFailed: false,
-			initialDraft: null
+			initialDraft: null,
+			copiedBatchSubject: null
 		});
 	});
 });
