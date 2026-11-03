@@ -576,7 +576,7 @@ func TestLiveSwapsProviders(t *testing.T) {
 	if err != nil || d == nil {
 		t.Fatalf("Dispatcher: %v", err)
 	}
-	if _, real := live.SenderVerifier(); real {
+	if _, isReal := live.SenderVerifier(); isReal {
 		t.Error("dry run must use the fake sender verifier")
 	}
 	fakeBefore, _ := live.SenderVerifier()
@@ -599,7 +599,7 @@ func TestLiveSwapsProviders(t *testing.T) {
 	if live.Config().EmailProvider != "sendgrid" || live.Config().DryRun {
 		t.Errorf("after Activate config = %+v", live.Config())
 	}
-	if v, real := live.SenderVerifier(); !real || v == fakeBefore {
+	if v, isReal := live.SenderVerifier(); !isReal || v == fakeBefore {
 		t.Error("live sendgrid must use the real sender verifier")
 	}
 

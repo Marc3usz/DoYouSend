@@ -58,14 +58,14 @@ func (l *Live) Prepare(cfg Config) (*Prepared, error) {
 	if err != nil {
 		return nil, err
 	}
-	verifier, real, err := NewSenderVerifier(cfg, l.logger)
+	verifier, liveSenders, err := NewSenderVerifier(cfg, l.logger)
 	if err != nil {
 		return nil, err
 	}
-	if !real {
+	if !liveSenders {
 		verifier = l.fake
 	}
-	return &Prepared{state: &liveState{cfg: cfg, provs: provs, verifier: verifier, liveSenders: real}}, nil
+	return &Prepared{state: &liveState{cfg: cfg, provs: provs, verifier: verifier, liveSenders: liveSenders}}, nil
 }
 
 // Activate makes p the current configuration. Messages already handed to a
