@@ -30,11 +30,14 @@ func (a Access) String() string {
 }
 
 // rule matches a method (empty = any) and a path prefix, or an exact path when
-// exact is set. The first matching rule wins.
+// exact is set. With suffix, the path must be path + one segment (an ID) +
+// suffix, e.g. "/api/recipients/" + "{id}" + "/contact". The first matching
+// rule wins.
 type rule struct {
 	method string
 	path   string
 	exact  bool
+	suffix string
 	access Access
 }
 
@@ -54,6 +57,8 @@ var rules = []rule{
 	{path: "/api/groups", access: AccessAdmin},
 	// The composer's search, without contact data (GET /recipients/lookup).
 	{method: http.MethodGet, path: "/api/recipients/lookup", exact: true, access: AccessUser},
+	// Filling in a missing contact from the composer, write-only (ADR-0013).
+	{method: http.MethodPatch, path: "/api/recipients/", suffix: "/contact", access: AccessUser},
 	{path: "/api/recipients", access: AccessAdmin},
 	{path: "/api/users", access: AccessAdmin},
 	{path: "/api/audit", access: AccessAdmin},
@@ -67,11 +72,27 @@ func RouteAccess(method, path string) Access {
 		if r.method != "" && r.method != method {
 			continue
 		}
-		if r.exact && path == r.path || !r.exact && hasPathPrefix(path, r.path) {
+		if r.matches(path) {
 			return r.access
 		}
 	}
 	return AccessUser
+}
+
+func (r rule) matches(path string) bool {
+	switch {
+	case r.suffix != "":
+		id, ok := strings.CutPrefix(path, r.path)
+		if !ok {
+			return false
+		}
+		id, ok = strings.CutSuffix(id, r.suffix)
+		return ok && id != "" && !strings.Contains(id, "/")
+	case r.exact:
+		return path == r.path
+	default:
+		return hasPathPrefix(path, r.path)
+	}
 }
 
 // hasPathPrefix matches whole path segments: "/api/users" covers

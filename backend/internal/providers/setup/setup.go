@@ -44,6 +44,7 @@ type Config struct {
 	// SendGrid settings (used when EmailProvider == "sendgrid").
 	SendGridAPIKey           string
 	SendGridSandbox          bool
+	SendGridRegion           string
 	SendGridWebhookPublicKey string
 
 	// SMSProvider selects the SMS adapter: "fake" (default) or "smsapi".
@@ -72,6 +73,7 @@ func ConfigFromEnv() Config {
 		EmailFrom:                envOr("EMAIL_FROM", "DoYouSend <no-reply@example.test>"),
 		SendGridAPIKey:           envOr("SENDGRID_API_KEY", ""),
 		SendGridSandbox:          envOr("SENDGRID_SANDBOX", "false") == "true",
+		SendGridRegion:           envOr("SENDGRID_REGION", "global"),
 		SendGridWebhookPublicKey: envOr("SENDGRID_WEBHOOK_PUBLIC_KEY", ""),
 		SMSProvider:              envOr("SMS_PROVIDER", "fake"),
 		SMSAPIKey:                envOr("SMS_API_KEY", ""),
@@ -216,6 +218,7 @@ func newEmailProvider(cfg Config, logger *slog.Logger) (providers.Provider, erro
 			APIKey:  cfg.SendGridAPIKey,
 			From:    cfg.EmailFrom,
 			Sandbox: cfg.SendGridSandbox,
+			Region:  cfg.SendGridRegion,
 		}, logger)
 
 	default:

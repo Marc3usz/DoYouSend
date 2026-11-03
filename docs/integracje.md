@@ -85,14 +85,16 @@ Domyślny adapter dla środowiska deweloperskiego i testowego, uruchamiany przez
   * Generowanie unikalnego nagłówka RFC 5322 `Message-ID`.
 
 ### 3.2. Produkcyjnie: SendGrid (`EMAIL_PROVIDER=sendgrid`, ADR-0008)
-Adapter wysyłający wiadomości przez oficjalne REST API SendGrid v3 (`/v3/mail/send`):
+Adapter wysyłający wiadomości przez REST API SendGrid v3 (`/v3/mail/send`). Żądanie buduje oficjalne SDK `sendgrid-go`, ale wysyła nasz własny `http.Client` z timeoutem (ADR-0014):
 * **Zmienne w `.env`:**
   ```env
   EMAIL_PROVIDER=sendgrid
   SENDGRID_API_KEY=SG.twoj-klucz-api
   SENDGRID_SANDBOX=false
+  SENDGRID_REGION=global
   EMAIL_FROM="DoYouSend <zweryfikowany-nadawca@twojadomena.pl>"
   ```
+* **Region danych (ADR-0014):** `SENDGRID_REGION=global` (domyślnie, `api.sendgrid.com`) albo `eu` (`api.eu.sendgrid.com`). Inna wartość kończy się błędem przy starcie. Prawdopodobnie klucz API musi pochodzić z konta w tym samym regionie (do potwierdzenia w SendGrid, zob. ADR-0014). Przed produkcją ustawiamy `eu`.
 * **Tryb Sandbox:** Ustawienie `SENDGRID_SANDBOX=true` waliduje żądanie po stronie API SendGrid bez wysyłania e-maila.
 * **Webhook zdarzeń (Event Webhook):**
   * Ścieżka: `POST /providers/email/events`

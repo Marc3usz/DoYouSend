@@ -43,6 +43,9 @@ func TestConfigFromEnv_Defaults(t *testing.T) {
 	if cfg.SendGridSandbox {
 		t.Error("SendGridSandbox should default to false")
 	}
+	if cfg.SendGridRegion != "global" {
+		t.Errorf("SendGridRegion = %q, want %q", cfg.SendGridRegion, "global")
+	}
 	if cfg.SMSAPITestMode {
 		t.Error("SMSAPITestMode should default to false")
 	}
@@ -59,6 +62,7 @@ func TestConfigFromEnv_OverridesFromEnv(t *testing.T) {
 	t.Setenv("SMS_PROVIDER", "smsapi")
 	t.Setenv("SENDGRID_API_KEY", "test-sg-key")
 	t.Setenv("SENDGRID_SANDBOX", "true")
+	t.Setenv("SENDGRID_REGION", "eu")
 	t.Setenv("SENDGRID_WEBHOOK_PUBLIC_KEY", "test-webhook-key")
 	t.Setenv("SMS_API_KEY", "test-smsapi-token")
 	t.Setenv("SMS_SENDER_NAME", "MOJA-SZKOLA")
@@ -87,6 +91,9 @@ func TestConfigFromEnv_OverridesFromEnv(t *testing.T) {
 	}
 	if !cfg.SendGridSandbox {
 		t.Error("SendGridSandbox should be true when SENDGRID_SANDBOX=true")
+	}
+	if cfg.SendGridRegion != "eu" {
+		t.Errorf("SendGridRegion = %q, want %q", cfg.SendGridRegion, "eu")
 	}
 	if cfg.SMSAPIKey != "test-smsapi-token" {
 		t.Errorf("SMSAPIKey = %q, want %q", cfg.SMSAPIKey, "test-smsapi-token")
@@ -509,5 +516,20 @@ func TestProviders_EmailProfiler_NilReceiver(t *testing.T) {
 	var p *Providers
 	if prof := p.EmailProfiler(); prof != nil {
 		t.Errorf("EmailProfiler() on nil receiver = %v, want nil", prof)
+	}
+}
+
+func TestNew_SendGridUnknownRegion(t *testing.T) {
+	t.Parallel()
+
+	_, err := New(Config{
+		EmailProvider:  "sendgrid",
+		SendGridAPIKey: "test-api-key",
+		SendGridRegion: "us",
+		EmailFrom:      "test@example.test",
+		SMSProvider:    "fake",
+	}, nil)
+	if err == nil {
+		t.Fatal("expected an error for an unknown SENDGRID_REGION")
 	}
 }

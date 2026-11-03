@@ -113,6 +113,9 @@ const (
 	ActionBatchSent = "batch_sent"
 	// ActionBatchRetried is a sender retrying failed deliveries in a batch (POST /batches/{id}/retry); entity "batch".
 	ActionBatchRetried = "batch_retried"
+	// ActionRecipientContactFixed is a user filling in a missing contact
+	// (PATCH /recipients/{id}/contact, ADR-0013); entity "recipient", details: channels.
+	ActionRecipientContactFixed = "recipient_contact_fixed"
 )
 
 // Store is the storage the Service needs; PGStore implements it.

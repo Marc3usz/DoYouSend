@@ -2,6 +2,7 @@
 // backend (GET /batches, GET /batches/{id}).
 import type { Channel } from '$lib/api/recipients';
 import type { BatchRecipient, BatchStatus, Delivery, DeliveryStatus } from '$lib/api/batches';
+import { plural } from '../wiadomosci/estimate';
 
 export const batchStatusLabels: Record<BatchStatus, string> = {
 	draft: 'Szkic',
@@ -42,13 +43,23 @@ export function deliveryOf(r: BatchRecipient, channel: Channel): Delivery | unde
 	return r.deliveries.find((d) => d.channel === channel);
 }
 
-/** One table cell: the status, the SMS parts and the classified reason of a failure. */
+/** Formats retry attempts count in Polish (e.g. "2 próby", "5 prób"). */
+export const attemptsText = (n: number) => `${n} ${plural(n, 'próba', 'próby', 'prób')}`;
+
+/** One table cell: the status, the SMS parts, retry attempts and the classified reason of a failure. */
 export function deliveryText(d: Delivery | undefined): string {
 	if (!d) return 'brak kanału';
 	const label = deliveryStatusLabels[d.status];
-	const parts = d.channel === 'sms' && d.parts > 1 ? ` (${d.parts} części)` : '';
+	const details: string[] = [];
+	if (d.channel === 'sms' && d.parts > 1) {
+		details.push(`${d.parts} części`);
+	}
+	if (d.attempts > 1) {
+		details.push(attemptsText(d.attempts));
+	}
+	const meta = details.length > 0 ? ` (${details.join(', ')})` : '';
 	const reason = d.status === 'failed' && d.error ? `: ${d.error}` : '';
-	return `${label}${parts}${reason}`;
+	return `${label}${meta}${reason}`;
 }
 
 /** Whether a history page should keep refreshing: something is still being sent. */
