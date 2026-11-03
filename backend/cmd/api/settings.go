@@ -114,8 +114,8 @@ func sendingConfig(s settings.Snapshot) iam.SendingConfig {
 
 // senderOptions describes the sender verifier live currently uses.
 func senderOptions(live *setup.Live) iam.SenderOptions {
-	_, real := live.SenderVerifier()
-	if real {
+	_, liveSenders := live.SenderVerifier()
+	if liveSenders {
 		return iam.SenderOptions{Provider: "sendgrid", Live: true}
 	}
 	return iam.SenderOptions{Provider: "fake", Live: false}
