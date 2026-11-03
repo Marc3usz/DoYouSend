@@ -254,6 +254,48 @@ paths:
         "413": { $ref: "#/components/responses/ImportFileError" }
         "422": { $ref: "#/components/responses/ImportFileError" }
 
+  /recipients/import/notion/check:
+    post:
+      tags: [recipients]
+      summary: Sprawdza baze Notion bez zapisu (podglad importu, ADR-0017)
+      description: |
+        Czyta wszystkie wiersze bazy Notion skonfigurowanej w panelu (ustawienia z grupy notion,
+        ADR-0018) i zwraca ten sam raport co /recipients/import/check: walidacja, normalizacja
+        telefonu, duplikaty w bazie Notion i wzgledem zapisanych odbiorcow. Nic nie zapisuje.
+        row to numer wiersza tabeli zbudowanej z Notion (naglowek = 1); pages podaje strone Notion
+        kazdego wiersza, zeby administrator mogl ja poprawic. Wymaga roli administratora.
+        Bez tresci zadania.
+      responses:
+        "200":
+          description: Raport per wiersz
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotionImportReport" }
+        "409": { $ref: "#/components/responses/NotionImportError" }
+        "422": { $ref: "#/components/responses/NotionImportError" }
+        "502": { $ref: "#/components/responses/NotionImportError" }
+
+  /recipients/import/notion:
+    post:
+      tags: [recipients]
+      summary: Import odbiorcow z bazy Notion (ADR-0017)
+      description: |
+        Jak /recipients/import/notion/check, ale zapisuje poprawne wiersze (wszystkie albo zaden);
+        valid to wiersze faktycznie zapisane. Baza jest czytana od nowa, wiec raport moze sie roznic
+        od wczesniejszego sprawdzenia, jesli ktos w miedzyczasie edytowal Notion. Wpis w dzienniku
+        audytu: recipients_imported (liczby, zrodlo notion; bez danych osobowych).
+        Wymaga roli administratora. Bez tresci zadania.
+      responses:
+        "200":
+          description: Raport importu; valid to wiersze zapisane
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotionImportReport" }
+        "409": { $ref: "#/components/responses/NotionImportError" }
+        "422": { $ref: "#/components/responses/NotionImportError" }
+        "500": { $ref: "#/components/responses/NotionImportError" }
+        "502": { $ref: "#/components/responses/NotionImportError" }
+
   /groups:
     get:
       tags: [groups]
@@ -1086,8 +1128,14 @@ components:
           enum: [dry_run, email_provider, email_from, smtp_host, smtp_port, smtp_username, smtp_password,
                  sendgrid_api_key, sendgrid_sandbox, sendgrid_region, sendgrid_webhook_public_key,
                  sendgrid_sender_address, sendgrid_sender_city, sendgrid_sender_zip, sendgrid_sender_country,
-                 sms_provider, sms_api_key, sms_sender_name, sms_test_mode, sms_price_per_part_pln, smsapi_dlr_token]
-        group:   { type: string, enum: [general, email, sms] }
+                 sms_provider, sms_api_key, sms_sender_name, sms_test_mode, sms_price_per_part_pln, smsapi_dlr_token,
+                 notion_token, notion_database_id, notion_data_source_id, notion_property_map]
+          description: |
+            Grupa notion (ADR-0017) nie dotyczy wysylki: notion_token (sekret integracji wewnetrznej,
+            tylko odczyt), notion_database_id (ID albo wklejony URL bazy), notion_data_source_id
+            (potrzebne, gdy baza ma kilka zrodel danych), notion_property_map ("Wlasciwosc Notion=kolumna,...",
+            np. "Name=imie,Mail=e-mail"). Zmiana w grupie notion nigdy nie wymaga confirmLiveSending.
+        group:   { type: string, enum: [general, email, sms, notion] }
         kind:    { type: string, enum: [text, bool, enum, secret, price, port, address] }
         options: { type: array, items: { type: string }, description: "Dla kind=enum" }
         value:   { type: string, nullable: true, description: "null dla sekretow; bool jako \"true\"/\"false\"" }
@@ -1458,7 +1506,7 @@ components:
         body:    { type: string, description: "Jedna wspolna tresc dla wybranych kanalow, wysylana bajt w bajt (bez przycinania)" }
         channels:
           type: array
-          description: Docelowe kanaly wysylki. Domyslnie [email, sms]. Mozliwe: [email, sms], [email], [sms].
+          description: "Docelowe kanaly wysylki. Domyslnie [email, sms]. Mozliwe: [email, sms], [email], [sms]."
           items: { type: string, enum: [email, sms] }
         selection:
           description: Moze byc pominiety albo pusty - wtedy podglad liczy tylko sama tresc
@@ -1548,7 +1596,7 @@ components:
         body:      { type: string, description: "Jedna wspolna tresc, wysylana bajt w bajt; niepusta" }
         channels:
           type: array
-          description: Docelowe kanaly wysylki. Domyslnie [email, sms]. Mozliwe: [email, sms], [email], [sms].
+          description: "Docelowe kanaly wysylki. Domyslnie [email, sms]. Mozliwe: [email, sms], [email], [sms]."
           items: { type: string, enum: [email, sms] }
         selection: { $ref: "#/components/schemas/RecipientSelection" }
 
@@ -1735,6 +1783,45 @@ components:
           enum: [invalid_request, missing_file, empty_file, missing_columns, invalid_header, unsupported_format, file_too_large, too_many_rows, unclosed_quote, internal]
         message: { type: string, description: "Szczegol diagnostyczny po angielsku, np. lista brakujacych kolumn" }
 
+    NotionImportReport:
+      description: ImportReport z wierszami z Notion i strona Notion kazdego wiersza.
+      allOf:
+        - $ref: "#/components/schemas/ImportReport"
+        - type: object
+          required: [pageCount, pages]
+          properties:
+            pageCount: { type: integer, description: "Liczba stron (wierszy) odczytanych z Notion" }
+            pages:
+              type: array
+              description: Strona Notion dla kazdego wiersza raportu (invalid, duplicates i valid), po row.
+              items:
+                type: object
+                required: [row, pageId, url]
+                properties:
+                  row:    { type: integer }
+                  pageId: { type: string }
+                  url:    { type: string, description: "Link do strony w Notion" }
+
+    NotionImportErrorBody:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - notion_not_configured     # 409: brak notion_token albo notion_database_id/notion_data_source_id w panelu
+            - notion_invalid_config     # 422: niepoprawne ID/URL bazy albo notion_property_map
+            - notion_ambiguous_source   # 422: baza ma kilka zrodel danych - ustaw notion_data_source_id (message: lista nazw)
+            - notion_no_source          # 422: baza nie ma zrodla danych dostepnego dla integracji
+            - notion_unauthorized       # 502: Notion odrzucil token (401)
+            - notion_not_found          # 502: baza nie istnieje albo nie jest udostepniona integracji
+            - notion_unavailable        # 502: inny blad Notion, takze limit zapytan po wyczerpaniu prob
+            - empty_file                # 422: baza Notion nie ma zadnego wiersza
+            - missing_columns           # 422: po mapowaniu brakuje wymaganych kolumn (message: lista)
+            - too_many_rows             # 422: wiecej niz 5000 stron
+            - internal                  # 500: blad bazy DoYouSend; nic nie zapisano
+        message: { type: string, description: "Szczegol diagnostyczny po angielsku, nigdy z tokenem" }
+
     SMSUsageStats:
       type: object
       description: |
@@ -1837,6 +1924,12 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorBody" }
+
+    NotionImportError:
+      description: Importu z Notion nie da sie wykonac jako calosci (pojedyncze zle wiersze trafiaja do raportu).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/NotionImportErrorBody" }
 
     ImportFileError:
       description: |
