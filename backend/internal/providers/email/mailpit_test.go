@@ -282,7 +282,7 @@ func TestMailpit_Send_LocalListenerSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to listen on local port: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	// Run minimal mock SMTP server in background.
 	go func() {
@@ -290,11 +290,13 @@ func TestMailpit_Send_LocalListenerSuccess(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
+
+		reply := func(msg string) { _, _ = fmt.Fprint(conn, msg) }
 
 		r := bufio.NewReader(conn)
 		// 1. Initial greeting
-		fmt.Fprintf(conn, "220 127.0.0.1 ESMTP Service Ready\r\n")
+		reply("220 127.0.0.1 ESMTP Service Ready\r\n")
 
 		for {
 			line, err := r.ReadString('\n')
@@ -304,13 +306,13 @@ func TestMailpit_Send_LocalListenerSuccess(t *testing.T) {
 			upper := strings.ToUpper(strings.TrimSpace(line))
 			switch {
 			case strings.HasPrefix(upper, "EHLO"), strings.HasPrefix(upper, "HELO"):
-				fmt.Fprintf(conn, "250-127.0.0.1\r\n250 HELP\r\n")
+				reply("250-127.0.0.1\r\n250 HELP\r\n")
 			case strings.HasPrefix(upper, "MAIL FROM:"):
-				fmt.Fprintf(conn, "250 2.1.0 Ok\r\n")
+				reply("250 2.1.0 Ok\r\n")
 			case strings.HasPrefix(upper, "RCPT TO:"):
-				fmt.Fprintf(conn, "250 2.1.5 Ok\r\n")
+				reply("250 2.1.5 Ok\r\n")
 			case upper == "DATA":
-				fmt.Fprintf(conn, "354 End data with <CR><LF>.<CR><LF>\r\n")
+				reply("354 End data with <CR><LF>.<CR><LF>\r\n")
 				for {
 					dataLine, err := r.ReadString('\n')
 					if err != nil {
@@ -320,12 +322,12 @@ func TestMailpit_Send_LocalListenerSuccess(t *testing.T) {
 						break
 					}
 				}
-				fmt.Fprintf(conn, "250 2.0.0 Ok: queued\r\n")
+				reply("250 2.0.0 Ok: queued\r\n")
 			case upper == "QUIT":
-				fmt.Fprintf(conn, "221 2.0.0 Bye\r\n")
+				reply("221 2.0.0 Bye\r\n")
 				return
 			default:
-				fmt.Fprintf(conn, "500 Unrecognized command\r\n")
+				reply("500 Unrecognized command\r\n")
 			}
 		}
 	}()

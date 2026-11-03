@@ -22,9 +22,11 @@ export const load: PageServerLoad = async ({ url, fetch }) => {
 
 	const copyId = url.searchParams.get('kopia');
 	let initialDraft: InitialDraft | null = null;
+	let copiedBatchSubject: string | null = null;
 	if (copyId) {
 		try {
 			const b = await getBatch(copyId, fetch);
+			copiedBatchSubject = b.subject;
 			const manualIds = new Set(b.recipientIds ?? []);
 			const manualRecipients: RecipientLookup[] = (b.recipients ?? [])
 				.filter((r) => manualIds.has(r.recipientId))
@@ -48,5 +50,5 @@ export const load: PageServerLoad = async ({ url, fetch }) => {
 		}
 	}
 
-	return { groups, groupsFailed, initialDraft };
+	return { groups, groupsFailed, initialDraft, copiedBatchSubject };
 };

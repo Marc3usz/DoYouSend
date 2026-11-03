@@ -9,6 +9,7 @@
 		dateTimeText,
 		deliveryOf,
 		deliveryText,
+		excludedText,
 		stillSending
 	} from '../format';
 
@@ -23,6 +24,11 @@
 
 	let retrying = $state(false);
 	let retryError = $state<string | null>(null);
+	let expandedBodies = $state<Record<string, boolean>>({});
+
+	function toggleBody(id: string) {
+		expandedBodies[id] = !expandedBodies[id];
+	}
 
 	async function onRetry() {
 		retrying = true;
@@ -84,6 +90,10 @@
 			· <span class="warn">{batch.partialCount} jednym kanałem</span>
 		{/if}
 	</dd>
+	{#if (batch.excludedRecipientIds?.length ?? 0) > 0}
+		<dt>Wykluczeni z wysyłki</dt>
+		<dd><span class="warn">{excludedText(batch.excludedRecipientIds!.length)}</span></dd>
+	{/if}
 	<dt>SMS</dt>
 	<dd>{smsText(batch.totalSmsParts)}, {costText(batch.costMilli)}</dd>
 	{#if retriedCount > 0}
@@ -138,13 +148,44 @@
 						{:else if r.partial}
 							<br /><span class="warn">tylko jeden kanał</span>
 						{/if}
+						{#if r.renderedBody && r.renderedBody !== batch.body}
+							<br />
+							<button type="button" class="btn-preview" onclick={() => toggleBody(r.recipientId)}>
+								{expandedBodies[r.recipientId] ? 'Ukryj treść' : 'Podgląd spersonalizowanej treści'}
+							</button>
+						{/if}
 					</td>
 					<td class="delivery {email?.status ?? 'none'}">{deliveryText(email)}</td>
 					<td class="delivery {sms?.status ?? 'none'}">{deliveryText(sms)}</td>
 				</tr>
+				{#if expandedBodies[r.recipientId] && r.renderedBody}
+					<tr class="preview-row">
+						<td colspan="3">
+							<div class="preview-card">
+								<strong>Spersonalizowana treść ({r.firstName} {r.lastName}):</strong>
+								<pre class="preview-content">{r.renderedBody}</pre>
+							</div>
+						</td>
+					</tr>
+				{/if}
 			{/each}
 		</tbody>
 	</table>
+{/if}
+
+{#if data.excludedRecipients && data.excludedRecipients.length > 0}
+	<section class="excluded-section" aria-labelledby="excluded-heading">
+		<h2 id="excluded-heading">Wykluczeni z tej wysyłki ({data.excludedRecipients.length})</h2>
+		<p class="hint">
+			Osoby należące do wybranych grup, które zostały celowo wykluczone z tej wysyłki przed jej
+			zatwierdzeniem:
+		</p>
+		<ul class="excluded-list">
+			{#each data.excludedRecipients as person (person.id)}
+				<li>{person.name}</li>
+			{/each}
+		</ul>
+	</section>
 {/if}
 
 <style>
@@ -188,5 +229,49 @@
 		align-items: center;
 		gap: 0.75rem;
 		margin: 1.25rem 0;
+	}
+	.btn-preview {
+		background: none;
+		border: none;
+		padding: 0;
+		color: var(--color-primary);
+		text-decoration: underline;
+		cursor: pointer;
+		font-size: 0.8125rem;
+		margin-top: 0.25rem;
+	}
+	.btn-preview:hover {
+		color: var(--color-primary-hover, var(--color-primary));
+	}
+	.preview-row td {
+		background: var(--color-surface-muted);
+		padding: 0.75rem;
+		border-bottom: 1px solid var(--color-border);
+	}
+	.preview-card {
+		padding: 0.5rem;
+	}
+	.preview-content {
+		white-space: pre-wrap;
+		font: inherit;
+		margin: 0.5rem 0 0;
+		padding: 0.5rem;
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm, 4px);
+	}
+	.excluded-section {
+		margin-top: 2rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--color-border);
+	}
+	.excluded-list {
+		margin: 0.5rem 0 0 1.5rem;
+		padding: 0;
+	}
+	.hint {
+		color: var(--color-text-muted);
+		font-size: 0.875rem;
+		margin: 0.25rem 0;
 	}
 </style>

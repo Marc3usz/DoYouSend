@@ -150,7 +150,6 @@ func (s *PGUsageStore) GetUsage(ctx context.Context, filter UsageFilter) (RawUsa
 		}
 		conditions = append(conditions, fmt.Sprintf("COALESCE(mb.confirmed_at, mb.created_at) %s $%d", op, argIdx))
 		args = append(args, *filter.To)
-		argIdx++
 	}
 
 	query += " WHERE " + strings.Join(conditions, " AND ")
