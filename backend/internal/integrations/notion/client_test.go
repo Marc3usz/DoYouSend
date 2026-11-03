@@ -153,7 +153,7 @@ func pagesHandler(t *testing.T, total, size int, throttleFirst bool, calls *atom
 		if end < total {
 			next = fmt.Sprintf(`"c%d"`, end)
 		}
-		fmt.Fprintf(w, `{"object":"list","results":[%s],"has_more":%t,"next_cursor":%s}`, strings.Join(results, ","), end < total, next)
+		_, _ = fmt.Fprintf(w, `{"object":"list","results":[%s],"has_more":%t,"next_cursor":%s}`, strings.Join(results, ","), end < total, next)
 	}
 }
 
