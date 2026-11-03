@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { getBatch } from '$lib/api/batches';
 import { ApiError } from '$lib/api/client';
-import { lookupRecipients } from '$lib/api/recipients';
+import { lookupNames } from '$lib/api/recipients';
 import type { PageServerLoad } from './$types';
 
 export type ExcludedPerson = {
@@ -16,10 +16,7 @@ export const load: PageServerLoad = async ({ params, fetch }) => {
 
 		if (batch.excludedRecipientIds && batch.excludedRecipientIds.length > 0) {
 			try {
-				const lookup = await lookupRecipients({ limit: 200 }, fetch);
-				const lookupMap = new Map(
-					lookup.items.map((r) => [r.id, `${r.lastName} ${r.firstName}`.trim()])
-				);
+				const lookupMap = await lookupNames(batch.excludedRecipientIds, fetch);
 				excludedRecipients = batch.excludedRecipientIds.map((id) => ({
 					id,
 					name: lookupMap.get(id) || id
