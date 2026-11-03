@@ -218,3 +218,52 @@ Operatorów, nadawców, klucze API, cenę SMS i tryb testowy ustawia się w **Pa
   trybu testowego.
 - W `.env` zostaje tylko infrastruktura: `DATABASE_URL`, porty, `APP_ENV`,
   `SESSION_COOKIE_SECURE`, klucz szyfrujący i `DRY_RUN_LOCK`.
+
+---
+
+## 8. Import odbiorców z Notion (ADR-0017)
+
+Odbiorców można wczytać z bazy danych w Notion zamiast z pliku CSV/XLSX. Wiersze przechodzą
+**tę samą walidację i wykrywanie duplikatów** co plik (`recipients.Importer.CheckTable` /
+`ImportTable`), więc raport wygląda tak samo. Integracja tylko czyta z Notion; nic tam nie zapisuje.
+
+### Konfiguracja (jednorazowo)
+
+1. W Notion: **Settings → Connections → Develop or manage integrations → New integration**,
+   typ **Internal**, uprawnienie tylko **Read content**. Skopiuj *Internal Integration Secret*
+   (`ntn_...`) do `NOTION_TOKEN` w `.env` (nigdy do repozytorium).
+2. Otwórz bazę z odbiorcami → menu **⋯ → Connections → Add connections** → wybierz integrację.
+   Bez tego API odpowiada `object_not_found`.
+3. Skopiuj link do bazy (**⋯ → Copy link**) i wklej go do `NOTION_DATABASE_ID` — komenda sama
+   wyciągnie z niego identyfikator. Jeśli baza ma kilka źródeł danych (*data sources*), komenda
+   je wypisze; wtedy ustaw `NOTION_DATA_SOURCE_ID` (**⋯ → Manage data sources → Copy ID**).
+
+### Kolumny
+
+Najprościej nazwać kolumny w Notion tak jak w szablonie CSV: `Imię`, `Nazwisko`, `E-mail`,
+`Telefon`, `Typ` (`rodzic`/`uczeń`) i opcjonalnie `Klasa`. Inne kolumny są pomijane.
+Gdy kolumny nazywają się inaczej, mapowanie podaje się w `NOTION_PROPERTY_MAP`:
+
+```env
+NOTION_PROPERTY_MAP=Name=first_name,Surname=last_name,Parent e-mail=email,Mobile=phone,Role=type,Class=classes
+```
+
+Obsługiwane typy właściwości: tytuł, tekst, e-mail, telefon, wybór, wielokrotny wybór (łączony
+przecinkami — format listy klas), status, liczba, pole wyboru, formuła (tekst/liczba) i unikalne ID.
+Daty, osoby, pliki i relacje są czytane jako puste.
+
+### Uruchomienie
+
+```bash
+make import-notion              # tylko raport: ile poprawnych, błędnych i duplikatów
+make import-notion ARGS=-apply  # zapisuje poprawne wiersze (wszystkie albo żaden)
+```
+
+Raport podaje numer wiersza (nagłówek to wiersz 1, strony posortowane od najstarszej) i ID strony
+w Notion, nigdy imion, adresów ani numerów. Limit to `MaxImportRows` (5000) — większa baza jest
+odrzucana w całości, a nie importowana częściowo.
+
+Notion ogranicza ruch do ok. **3 zapytań na sekundę** na integrację; klient pobiera po 100 stron
+na zapytanie i przy odpowiedzi `429` czeka tyle, ile wskazuje `Retry-After` (maks. 30 s, do 4 prób).
+Używana wersja API: `Notion-Version: 2025-09-03` (zapytania idą do
+`POST /v1/data_sources/{id}/query`).
