@@ -24,16 +24,9 @@ export const deliveryStatusLabels: Record<DeliveryStatus, string> = {
 /** Statuses the history can be filtered by: the ones the API actually sets. */
 export const filterStatuses: BatchStatus[] = ['running', 'done', 'done_with_errors'];
 
-export function pluralPolish(n: number, one: string, few: string, many: string): string {
-	if (n === 1) return one;
-	const lastDigit = n % 10;
-	const lastTwo = n % 100;
-	return lastDigit >= 2 && lastDigit <= 4 && (lastTwo < 12 || lastTwo > 14) ? few : many;
-}
-
 /** Formats count of excluded recipients: 1 wykluczona osoba, 2 wykluczone osoby, 5 wykluczonych osób. */
 export function excludedText(n: number): string {
-	return `${n} ${pluralPolish(n, 'wykluczona osoba', 'wykluczone osoby', 'wykluczonych osób')}`;
+	return `${n} ${plural(n, 'wykluczona osoba', 'wykluczone osoby', 'wykluczonych osób')}`;
 }
 
 export function isBatchStatus(value: string | null): value is BatchStatus {
