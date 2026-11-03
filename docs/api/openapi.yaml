@@ -397,7 +397,7 @@ paths:
       tags: [groups]
       summary: Rozwija wybor grup i osob do finalnej listy odbiorcow
       description: |
-        Ksztalt wg ADR-0007 (status: propozycja). Wynik jest zdeduplikowany: osoba wybrana
+        Ksztalt wg ADR-0007 (przyjeta). Wynik jest zdeduplikowany: osoba wybrana
         przez kilka grup wystepuje raz. Braki danych kontaktowych sa raportowane w issues,
         nie filtrowane - decyzje (poprawic, wykluczyc, wyslac czesciowo) podejmuje wysylajacy.
         Nieistniejace ID nie sa bledem, tylko trafiaja do unknownGroupIds / unknownRecipientIds.
@@ -449,7 +449,7 @@ paths:
       summary: Historia wysylek (stronicowana)
       description: |
         Od najnowszej. Kazda pozycja to podsumowanie; szczegoly per odbiorca w GET /batches/{id}.
-        Wysylajacy widzi swoje wsady, administrator wszystkie (gdy dojdzie iam).
+        Wysylajacy widzi swoje wsady, administrator wszystkie (ADR-0010).
       parameters:
         - in: query
           name: status
@@ -777,7 +777,7 @@ paths:
         Zwraca sumaryczne statystyki wyslanych wiadomosci e-mail (laczenie, doreczone, wyslane, nieudane, w trakcie).
         Obsluguje opcjonalne filtrowanie po identyfikatorze wsadu (batch_id) oraz zakresie
         czasowym wysylki (from, to).
-        Wymaga uprawnien administratora (gdy dojdzie iam).
+        Wymaga uprawnien administratora (ADR-0010).
       parameters:
         - in: query
           name: batch_id
@@ -1326,7 +1326,7 @@ components:
       description: |
         running = sa dostawy pending albo sending; done = wszystko wyslane; done_with_errors = co
         najmniej jedna dostawa failed albo odbiorca bez zadnego kanalu. draft, scheduled, cancelled
-        sa w schemacie bazy, ale API ich jeszcze nie nadaje.
+        sa w schemacie bazy, ale API ich nie nadaje - poza zakresem MVP (ADR-0015).
 
     DeliveryStatus:
       type: string
