@@ -64,7 +64,9 @@ describe('historia/[id] load', () => {
 			'/api/batches/00000000-0000-4000-8000-000000000001': new Response(JSON.stringify(fakeBatch), {
 				status: 200
 			}),
-			'/api/recipients/lookup?limit=200': new Response(JSON.stringify(fakeLookup), { status: 200 })
+			'/api/recipients/lookup?limit=200&offset=0': new Response(JSON.stringify(fakeLookup), {
+				status: 200
+			})
 		});
 
 		const got = await load(ev);
@@ -82,7 +84,7 @@ describe('historia/[id] load', () => {
 			'/api/batches/00000000-0000-4000-8000-000000000001': new Response(JSON.stringify(fakeBatch), {
 				status: 200
 			}),
-			'/api/recipients/lookup?limit=200': new Response(null, { status: 500 })
+			'/api/recipients/lookup?limit=200&offset=0': new Response(null, { status: 500 })
 		});
 
 		const got = await load(ev);

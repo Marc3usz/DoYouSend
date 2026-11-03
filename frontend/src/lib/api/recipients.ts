@@ -171,6 +171,32 @@ export function lookupRecipients(
 	return api<RecipientLookupPage>(`/recipients/lookup${search}`, { fetch });
 }
 
+/** The largest page GET /recipients/lookup accepts (openapi: limit maximum). */
+const lookupMaxPage = 200;
+
+/**
+ * Names ("Nazwisko Imię") of the given recipients, read page by page from
+ * GET /recipients/lookup until every ID is found or the list ends. Senders may
+ * not call GET /recipients/{id}, so this is how a history page names people
+ * who are not in the batch snapshot, e.g. the excluded ones. IDs that no longer
+ * exist are missing from the map.
+ */
+export async function lookupNames(
+	ids: readonly string[],
+	fetch?: typeof globalThis.fetch
+): Promise<Map<string, string>> {
+	const wanted = new Set(ids);
+	const names = new Map<string, string>();
+	for (let offset = 0; names.size < wanted.size; offset += lookupMaxPage) {
+		const page = await lookupRecipients({ limit: lookupMaxPage, offset }, fetch);
+		for (const r of page.items) {
+			if (wanted.has(r.id)) names.set(r.id, `${r.lastName} ${r.firstName}`.trim());
+		}
+		if (page.items.length === 0 || offset + page.items.length >= page.total) break;
+	}
+	return names;
+}
+
 /** The RecipientContactFix schema: only the channels to fill in. */
 export type RecipientContactFix = { email?: string; phone?: string };
 
