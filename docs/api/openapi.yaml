@@ -273,6 +273,7 @@ paths:
               schema: { $ref: "#/components/schemas/NotionImportReport" }
         "409": { $ref: "#/components/responses/NotionImportError" }
         "422": { $ref: "#/components/responses/NotionImportError" }
+        "500": { $ref: "#/components/responses/NotionImportError" }
         "502": { $ref: "#/components/responses/NotionImportError" }
 
   /recipients/import/notion:
@@ -1819,7 +1820,7 @@ components:
             - empty_file                # 422: baza Notion nie ma zadnego wiersza
             - missing_columns           # 422: po mapowaniu brakuje wymaganych kolumn (message: lista)
             - too_many_rows             # 422: wiecej niz 5000 stron
-            - internal                  # 500: blad bazy DoYouSend; nic nie zapisano
+            - internal                  # 500: blad bazy DoYouSend (takze przy sprawdzaniu duplikatow); nic nie zapisano
         message: { type: string, description: "Szczegol diagnostyczny po angielsku, nigdy z tokenem" }
 
     SMSUsageStats:
