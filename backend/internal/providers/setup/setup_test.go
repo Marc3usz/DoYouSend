@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/delivery"
@@ -563,5 +564,67 @@ func TestNewSenderVerifierHonoursDryRun(t *testing.T) {
 				t.Errorf("verifier type %T, wantReal %v", v, tt.wantReal)
 			}
 		})
+	}
+}
+
+func TestLiveSwapsProviders(t *testing.T) {
+	live, err := NewLive(Config{EmailProvider: "mailpit", SMSProvider: "fake", DryRun: true, EmailFrom: "a@example.test"}, nil)
+	if err != nil {
+		t.Fatalf("NewLive: %v", err)
+	}
+	d, err := live.Dispatcher(delivery.DefaultRetryPolicy(), nil)
+	if err != nil || d == nil {
+		t.Fatalf("Dispatcher: %v", err)
+	}
+	if _, isReal := live.SenderVerifier(); isReal {
+		t.Error("dry run must use the fake sender verifier")
+	}
+	fakeBefore, _ := live.SenderVerifier()
+
+	if _, err := live.Prepare(Config{EmailProvider: "sendgrid", SMSProvider: "fake"}); err == nil {
+		t.Error("Prepare accepted sendgrid without an API key")
+	}
+	if live.Config().EmailProvider != "mailpit" {
+		t.Error("a failed Prepare changed the live configuration")
+	}
+
+	p, err := live.Prepare(Config{EmailProvider: "sendgrid", SendGridAPIKey: "k", EmailFrom: "a@example.test", SMSProvider: "fake"})
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if live.Config().EmailProvider != "mailpit" {
+		t.Error("Prepare alone changed the live configuration")
+	}
+	live.Activate(p)
+	if live.Config().EmailProvider != "sendgrid" || live.Config().DryRun {
+		t.Errorf("after Activate config = %+v", live.Config())
+	}
+	if v, isReal := live.SenderVerifier(); !isReal || v == fakeBefore {
+		t.Error("live sendgrid must use the real sender verifier")
+	}
+
+	// Back to dry run: the same fake comes back, with its identities.
+	p, _ = live.Prepare(Config{EmailProvider: "mailpit", SMSProvider: "fake", DryRun: true, EmailFrom: "a@example.test"})
+	live.Activate(p)
+	if v, _ := live.SenderVerifier(); v != fakeBefore {
+		t.Error("the fake sender verifier was replaced")
+	}
+}
+
+func TestLiveSenderUsesCurrentProvider(t *testing.T) {
+	live, err := NewLive(Config{EmailProvider: "mailpit", SMSProvider: "fake", DryRun: true, EmailFrom: "a@example.test"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := liveSender{l: live, channel: providers.ChannelSMS}
+	res, err := s.Send(context.Background(), providers.Message{RecipientID: "r1", To: "+48500100101", Body: "x"})
+	if err != nil || !strings.HasPrefix(res.ProviderMessageID, "dryrun-") {
+		t.Errorf("dry-run send = %+v, %v", res, err)
+	}
+	p, _ := live.Prepare(Config{EmailProvider: "mailpit", SMSProvider: "fake", EmailFrom: "a@example.test"})
+	live.Activate(p)
+	res, err = s.Send(context.Background(), providers.Message{RecipientID: "r1", To: "+48500100101", Body: "x"})
+	if err != nil || strings.HasPrefix(res.ProviderMessageID, "dryrun-") {
+		t.Errorf("after switching dry run off the fake gateway must be used: %+v, %v", res, err)
 	}
 }

@@ -132,6 +132,45 @@ export function sendingConfig(fetch?: typeof globalThis.fetch): Promise<SendingC
 	return api<SendingConfig>('/admin/config', { fetch });
 }
 
+/** A setting of the sending configuration (SettingItem, ADR-0018). */
+export type SettingItem = {
+	key: string;
+	group: 'general' | 'email' | 'sms';
+	kind: 'text' | 'bool' | 'enum' | 'secret' | 'price' | 'port' | 'address';
+	options?: string[];
+	/** null for secrets: only `set` says whether one is stored. */
+	value: string | null;
+	set: boolean;
+	source: 'panel' | 'env' | 'default';
+	envVar: string;
+	unreadable: boolean;
+};
+
+export type Settings = {
+	dryRun: boolean;
+	dryRunLocked: boolean;
+	sendsExternally: boolean;
+	items: SettingItem[];
+};
+
+/** GET /admin/settings. */
+export function getSettings(fetch?: typeof globalThis.fetch): Promise<Settings> {
+	return api<Settings>('/admin/settings', { fetch });
+}
+
+/** PATCH /admin/settings: null drops the panel value (back to .env or the default). */
+export function updateSettings(
+	values: Record<string, string | null>,
+	confirmLiveSending: boolean,
+	fetch?: typeof globalThis.fetch
+): Promise<Settings> {
+	return api<Settings>('/admin/settings', {
+		method: 'PATCH',
+		body: { values, confirmLiveSending },
+		fetch
+	});
+}
+
 export type SmsProfile = {
 	points: number;
 	name: string;

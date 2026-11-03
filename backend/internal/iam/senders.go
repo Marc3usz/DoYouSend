@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -113,7 +114,9 @@ type Senders struct {
 	svc      *Service
 	store    SenderStore
 	verifier SenderVerifier
-	opts     SenderOptions
+
+	mu   sync.RWMutex
+	opts SenderOptions
 }
 
 // NewSenders returns Senders; svc provides users, the clock and the audit log.
@@ -125,7 +128,22 @@ func NewSenders(svc *Service, store SenderStore, verifier SenderVerifier, opts S
 }
 
 // Options returns the configuration, for the panel.
-func (s *Senders) Options() SenderOptions { return s.opts }
+func (s *Senders) Options() SenderOptions {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.opts
+}
+
+// SetOptions replaces the configuration when the e-mail provider changes in
+// the settings panel (ADR-0018). An empty NicknamePrefix keeps the old one.
+func (s *Senders) SetOptions(o SenderOptions) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if o.NicknamePrefix == "" {
+		o.NicknamePrefix = s.opts.NicknamePrefix
+	}
+	s.opts = o
+}
 
 // Request creates a sender identity for the user's login address and makes
 // the provider send the confirmation link to it.
@@ -144,9 +162,10 @@ func (s *Senders) Request(ctx context.Context, actor User, userID string) (Sende
 		return SenderIdentity{}, fmt.Errorf("load sender identity: %w", err)
 	}
 
+	opts := s.Options()
 	ps, err := s.verifier.CreateSender(ctx, SenderRequest{
 		// The short ID keeps nicknames of namesakes apart in the provider's UI.
-		Nickname:  fmt.Sprintf("%s: %s (%s)", s.opts.NicknamePrefix, user.FullName, user.ID[:8]),
+		Nickname:  fmt.Sprintf("%s: %s (%s)", opts.NicknamePrefix, user.FullName, user.ID[:8]),
 		FromEmail: user.Email,
 		FromName:  user.FullName,
 		ReplyTo:   user.Email,
@@ -160,7 +179,7 @@ func (s *Senders) Request(ctx context.Context, actor User, userID string) (Sende
 	}
 	now := s.svc.now()
 	created, err := s.store.CreateSenderIdentity(ctx, SenderIdentity{
-		UserID: user.ID, Provider: s.opts.Provider, ProviderID: ps.ID,
+		UserID: user.ID, Provider: opts.Provider, ProviderID: ps.ID,
 		FromEmail: user.Email, FromName: user.FullName, Status: status, CreatedAt: now,
 	})
 	if err != nil {
@@ -170,7 +189,7 @@ func (s *Senders) Request(ctx context.Context, actor User, userID string) (Sende
 		}
 		return SenderIdentity{}, fmt.Errorf("store sender identity: %w", err)
 	}
-	s.svc.audit(ctx, actor.ID, ActionSenderRequested, "user", user.ID, map[string]string{"provider": s.opts.Provider})
+	s.svc.audit(ctx, actor.ID, ActionSenderRequested, "user", user.ID, map[string]string{"provider": opts.Provider})
 	return created, nil
 }
 
@@ -247,7 +266,7 @@ func (s *Senders) Remove(ctx context.Context, actor User, userID string) error {
 	return nil
 }
 
-func (s *Senders) ours(id SenderIdentity) bool { return id.Provider == s.opts.Provider }
+func (s *Senders) ours(id SenderIdentity) bool { return id.Provider == s.Options().Provider }
 
 func (s *Senders) user(ctx context.Context, userID string) (User, error) {
 	id, err := checkID(userID)

@@ -202,3 +202,19 @@ Test automatycznie:
 3. Zapisuje wyniki i identyfikatory wiadomości w bazie danych.
 4. Symuluje napływ raportów doręczeń przez `PGDeliveryReportConsumer` (zmiana statusów na `delivered`).
 5. Weryfikuje prawidłową agregację statusów, części i kosztów przez `sms.PGUsageStore` oraz `email.PGUsageStore`.
+
+## Ustawienia wysyłki w panelu (ADR-0018)
+
+Operatorów, nadawców, klucze API, cenę SMS i tryb testowy ustawia się w **Panelu administratora
+→ Ustawienia wysyłki** (`/admin/ustawienia`). Zmiany działają od razu, bez restartu.
+
+- Kolejność: wartość z panelu, potem zmienna z `.env`, potem domyślna. Opcja „Przywróć” usuwa
+  wartość z panelu. Dotychczasowe `.env` działają bez zmian.
+- Klucze API są w bazie zaszyfrowane kluczem z `SETTINGS_ENCRYPTION_KEY` albo z pliku
+  `SETTINGS_KEY_FILE` (tworzony przy pierwszym starcie). **Zrób kopię tego klucza osobno od
+  bazy.** Bez niego klucze API trzeba wpisać ponownie.
+- Wyłączenie trybu testowego z prawdziwym operatorem wymaga wpisania `WYSYŁAJ` i zgody
+  opiekuna. Na serwerach demo i testowych ustaw `DRY_RUN_LOCK=true`: panel nie wyłączy wtedy
+  trybu testowego.
+- W `.env` zostaje tylko infrastruktura: `DATABASE_URL`, porty, `APP_ENV`,
+  `SESSION_COOKIE_SECURE`, klucz szyfrujący i `DRY_RUN_LOCK`.

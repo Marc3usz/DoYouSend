@@ -179,8 +179,8 @@
 				<dd>{data.config.sms.senderName}</dd>
 			</dl>
 			<p class="sub">
-				Ustawienia operatorów zmienia się w pliku <code>.env</code> na serwerze. Podłączenie prawdziwej
-				bramki wymaga zgody opiekuna projektu.
+				<a href="/admin/ustawienia">Zmień ustawienia wysyłki →</a> Podłączenie prawdziwej bramki wymaga
+				zgody opiekuna projektu.
 			</p>
 		{:else}
 			<p class="error" role="alert">Nie udało się wczytać konfiguracji.</p>
