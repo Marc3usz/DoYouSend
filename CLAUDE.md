@@ -3,8 +3,8 @@
 School-wide notification system: one message is sent **simultaneously by e-mail and SMS**
 to selected recipients or groups. Full product spec: `description.md` (Polish, authoritative).
 
-Working language: **code, identifiers, commits, PR titles in English**; user-facing UI text,
-`README.md` and `docs/**` in Polish. Write answers to the team in Polish.
+Working language: **code, identifiers, commits, PR titles and `README.md` in English**;
+user-facing UI text and `docs/**` in Polish. Write answers to the team in Polish.
 
 ## Stack
 
