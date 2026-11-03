@@ -118,7 +118,8 @@ func TestSendGridSendersErrors(t *testing.T) {
 				t.Fatal("want error")
 			}
 			for _, sentinel := range []error{ErrSenderRejected, ErrSenderNotFound} {
-				if errors.Is(err, sentinel) != (sentinel == tt.wantIs) {
+				wantMatch := tt.wantIs != nil && errors.Is(tt.wantIs, sentinel)
+				if errors.Is(err, sentinel) != wantMatch {
 					t.Errorf("errors.Is(err, %v) = %v", sentinel, errors.Is(err, sentinel))
 				}
 			}
@@ -136,8 +137,8 @@ func TestSendGridSendersGetResendDelete(t *testing.T) {
 	var calls []string
 	c := newTestSenders(t, func(w http.ResponseWriter, r *http.Request) {
 		calls = append(calls, r.Method+" "+r.URL.RequestURI())
-		switch {
-		case r.Method == http.MethodGet:
+		switch r.Method {
+		case http.MethodGet:
 			_, _ = w.Write([]byte(`{"results":[{"id":77,"from_email":"a@example.test","verified":true}]}`))
 		default:
 			w.WriteHeader(http.StatusNoContent)

@@ -211,8 +211,8 @@ func (p *Providers) EmailProfiler() email.Profiler {
 // NewSenderVerifier returns the sender-identity manager for cfg (ADR-0016).
 // Like every provider call it honours DRY_RUN: with DryRun, or with an e-mail
 // provider other than SendGrid, it is the in-memory email.FakeSenders, which
-// sends no verification e-mail. Real is false in that case.
-func NewSenderVerifier(cfg Config, logger *slog.Logger) (verifier email.SenderVerifier, real bool, err error) {
+// sends no verification e-mail. Live is false in that case.
+func NewSenderVerifier(cfg Config, logger *slog.Logger) (verifier email.SenderVerifier, live bool, err error) {
 	if cfg.DryRun || cfg.EmailProvider != "sendgrid" {
 		return email.NewFakeSenders(logger), false, nil
 	}

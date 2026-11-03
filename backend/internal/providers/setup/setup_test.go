@@ -548,15 +548,15 @@ func TestNewSenderVerifierHonoursDryRun(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			v, real, err := NewSenderVerifier(tt.cfg, nil)
+			v, isReal, err := NewSenderVerifier(tt.cfg, nil)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
 			}
 			if err != nil {
 				return
 			}
-			if real != tt.wantReal {
-				t.Errorf("real = %v, want %v", real, tt.wantReal)
+			if isReal != tt.wantReal {
+				t.Errorf("real = %v, want %v", isReal, tt.wantReal)
 			}
 			_, isFake := v.(*email.FakeSenders)
 			if isFake == tt.wantReal {
