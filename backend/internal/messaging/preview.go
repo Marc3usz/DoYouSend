@@ -51,7 +51,7 @@ func NewPreviewer(resolver SelectionResolver, pricePerPartMilli int64) *Previewe
 // recipient. The body is never altered. Problems with the content are reported in the
 // Estimate; an error means the selection is malformed (groups.ErrInvalidInput) or
 // resolving failed.
-func (p *Previewer) Preview(ctx context.Context, body string, sel groups.Selection) (Estimate, error) {
+func (p *Previewer) Preview(ctx context.Context, body string, sel groups.Selection, targetChannels ...string) (Estimate, error) {
 	est := Estimate{
 		Template:            MeasureSMS(body),
 		Placeholders:        Placeholders(body),
@@ -81,7 +81,7 @@ func (p *Previewer) Preview(ctx context.Context, body string, sel groups.Selecti
 		return Estimate{}, fmt.Errorf("preview message: %w", err)
 	}
 	est.RenderFailedIDs = failed
-	est.Summary, err = Summarize(msgs, p.pricePerPartMilli)
+	est.Summary, err = Summarize(msgs, p.pricePerPartMilli, targetChannels...)
 	if err != nil {
 		return Estimate{}, fmt.Errorf("preview message: %w", err)
 	}

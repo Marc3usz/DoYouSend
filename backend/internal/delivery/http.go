@@ -12,6 +12,7 @@ import (
 	"github.com/Marc3usz/DoYouSend/backend/internal/groups"
 	"github.com/Marc3usz/DoYouSend/backend/internal/messaging"
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/httpx"
+	"github.com/Marc3usz/DoYouSend/backend/internal/providers"
 )
 
 // History page sizes (GET /batches limit in docs/api/openapi.yaml).
@@ -72,9 +73,23 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var channels []providers.Channel
+	for _, c := range req.Channels {
+		switch c {
+		case "email":
+			channels = append(channels, providers.ChannelEmail)
+		case "sms":
+			channels = append(channels, providers.ChannelSMS)
+		default:
+			invalidInput(w, "channels", "channel must be email or sms")
+			return
+		}
+	}
+
 	batch, replayed, err := h.svc.Start(r.Context(), Draft{
 		Subject:        req.Subject,
 		Body:           req.Body,
+		Channels:       channels,
 		Selection:      req.Selection.toSelection(),
 		CreatedBy:      user.ID,
 		CreatedByName:  user.FullName,
@@ -268,6 +283,7 @@ type (
 	batchRequestJSON struct {
 		Subject   string        `json:"subject"`
 		Body      string        `json:"body"`
+		Channels  []string      `json:"channels,omitempty"`
 		Selection selectionJSON `json:"selection"`
 	}
 	selectionJSON struct {

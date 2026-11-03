@@ -7,6 +7,8 @@ export type MessageDraft = {
 	subject: string;
 	/** One body for both channels, sent byte for byte: never trim or reformat it. */
 	body: string;
+	/** Target channels: ['email', 'sms'] (default), ['email'], or ['sms']. */
+	channels?: ('email' | 'sms')[];
 	selection?: RecipientSelection;
 };
 

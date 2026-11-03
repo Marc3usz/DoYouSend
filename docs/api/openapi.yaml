@@ -1253,8 +1253,12 @@ components:
       type: object
       required: [subject, body]
       properties:
-        subject: { type: string, description: "Wylacznie temat e-maila" }
-        body:    { type: string, description: "Jedna wspolna tresc dla obu kanalow, wysylana bajt w bajt (bez przycinania)" }
+        subject: { type: string, description: "Wylacznie temat e-maila (niewymagany, jesli channels to samo [sms])" }
+        body:    { type: string, description: "Jedna wspolna tresc dla wybranych kanalow, wysylana bajt w bajt (bez przycinania)" }
+        channels:
+          type: array
+          description: Docelowe kanaly wysylki. Domyslnie [email, sms]. Mozliwe: [email, sms], [email], [sms].
+          items: { type: string, enum: [email, sms] }
         selection:
           description: Moze byc pominiety albo pusty - wtedy podglad liczy tylko sama tresc
           allOf: [{ $ref: "#/components/schemas/RecipientSelection" }]
@@ -1337,10 +1341,14 @@ components:
 
     BatchRequest:
       type: object
-      required: [subject, body, selection]
+      required: [body, selection]
       properties:
-        subject:   { type: string, description: "Wylacznie temat e-maila; niepusty" }
+        subject:   { type: string, description: "Wylacznie temat e-maila; wymagany, gdy wysylka obejmuje kanal e-mail" }
         body:      { type: string, description: "Jedna wspolna tresc, wysylana bajt w bajt; niepusta" }
+        channels:
+          type: array
+          description: Docelowe kanaly wysylki. Domyslnie [email, sms]. Mozliwe: [email, sms], [email], [sms].
+          items: { type: string, enum: [email, sms] }
         selection: { $ref: "#/components/schemas/RecipientSelection" }
 
     GroupRef:

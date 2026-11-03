@@ -3,6 +3,7 @@ package messaging
 import (
 	"errors"
 	"fmt"
+	"slices"
 )
 
 var (
@@ -41,12 +42,18 @@ type Summary struct {
 
 // Summarize builds the pre-send summary for msgs, pricing every SMS part at
 // pricePerPartMilli thousandths of the currency unit (0.08 zł = 80). E-mail is treated as free.
+// When targetChannels is specified, only the selected channels are measured and counted.
 //
 // msgs must already be deduplicated: a recipient selected through several groups appears
 // exactly once, otherwise counts and cost are overstated.
-func Summarize(msgs []RenderedMessage, pricePerPartMilli int64) (Summary, error) {
+func Summarize(msgs []RenderedMessage, pricePerPartMilli int64, targetChannels ...string) (Summary, error) {
 	if pricePerPartMilli < 0 {
 		return Summary{}, fmt.Errorf("summarize batch: %w", ErrNegativePrice)
+	}
+
+	targets := targetChannels
+	if len(targets) == 0 {
+		targets = []string{"email", "sms"}
 	}
 
 	s := Summary{Recipients: len(msgs)}
@@ -54,23 +61,34 @@ func Summarize(msgs []RenderedMessage, pricePerPartMilli int64) (Summary, error)
 		if m.Body == "" {
 			return Summary{}, fmt.Errorf("summarize batch: recipient %d: %w", i, ErrEmptyBody)
 		}
-		s = addRecipient(s, m)
+		s = addRecipient(s, m, targets)
 	}
 	s.CostMilli = int64(s.TotalParts) * pricePerPartMilli
 	return s, nil
 }
 
-func addRecipient(s Summary, m RenderedMessage) Summary {
-	switch {
-	case !m.HasEmail && !m.HasPhone:
+func addRecipient(s Summary, m RenderedMessage, targets []string) Summary {
+	hasEmail := slices.Contains(targets, "email") && m.HasEmail
+	hasPhone := slices.Contains(targets, "sms") && m.HasPhone
+
+	usableCount := 0
+	if hasEmail {
+		usableCount++
+	}
+	if hasPhone {
+		usableCount++
+	}
+
+	if usableCount == 0 {
 		s.UnreachableCount++
-	case m.HasEmail != m.HasPhone:
+	} else if len(targets) > 1 && usableCount < len(targets) {
 		s.PartialCount++
 	}
-	if m.HasEmail {
+
+	if hasEmail {
 		s.EmailCount++
 	}
-	if !m.HasPhone {
+	if !hasPhone {
 		return s
 	}
 
