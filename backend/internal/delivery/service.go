@@ -115,6 +115,9 @@ type Service struct {
 	mu      sync.Mutex
 	closing bool
 	running sync.WaitGroup
+	// dispatching counts dispatches in progress in this process (ADR-0018: the
+	// settings panel refuses to switch to real sending while it is above zero).
+	dispatching atomic.Int64
 }
 
 // NewService returns a Service pricing every SMS part at pricePerPartMilli thousandths
@@ -182,6 +185,10 @@ func (s *Service) Start(ctx context.Context, d Draft) (Batch, bool, error) {
 	}(batch)
 	return batch, false, nil
 }
+
+// Dispatching reports how many batches this process is sending right now, first
+// sends and retries alike. A batch left running by a crashed process is not counted.
+func (s *Service) Dispatching() int { return int(s.dispatching.Load()) }
 
 // enter registers a Start call, unless Wait has begun.
 func (s *Service) enter() bool {
@@ -310,6 +317,8 @@ func requestHash(d Draft) (string, error) {
 // dispatch sends a recorded batch and saves the outcome. ctx must not be cancelled
 // by the caller going away.
 func (s *Service) dispatch(ctx context.Context, batch Batch) (Batch, error) {
+	s.dispatching.Add(1)
+	defer s.dispatching.Add(-1)
 	// Each delivery is saved as soon as it is sent (ADR-0011): a delivery report that
 	// arrives mid-batch finds its provider_message_id, and a restart keeps the progress.
 	obs := ObserverFunc(func(obsCtx context.Context, recipientID string, del Delivery) error {
