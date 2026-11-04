@@ -6,7 +6,7 @@
 
 	let { data, form }: PageProps = $props();
 
-	const groups: SettingItem['group'][] = ['general', 'email', 'sms'];
+	const groups: SettingItem['group'][] = ['general', 'email', 'sms', 'notion'];
 	const fields: Record<string, string> = $derived(
 		(form && 'fields' in form ? form.fields : undefined) ?? {}
 	);

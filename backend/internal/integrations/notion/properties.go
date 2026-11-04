@@ -10,7 +10,16 @@ import (
 type Page struct {
 	Object     string              `json:"object"`
 	ID         string              `json:"id"`
+	URL        string              `json:"url"`
 	Properties map[string]Property `json:"properties"`
+}
+
+// Link returns the page URL Notion sent, or one built from the ID.
+func (p Page) Link() string {
+	if p.URL != "" {
+		return p.URL
+	}
+	return "https://www.notion.so/" + strings.ReplaceAll(p.ID, "-", "")
 }
 
 // Property is the value of one column of a page. Only the fields of the

@@ -229,20 +229,26 @@ Odbiorców można wczytać z bazy danych w Notion zamiast z pliku CSV/XLSX. Wier
 
 ### Konfiguracja (jednorazowo)
 
+Wszystko ustawia się w **Panelu administratora → Ustawienia → Import odbiorców z Notion**
+(`/admin/ustawienia`). Zmienne `NOTION_*` w `.env` działają dalej jako wartości zapasowe
+(i dla komendy CLI), ale panel ma pierwszeństwo.
+
 1. W Notion: **Settings → Connections → Develop or manage integrations → New integration**,
    typ **Internal**, uprawnienie tylko **Read content**. Skopiuj *Internal Integration Secret*
-   (`ntn_...`) do `NOTION_TOKEN` w `.env` (nigdy do repozytorium).
+   (`ntn_...`) do pola **Token integracji Notion** (zapisywany zaszyfrowany, nigdy do repozytorium).
 2. Otwórz bazę z odbiorcami → menu **⋯ → Connections → Add connections** → wybierz integrację.
    Bez tego API odpowiada `object_not_found`.
-3. Skopiuj link do bazy (**⋯ → Copy link**) i wklej go do `NOTION_DATABASE_ID` — komenda sama
-   wyciągnie z niego identyfikator. Jeśli baza ma kilka źródeł danych (*data sources*), komenda
-   je wypisze; wtedy ustaw `NOTION_DATA_SOURCE_ID` (**⋯ → Manage data sources → Copy ID**).
+3. Skopiuj link do bazy (**⋯ → Copy link**) i wklej go w pole **Baza Notion z odbiorcami** —
+   panel sam wyciągnie z niego identyfikator. Jeśli baza ma kilka źródeł danych (*data sources*),
+   import to zgłosi z ich nazwami; wtedy wypełnij **Źródło danych Notion**
+   (**⋯ → Manage data sources → Copy ID**).
 
 ### Kolumny
 
 Najprościej nazwać kolumny w Notion tak jak w szablonie CSV: `Imię`, `Nazwisko`, `E-mail`,
 `Telefon`, `Typ` (`rodzic`/`uczeń`) i opcjonalnie `Klasa`. Inne kolumny są pomijane.
-Gdy kolumny nazywają się inaczej, mapowanie podaje się w `NOTION_PROPERTY_MAP`:
+Gdy kolumny nazywają się inaczej, mapowanie podaje się w polu **Mapowanie kolumn Notion**
+(albo `NOTION_PROPERTY_MAP`):
 
 ```env
 NOTION_PROPERTY_MAP=Name=first_name,Surname=last_name,Parent e-mail=email,Mobile=phone,Role=type,Class=classes
@@ -253,6 +259,12 @@ przecinkami — format listy klas), status, liczba, pole wyboru, formuła (tekst
 Daty, osoby, pliki i relacje są czytane jako puste.
 
 ### Uruchomienie
+
+W panelu: **Odbiorcy → Import → Sprawdź bazę Notion**, potem **Zapisz poprawne wiersze**.
+Raport wygląda jak przy pliku, a przy każdym wierszu jest link „otwórz w Notion”. Zapis trafia
+do dziennika (`recipients_imported`, same liczby).
+
+Z wiersza poleceń (konfiguracja tylko z `.env`):
 
 ```bash
 make import-notion              # tylko raport: ile poprawnych, błędnych i duplikatów

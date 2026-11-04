@@ -165,6 +165,24 @@ func main() {
 			u, _ := iam.UserFrom(ctx)
 			return u.ID
 		}, logger).Register(mux)
+		// Notion import (ADR-0017): the database and token come from the
+		// settings panel, read on every request.
+		notionConfig := func() recipients.NotionConfig {
+			snap := settingsSvc.Current()
+			return recipients.NotionConfig{
+				Token:        snap.Value(settings.KeyNotionToken),
+				DatabaseID:   snap.Value(settings.KeyNotionDatabaseID),
+				DataSourceID: snap.Value(settings.KeyNotionDataSourceID),
+				PropertyMap:  snap.Value(settings.KeyNotionPropertyMap),
+			}
+		}
+		mux.Handle("POST /api/recipients/import/notion/check", recipients.NotionImport{
+			Config: notionConfig, Process: importer.CheckTable, Logger: logger,
+		})
+		mux.Handle("POST /api/recipients/import/notion", recipients.NotionImport{
+			Config: notionConfig, Process: importer.ImportTable, Imported: importAudit{log: iamSvc}.NotionImported, Logger: logger,
+		})
+
 		handler = iam.Middleware(iamSvc, logger, mux)
 	}
 
@@ -211,6 +229,24 @@ func (a contactAudit) ContactFixed(ctx context.Context, recipientID string, chan
 	}
 	a.log.Record(ctx, u.ID, iam.ActionRecipientContactFixed, "recipient", recipientID, map[string]string{
 		"channels": strings.Join(names, ","),
+	})
+}
+
+// importAudit records recipients stored from Notion: counts only, never
+// names or contacts.
+type importAudit struct{ log *iam.Service }
+
+func (a importAudit) NotionImported(ctx context.Context, rep recipients.ImportReport, pages int) {
+	u, ok := iam.UserFrom(ctx)
+	if !ok {
+		return
+	}
+	a.log.Record(ctx, u.ID, iam.ActionRecipientsImported, "recipients", "", map[string]string{
+		"source":     "notion",
+		"pages":      strconv.Itoa(pages),
+		"imported":   strconv.Itoa(len(rep.Valid)),
+		"invalid":    strconv.Itoa(len(rep.Invalid)),
+		"duplicates": strconv.Itoa(len(rep.Duplicates)),
 	})
 }
 

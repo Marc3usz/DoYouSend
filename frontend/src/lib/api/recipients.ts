@@ -90,6 +90,57 @@ export function importFileError(err: unknown): ImportFileError | undefined {
 	return { code: code as ImportFileError['code'], message };
 }
 
+/** The Notion import report (ADR-0017): the file report plus each row's Notion page. */
+export type NotionImportReport = ImportReport & {
+	pageCount: number;
+	pages: { row: number; pageId: string; url: string }[];
+};
+
+export const notionImportErrorCodes = [
+	'notion_not_configured',
+	'notion_invalid_config',
+	'notion_ambiguous_source',
+	'notion_no_source',
+	'notion_unauthorized',
+	'notion_not_found',
+	'notion_unavailable',
+	'empty_file',
+	'missing_columns',
+	'too_many_rows',
+	'internal'
+] as const;
+
+export type NotionImportError = {
+	code: (typeof notionImportErrorCodes)[number];
+	message: string;
+};
+
+/** Checks the Notion database set in the panel without storing anything. */
+export function checkNotionImport(fetch?: typeof globalThis.fetch): Promise<NotionImportReport> {
+	return api<NotionImportReport>('/recipients/import/notion/check', { method: 'POST', fetch });
+}
+
+/**
+ * Imports the Notion database set in the panel: stores the valid rows (all or
+ * none). The database is read again, so the report can differ from the check.
+ */
+export function importFromNotion(fetch?: typeof globalThis.fetch): Promise<NotionImportReport> {
+	return api<NotionImportReport>('/recipients/import/notion', { method: 'POST', fetch });
+}
+
+/** Returns the whole-import error the backend reported, if err carries one. */
+export function notionImportError(err: unknown): NotionImportError | undefined {
+	if (!(err instanceof ApiError) || typeof err.body !== 'object' || err.body === null) {
+		return undefined;
+	}
+	const { code, message } = err.body as Record<string, unknown>;
+	const known: readonly string[] = notionImportErrorCodes;
+	if (typeof code !== 'string' || !known.includes(code) || typeof message !== 'string') {
+		return undefined;
+	}
+	return { code: code as NotionImportError['code'], message };
+}
+
 export type Channel = 'email' | 'sms';
 
 export type ContactIssue = { channel: Channel; reason: 'missing' | 'invalid' };

@@ -378,3 +378,38 @@ func TestHTTP(t *testing.T) {
 		t.Errorf("confirmed PATCH = %d %s", rec.Code, rec.Body)
 	}
 }
+
+func TestNotionSettings(t *testing.T) {
+	svc, store, _, _ := testService(t, map[string]string{"NOTION_DATABASE_ID": "not-an-id"}, false)
+	if got := svc.Current().Value(KeyNotionDatabaseID); got != "" {
+		t.Errorf("invalid env database ID = %q, want ignored", got)
+	}
+
+	_, err := svc.Update(context.Background(), "u1", []Change{
+		{Key: KeyNotionDatabaseID, Value: str("https://www.notion.so/team/Leady-1429989fe8ac4effbc8f57f56486db54?v=0123456789abcdef0123456789abcdef")},
+		{Key: KeyNotionPropertyMap, Value: str("Name=first_name, Mail=email")},
+		{Key: KeyNotionToken, Value: str("ntn_test_token")},
+	}, false)
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	snap := svc.Current()
+	if got, want := snap.Value(KeyNotionDatabaseID), "1429989f-e8ac-4eff-bc8f-57f56486db54"; got != want {
+		t.Errorf("database ID = %q, want %q (URL reduced to the ID)", got, want)
+	}
+	if !store.rows[KeyNotionToken].Encrypted {
+		t.Error("the Notion token must be stored encrypted")
+	}
+	if snap.SendsExternally() {
+		t.Error("Notion settings must not turn real sending on")
+	}
+
+	_, err = svc.Update(context.Background(), "u1", []Change{
+		{Key: KeyNotionDataSourceID, Value: str("abc")},
+		{Key: KeyNotionPropertyMap, Value: str("Name")},
+	}, false)
+	var v *ValidationError
+	if !errors.As(err, &v) || len(v.Fields) != 2 {
+		t.Fatalf("err = %v, want 2 field errors", err)
+	}
+}

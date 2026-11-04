@@ -142,6 +142,39 @@ func (c *Client) ResolveDataSource(ctx context.Context, databaseID string) (Data
 	}
 }
 
+// ErrNoSource means neither a database nor a data source was given.
+var ErrNoSource = errors.New("notion: no database or data source ID")
+
+// Pages reads every page of the configured source: the data source
+// dataSourceID when set (it wins), otherwise the only data source of
+// databaseID. Both accept an ID or a URL copied from Notion. It fails with
+// ErrInvalidID, ErrNoSource, ErrNoDataSource, ErrMultipleDataSources,
+// ErrTooManyRows or an *APIError.
+func (c *Client) Pages(ctx context.Context, databaseID, dataSourceID string, maxRows int) ([]Page, error) {
+	var dsID string
+	switch {
+	case strings.TrimSpace(dataSourceID) != "":
+		id, err := ParseID(dataSourceID)
+		if err != nil {
+			return nil, fmt.Errorf("data source: %w", err)
+		}
+		dsID = id
+	case strings.TrimSpace(databaseID) != "":
+		dbID, err := ParseID(databaseID)
+		if err != nil {
+			return nil, fmt.Errorf("database: %w", err)
+		}
+		ds, err := c.ResolveDataSource(ctx, dbID)
+		if err != nil {
+			return nil, err
+		}
+		dsID = ds.ID
+	default:
+		return nil, ErrNoSource
+	}
+	return c.QueryAll(ctx, dsID, maxRows)
+}
+
 // QueryAll returns every non-archived page of a data source, oldest first, so
 // row numbers stay stable between a check and an import. It fails with
 // ErrTooManyRows rather than return a partial result when there are more
