@@ -384,3 +384,100 @@ func TestMailpit_GetProfile(t *testing.T) {
 		t.Errorf("RemainCredits = %v, want nil", profile.RemainCredits)
 	}
 }
+
+func TestSenderAddress(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		from, wantEnvelope, wantHeader string
+	}{
+		{"no-reply@example.test", "no-reply@example.test", "<no-reply@example.test>"},
+		{"DoYouSend <no-reply@example.test>", "no-reply@example.test", `"DoYouSend" <no-reply@example.test>`},
+		{"Szkoła Demo <sekretariat@example.test>", "sekretariat@example.test", "=?utf-8?q?Szko=C5=82a_Demo?= <sekretariat@example.test>"},
+		{"not an address", "not an address", "not an address"},
+	}
+	for _, tt := range tests {
+		envelope, header := senderAddress(tt.from)
+		if envelope != tt.wantEnvelope || header != tt.wantHeader {
+			t.Errorf("senderAddress(%q) = %q, %q; want %q, %q", tt.from, envelope, header, tt.wantEnvelope, tt.wantHeader)
+		}
+	}
+}
+
+// TestMailpit_SendWithDisplayName is a regression test: MAIL FROM used to get
+// the whole "Name <address>" value, which Mailpit rejects with 501.
+func TestMailpit_SendWithDisplayName(t *testing.T) {
+	t.Parallel()
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer func() { _ = l.Close() }()
+
+	type seen struct{ mailFrom, fromHeader string }
+	got := make(chan seen, 1)
+	go func() {
+		conn, err := l.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		reply := func(msg string) { _, _ = fmt.Fprint(conn, msg) }
+		r := bufio.NewReader(conn)
+		reply("220 127.0.0.1 ESMTP\r\n")
+		var s seen
+		for {
+			line, err := r.ReadString('\n')
+			if err != nil {
+				return
+			}
+			trimmed := strings.TrimSpace(line)
+			upper := strings.ToUpper(trimmed)
+			switch {
+			case strings.HasPrefix(upper, "EHLO"), strings.HasPrefix(upper, "HELO"):
+				reply("250-127.0.0.1\r\n250 HELP\r\n")
+			case strings.HasPrefix(upper, "MAIL FROM:"):
+				s.mailFrom = trimmed
+				reply("250 Ok\r\n")
+			case strings.HasPrefix(upper, "RCPT TO:"):
+				reply("250 Ok\r\n")
+			case upper == "DATA":
+				reply("354 Go\r\n")
+				for {
+					dataLine, err := r.ReadString('\n')
+					if err != nil {
+						return
+					}
+					if strings.HasPrefix(dataLine, "From: ") {
+						s.fromHeader = strings.TrimSpace(dataLine)
+					}
+					if dataLine == ".\r\n" {
+						break
+					}
+				}
+				reply("250 Ok: queued\r\n")
+			case upper == "QUIT":
+				reply("221 Bye\r\n")
+				got <- s
+				return
+			default:
+				reply("500 Unrecognized\r\n")
+			}
+		}
+	}()
+
+	host, port, _ := net.SplitHostPort(l.Addr().String())
+	m := NewMailpit(MailpitConfig{Host: host, Port: port, From: "Szkoła Demo <sekretariat@example.test>"}, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := m.Send(ctx, providers.Message{RecipientID: "r-1", To: "parent@example.test", Subject: "Test", Body: "Treść"}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	s := <-got
+	if s.mailFrom != "MAIL FROM:<sekretariat@example.test>" && !strings.HasPrefix(s.mailFrom, "MAIL FROM:<sekretariat@example.test> ") {
+		t.Errorf("MAIL FROM = %q, want the bare address", s.mailFrom)
+	}
+	if want := "From: =?utf-8?q?Szko=C5=82a_Demo?= <sekretariat@example.test>"; s.fromHeader != want {
+		t.Errorf("From header = %q, want %q", s.fromHeader, want)
+	}
+}
