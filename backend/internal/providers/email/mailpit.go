@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"mime"
 	"net"
+	netmail "net/mail"
 	"net/smtp"
 	"net/textproto"
 	"strings"
@@ -93,7 +94,8 @@ func (m *Mailpit) Send(ctx context.Context, msg providers.Message) (providers.Re
 		return providers.Result{ProviderMessageID: msgID}, nil
 	}
 
-	body := buildRFC822(m.cfg.From, msg.To, msg.Subject, msg.Body, msgID)
+	envelopeFrom, headerFrom := senderAddress(m.cfg.From)
+	body := buildRFC822(headerFrom, msg.To, msg.Subject, msg.Body, msgID)
 
 	addr := net.JoinHostPort(m.cfg.Host, m.cfg.Port)
 
@@ -137,7 +139,7 @@ func (m *Mailpit) Send(ctx context.Context, msg providers.Message) (providers.Re
 		}
 	}
 
-	if err := client.Mail(m.cfg.From); err != nil {
+	if err := client.Mail(envelopeFrom); err != nil {
 		return providers.Result{}, classifySMTPError(msg.RecipientID, err)
 	}
 	if err := client.Rcpt(msg.To); err != nil {
@@ -170,6 +172,18 @@ func (m *Mailpit) Send(ctx context.Context, msg providers.Message) (providers.Re
 // Channel returns providers.ChannelEmail.
 func (m *Mailpit) Channel() providers.Channel {
 	return providers.ChannelEmail
+}
+
+// senderAddress splits EMAIL_FROM into the bare address for the SMTP envelope
+// (MAIL FROM accepts no display name) and the From header, where a non-ASCII
+// display name such as "Szkoła" is RFC 2047 encoded. A value net/mail cannot
+// parse is used as is for both.
+func senderAddress(from string) (envelope, header string) {
+	addr, err := netmail.ParseAddress(from)
+	if err != nil {
+		return from, from
+	}
+	return addr.Address, addr.String()
 }
 
 // buildRFC822 constructs an RFC 822/5322 compliant message with Q-encoded subject
