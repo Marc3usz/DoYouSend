@@ -413,3 +413,52 @@ func TestNotionSettings(t *testing.T) {
 		t.Fatalf("err = %v, want 2 field errors", err)
 	}
 }
+
+func TestBusyBlocksSwitchingSending(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     map[string]string
+		changes []Change
+		wantErr error
+	}{
+		{"dry run off", nil, []Change{{Key: KeyDryRun, Value: str("false")}}, ErrBatchesRunning},
+		{"provider change with dry run off", map[string]string{"DRY_RUN": "false"},
+			[]Change{{Key: KeySMSProvider, Value: str("smsapi")}, {Key: KeySMSAPIKey, Value: str("k")}}, ErrBatchesRunning},
+		{"provider change with dry run on", nil,
+			[]Change{{Key: KeySMSProvider, Value: str("smsapi")}, {Key: KeySMSAPIKey, Value: str("k")}}, nil},
+		{"dry run on", map[string]string{"DRY_RUN": "false"}, []Change{{Key: KeyDryRun, Value: str("true")}}, nil},
+		{"other setting with dry run off", map[string]string{"DRY_RUN": "false"},
+			[]Change{{Key: KeySMSSenderName, Value: str("SZKOLA")}}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, store, _, _ := testService(t, tt.env, false)
+			svc.SetBusy(func() int { return 1 })
+			_, err := svc.Update(context.Background(), "u1", tt.changes, true)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tt.wantErr)
+			}
+			if tt.wantErr != nil && len(store.rows) > 0 {
+				t.Errorf("a refused change was stored: %v", store.rows)
+			}
+
+			svc.SetBusy(func() int { return 0 })
+			if _, err := svc.Update(context.Background(), "u1", tt.changes, true); err != nil {
+				t.Errorf("once idle: %v", err)
+			}
+		})
+	}
+}
+
+func TestHTTPBatchesRunning(t *testing.T) {
+	svc, _, _, _ := testService(t, nil, false)
+	svc.SetBusy(func() int { return 2 })
+	mux := http.NewServeMux()
+	NewHandler(svc, func(context.Context) string { return "u1" }, slog.New(slog.NewTextHandler(io.Discard, nil))).Register(mux)
+	req := httptest.NewRequest(http.MethodPatch, "/api/admin/settings", strings.NewReader(`{"values":{"dry_run":"false"}}`))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"code":"batches_running"`) {
+		t.Errorf("PATCH = %d %s, want 409 batches_running", rec.Code, rec.Body)
+	}
+}
