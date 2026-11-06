@@ -13,6 +13,26 @@ Full requirements spec (in Polish): [`description.md`](description.md).
 - **Delivery queue:** delivery worker (`backend/internal/delivery`) with its state persisted in PostgreSQL
 - **Local environment:** Docker Compose — Postgres, Redis, Mailpit (fake SMTP server)
 
+## Features
+
+- **One message, two channels** — the same body goes out by e-mail and SMS. The composer lets the
+  sender pick both, e-mail only or SMS only, previews the rendered bodies (personalised per
+  recipient, with the SMS part count and price) and asks for confirmation before sending.
+- **Recipients and groups** — CRUD, CSV/XLSX import with an error report, and import straight from a
+  Notion database (`make import-notion`, [`docs/integracje.md`](docs/integracje.md), ADR-0017).
+  A data-quality panel lists incomplete or invalid contacts; senders can fix a missing contact
+  directly in the composer (ADR-0013). Recipients from overlapping groups are deduplicated.
+- **Delivery that survives failures** — per-recipient, per-channel status; a failed recipient never
+  aborts the batch. Rate-limit backoff and selective retries.
+- **History** — browse past batches, see excluded recipients and retry attempts, retry failed
+  deliveries or copy a batch into a new draft.
+- **Admin panel** — users and roles, an audit log, SendGrid single sender verification per user
+  (ADR-0016) and **Ustawienia wysyłki** (sending settings, ADR-0018): `DRY_RUN`, providers and API
+  keys are edited in the UI (keys are encrypted in the database), with an explicit confirmation
+  before real sending is switched on. `DRY_RUN_LOCK=true` in `.env` forbids turning `DRY_RUN` off.
+- **Providers** — Mailpit and SendGrid (official SDK, `SENDGRID_REGION=global|eu`, ADR-0014) for
+  e-mail; Fake and SMSAPI for SMS, with delivery reports and SMS cost statistics.
+
 ## Requirements
 
 Go 1.24+, Node 22+, Docker Desktop, `make`, `git`. Check with `make doctor`.
@@ -50,8 +70,11 @@ To view "sent" e-mails, open Mailpit at <http://localhost:8025>. **Note:** with 
 nothing off your machine. Never combine `DRY_RUN=false` with a real provider without the project
 supervisor's approval. With `SMS_PROVIDER=fake`, text messages never leave the system — they land
 in the log and the database and show up in the sending history.
-Production providers (SendGrid, SMSAPI) and their test modes are described in
-[`docs/integracje.md`](docs/integracje.md).
+Production providers (SendGrid, SMSAPI), their test modes and importing recipients from Notion are
+described in [`docs/integracje.md`](docs/integracje.md). Sending settings can also be changed at
+runtime in **Panel administratora → Ustawienia wysyłki**; values saved there win over `.env`
+(ADR-0018). Back up `settings.key` (or `SETTINGS_ENCRYPTION_KEY`) — without it the API keys saved
+in the panel have to be entered again.
 
 ## Troubleshooting
 
@@ -73,7 +96,9 @@ Production providers (SendGrid, SMSAPI) and their test modes are described in
 
 ## Safety switches
 
-- `DRY_RUN=true` in `.env` — by default nothing leaves the developer's machine.
+- `DRY_RUN=true` in `.env` — by default nothing leaves the developer's machine. Turning it off in
+  the admin panel requires explicit confirmation; `DRY_RUN_LOCK=true` blocks that for demo and
+  test environments.
 - The `fake`/Mailpit providers are the default configuration. Connecting a real SMS gateway and
   real recipients requires the project supervisor's approval.
 - The repo does not and must not contain real personal data or API keys.
@@ -89,7 +114,7 @@ The documents below are in Polish.
 | [`docs/architektura.md`](docs/architektura.md) | layers, delivery flow, statuses |
 | [`docs/model-danych.md`](docs/model-danych.md) | entities and relations |
 | [`docs/bezpieczenstwo.md`](docs/bezpieczenstwo.md) | secrets, test data, permissions |
-| [`docs/integracje.md`](docs/integracje.md) | setup and behaviour of e-mail (Mailpit/SendGrid) and SMS (Fake/SMSAPI) |
+| [`docs/integracje.md`](docs/integracje.md) | setup and behaviour of e-mail (Mailpit/SendGrid), SMS (Fake/SMSAPI), panel settings and Notion import |
 | [`docs/adr/`](docs/adr/) | architecture decision records (ADRs) |
 | [`CLAUDE.md`](CLAUDE.md) | instructions for Claude Code — shared by the whole team |
 
@@ -99,6 +124,7 @@ The documents below are in Polish.
 make check     # linters and type checks (same as CI)
 make test      # backend and frontend tests
 make test-integration  # tests against Postgres (TEST_DATABASE_URL, see .env.example)
+make import-notion     # recipients from Notion: report only; ARGS=-apply saves (ADR-0017)
 make fmt       # formatting
 make down      # stop the containers
 ```
