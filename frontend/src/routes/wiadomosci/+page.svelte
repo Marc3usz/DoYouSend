@@ -1220,7 +1220,7 @@
 	}
 	.channel-radio-label.selected {
 		border-color: var(--color-primary, #2563eb);
-		background: #eff6ff;
+		background: var(--color-primary-soft, #eff6ff);
 		box-shadow: 0 0 0 1px var(--color-primary, #2563eb);
 	}
 	.channel-radio-content {
