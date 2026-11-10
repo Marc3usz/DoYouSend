@@ -1,6 +1,7 @@
 <script lang="ts">
 	import '../app.css';
 	import { page } from '$app/state';
+	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
 	import { navLinks, roleLabels } from '$lib/access';
 	import type { LayoutProps } from './$types';
 
@@ -27,12 +28,16 @@
 				{data.user.fullName}
 				<small>({roleLabels[data.user.role]})</small>
 			</span>
+			<ThemeToggle />
 			<form method="POST" action="/logout">
 				<button type="submit">Wyloguj</button>
 			</form>
 		</div>
 	{:else}
 		<span class="tagline">komunikaty e-mail i SMS</span>
+		<div class="account">
+			<ThemeToggle />
+		</div>
 	{/if}
 </header>
 

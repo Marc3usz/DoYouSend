@@ -32,6 +32,7 @@
 	--color-warning-soft: #fff4dc;
 	--color-warning-border: #e0b453;
 
+	--color-surface-hover: #f1f5f9;
 	--color-focus: #2563eb;
 
 	/* Type */
@@ -58,6 +59,90 @@
 
 	--content-width: 72rem;
 
+	color-scheme: light;
+}
+
+/*
+ * Dark theme. The theme is chosen by data-theme on <html> (set before first
+ * paint by the script in app.html); without it the OS preference decides.
+ * The two blocks below must stay identical.
+ */
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme='light']) {
+		--color-bg: #0f141b;
+		--color-surface: #171d26;
+		--color-surface-muted: #1e2631;
+		--color-surface-hover: #232c39;
+		--color-text: #e6eaf0;
+		--color-text-muted: #9aa6b6;
+		--color-border: #2b3544;
+		--color-border-strong: #435064;
+
+		--color-primary: #6b9bff;
+		--color-primary-hover: #8fb3ff;
+		--color-primary-soft: #1a2845;
+		--color-on-primary: #0b1220;
+
+		--color-danger: #ff7b8e;
+		--color-danger-hover: #ffa0ae;
+		--color-danger-soft: #3a1820;
+		--color-danger-border: #7a3040;
+
+		--color-success: #4cc27a;
+		--color-success-soft: #14291d;
+		--color-success-border: #2d6a47;
+
+		--color-warning: #f0c36a;
+		--color-warning-soft: #33280f;
+		--color-warning-border: #7a5c1c;
+
+		--color-focus: #8fb3ff;
+
+		--shadow-sm: 0 1px 2px rgb(0 0 0 / 40%);
+		--shadow: 0 1px 3px rgb(0 0 0 / 50%), 0 1px 2px rgb(0 0 0 / 30%);
+
+		color-scheme: dark;
+	}
+}
+
+:root[data-theme='dark'] {
+	--color-bg: #0f141b;
+	--color-surface: #171d26;
+	--color-surface-muted: #1e2631;
+	--color-surface-hover: #232c39;
+	--color-text: #e6eaf0;
+	--color-text-muted: #9aa6b6;
+	--color-border: #2b3544;
+	--color-border-strong: #435064;
+
+	--color-primary: #6b9bff;
+	--color-primary-hover: #8fb3ff;
+	--color-primary-soft: #1a2845;
+	--color-on-primary: #0b1220;
+
+	--color-danger: #ff7b8e;
+	--color-danger-hover: #ffa0ae;
+	--color-danger-soft: #3a1820;
+	--color-danger-border: #7a3040;
+
+	--color-success: #4cc27a;
+	--color-success-soft: #14291d;
+	--color-success-border: #2d6a47;
+
+	--color-warning: #f0c36a;
+	--color-warning-soft: #33280f;
+	--color-warning-border: #7a5c1c;
+
+	--color-focus: #8fb3ff;
+
+	--shadow-sm: 0 1px 2px rgb(0 0 0 / 40%);
+	--shadow: 0 1px 3px rgb(0 0 0 / 50%), 0 1px 2px rgb(0 0 0 / 30%);
+
+	color-scheme: dark;
+}
+
+:root[data-theme='light'] {
 	color-scheme: light;
 }
 
@@ -321,7 +406,7 @@ tbody tr:last-child td {
 }
 
 tbody tr:hover td {
-	background: #fafbfd;
+	background: var(--color-surface-hover);
 }
 
 /* On narrow screens a wide table scrolls inside its own box instead of
