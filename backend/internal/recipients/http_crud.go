@@ -55,6 +55,8 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	lq := ListQuery{
 		Filter: Filter{Query: q.Get("q"), Type: Type(q.Get("type")), Class: q.Get("class")},
 		Issue:  Channel(q.Get("issue")),
+		Sort:   SortField(q.Get("sort")),
+		Order:  SortOrder(q.Get("order")),
 	}
 	var errs []FieldError
 	lq.Limit, errs = intParam(q.Get("limit"), "limit", errs)
@@ -80,7 +82,11 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 // leaves out the e-mail and phone (docs/api/openapi.yaml, RecipientLookup).
 func (h *Handler) lookup(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	lq := ListQuery{Filter: Filter{Query: q.Get("q"), Type: Type(q.Get("type")), Class: q.Get("class")}}
+	lq := ListQuery{
+		Filter: Filter{Query: q.Get("q"), Type: Type(q.Get("type")), Class: q.Get("class")},
+		Sort:   SortField(q.Get("sort")),
+		Order:  SortOrder(q.Get("order")),
+	}
 	var errs []FieldError
 	lq.Limit, errs = intParam(q.Get("limit"), "limit", errs)
 	lq.Offset, errs = intParam(q.Get("offset"), "offset", errs)

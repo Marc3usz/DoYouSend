@@ -1,6 +1,6 @@
 # ADR-0018: Ustawienia wysyłki edytowane w panelu administratora
 
-- **Status:** propozycja
+- **Status:** przyjęta (zaakceptowana przez MichalK252 2026-11-10 po weryfikacji i wdrożeniu bezpiecznika w PR #96 i #97)
 - **Data:** 2026-11-03
 - **Uczestnicy:** Marc3usz (domena D) proponuje na prośbę właściciela produktu;
   MichalK252 (domeny B i C) decyduje o zmianach w `providers/setup` i `delivery`

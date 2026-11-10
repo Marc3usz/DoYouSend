@@ -167,6 +167,8 @@ func TestServiceList(t *testing.T) {
 		{"page", ListQuery{Limit: 2, Offset: 1}, []string{"Jan", "Pawel"}, 4},
 		{"offset past the end", ListQuery{Offset: 10}, []string{}, 4},
 		{"issue with type", ListQuery{Filter: Filter{Type: TypeParent}, Issue: ChannelSMS, Limit: 1}, []string{"Maria"}, 2},
+		{"sorted by name desc", ListQuery{Sort: SortName, Order: OrderDesc}, []string{"Lena", "Pawel", "Jan", "Maria"}, 4},
+		{"sorted by type desc", ListQuery{Sort: SortType, Order: OrderDesc}, []string{"Lena", "Maria", "Jan", "Pawel"}, 4},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -224,6 +226,8 @@ func TestServiceListRejectsBadQuery(t *testing.T) {
 		{"negative limit", ListQuery{Limit: -1}, "limit"},
 		{"negative offset", ListQuery{Offset: -1}, "offset"},
 		{"long query", ListQuery{Filter: Filter{Query: strings.Repeat("ą", MaxQueryLength+1)}}, "q"},
+		{"bad sort", ListQuery{Sort: "height"}, "sort"},
+		{"bad order", ListQuery{Order: "sideways"}, "order"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

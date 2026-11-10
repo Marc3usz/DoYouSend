@@ -1,6 +1,6 @@
 # ADR-0015: Otwarte decyzje architektoniczne domen B, C i D (konfiguracja operatorów, statusy wsadów, DRY_RUN)
 
-- **Status:** przyjęta; decyzja 1 zastąpiona przez ADR-0018 (ustawienia w panelu) — po jego przyjęciu
+- **Status:** przyjęta; decyzja 1 zastąpiona przez przyjęty ADR-0018 (ustawienia w panelu)
 - **Data:** 2026-10-30
 - **Uczestnicy:** MichalK252 (domena B: kreator, domena C: dostawcy), Marc3usz (domena A: odbiorcy, domena D: uprawnienia i audyt)
 
@@ -19,7 +19,7 @@ W miarę rozwoju systemu DoYouSend i integracji pomiędzy domenami B (kreator i 
 
 ### 1. Konfiguracja operatorów wyłącznie przez zmienne środowiskowe (`.env`) i restart serwera
 
-> Zastąpione przez [ADR-0018](0018-ustawienia-wysylki-w-panelu.md), gdy zostanie przyjęty.
+> Zastąpione przez przyjęty [ADR-0018](0018-ustawienia-wysylki-w-panelu.md).
 
 - **Endpoint `GET /api/admin/config` pozostaje ściśle tylko do odczytu (read-only):**
   Zwraca aktualny stan konfiguracji dostawców bez ujawniania haseł i kluczy API (pola `CredentialsSet` mają wartość boolean). Służy administratorowi wyłącznie do weryfikacji poprawności wdrożenia.
