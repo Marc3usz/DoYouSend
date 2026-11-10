@@ -852,7 +852,12 @@ paths:
         Zmiana, po ktorej wiadomosci wychodza na zewnatrz (DRY_RUN off i sendgrid albo smsapi), a
         przedtem nie wychodzily, wymaga confirmLiveSending=true, inaczej 409 confirmation_required.
         Przy DRY_RUN_LOCK=true na serwerze wylaczenie DRY_RUN daje 409 dry_run_locked.
-        Wsady juz wysylane koncza wysylke z operatorem aktualnym w chwili kazdej wiadomosci.
+        Gdy serwer wlasnie wysyla jakis wsad (wysylka albo ponowienie), wylaczenie DRY_RUN albo
+        zmiana operatora e-mail lub SMS przy wylaczonym DRY_RUN daje 409 batches_running i nic
+        nie jest zapisane.
+        Wlaczenie DRY_RUN i pozostale zmiany (klucze, nadawca, cena) sa dozwolone zawsze.
+        Wsady wysylane w chwili takiej zmiany koncza wysylke z operatorem aktualnym w chwili
+        kazdej wiadomosci.
       requestBody:
         required: true
         content:
@@ -1478,6 +1483,7 @@ components:
             - batch_running        # POST /batches/{id}/retry: wsad jest obecnie w trakcie wysylki (409)
             - confirmation_required   # PATCH /admin/settings: wlaczenie prawdziwej wysylki bez confirmLiveSending (409)
             - dry_run_locked          # PATCH /admin/settings: DRY_RUN_LOCK=true na serwerze (409)
+            - batches_running         # PATCH /admin/settings: wylaczenie DRY_RUN lub zmiana operatora w trakcie wysylki wsadu (409)
             - sender_not_configured   # /users/{id}/sender: uzytkownik nie ma tozsamosci nadawcy (404)
             - sender_exists           # POST /users/{id}/sender: juz ma tozsamosc (409)
             - sender_already_verified # POST /users/{id}/sender/resend: juz potwierdzona (409)

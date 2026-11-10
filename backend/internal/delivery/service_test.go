@@ -544,3 +544,28 @@ func TestServiceStartRetry_ShuttingDown(t *testing.T) {
 		t.Errorf("StartRetry while shutting down error = %v, want ErrShuttingDown", err)
 	}
 }
+
+func TestServiceDispatchingCountsSendsInProgress(t *testing.T) {
+	sms := &scriptedSender{channel: providers.ChannelSMS}
+	svc := newTestService(t, twoRecipients(), NewMemStore(), sms)
+	var during []int
+	sms.onSend = func() { during = append(during, svc.Dispatching()) }
+
+	if got := svc.Dispatching(); got != 0 {
+		t.Fatalf("before send Dispatching = %d, want 0", got)
+	}
+	if _, err := svc.Send(context.Background(), validDraft()); err != nil {
+		t.Fatal(err)
+	}
+	if len(during) == 0 {
+		t.Fatal("no sms sent")
+	}
+	for _, n := range during {
+		if n != 1 {
+			t.Errorf("Dispatching during send = %d, want 1", n)
+		}
+	}
+	if got := svc.Dispatching(); got != 0 {
+		t.Errorf("after send Dispatching = %d, want 0", got)
+	}
+}

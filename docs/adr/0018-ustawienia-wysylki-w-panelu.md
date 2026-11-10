@@ -45,6 +45,11 @@
      o wpisanie potwierdzenia.
    - `DRY_RUN_LOCK=true` w `.env` wymusza DRY_RUN niezależnie od panelu (środowiska demo i
      testowe) i blokuje jego wyłączenie (409 `dry_run_locked`).
+   - gdy serwer właśnie wysyła wsad (wysyłka albo ponowienie), wyłączenie DRY_RUN i zmiana
+     operatora e-mail lub SMS przy wyłączonym DRY_RUN są odrzucane (409 `batches_running`). Włączenie DRY_RUN działa
+     zawsze, bo zatrzymuje prawdziwą wysyłkę. Licznik trwających wysyłek jest w pamięci
+     procesu (`delivery.Service`), a nie w statusie `running` w bazie: wsad, który został
+     `running` po awarii procesu, nie może zablokować ustawień na stałe.
    - każda zmiana trafia do dziennika (`settings_changed`): lista kluczy, a przy zmianie
      DRY_RUN i operatorów także nowa wartość. Nigdy wartości sekretów.
    - wartość z `.env`, której panel by nie przyjął (np. `DRY_RUN=tak`), daje wartość domyślną
@@ -67,9 +72,11 @@
 
 - Plik `settings.key` (albo `SETTINGS_ENCRYPTION_KEY`) trzeba objąć kopią zapasową, osobno od
   bazy. Utrata klucza oznacza ponowne wpisanie kluczy API, nie utratę danych.
-- Wsad wysyłany w chwili zmiany kończy wysyłkę z operatorem aktualnym dla każdej kolejnej
-  wiadomości. Wyłączenie DRY_RUN w trakcie wysyłki testowego wsadu wyśle jego resztę naprawdę.
-  Panel ostrzega o tym przy potwierdzeniu. Twardsza blokada (odmowa zmiany, gdy wsad jest
-  `running`) jest możliwa później.
+- Wyłączenie DRY_RUN albo zmiana operatora czeka, aż skończą się trwające wysyłki, więc
+  reszta testowego wsadu nie wyjdzie naprawdę. Sprawdzenie i zapis nie są jedną transakcją:
+  wsad rozpoczęty w tej samej chwili co zapis może jeszcze trafić na nowych operatorów.
+  To okno trwa milisekundy, a panel i tak wymaga potwierdzenia prawdziwej wysyłki.
+- Licznik działa w jednym procesie API. Przy kilku instancjach API trzeba by go przenieść
+  do bazy (np. z dzierżawą z czasem wygaśnięcia).
 - `setup.ConfigFromEnv` nie jest już używane przez API. Zostaje dla narzędzi i testów.
 - `GET /api/admin/config` zostaje jako widok tylko do odczytu, liczony z bieżących ustawień.
