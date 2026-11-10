@@ -175,12 +175,17 @@ export type RecipientInput = {
 
 export type RecipientPage = { items: Recipient[]; total: number };
 
+export type RecipientSortField = 'name' | 'type' | 'class' | 'email' | 'phone';
+export type SortOrder = 'asc' | 'desc';
+
 export type RecipientListQuery = {
 	q?: string;
 	type?: RecipientType;
 	/** Only recipients of this class (ADR-0009). */
 	class?: string;
 	issue?: Channel;
+	sort?: RecipientSortField;
+	order?: SortOrder;
 	limit?: number;
 	offset?: number;
 };

@@ -53,6 +53,20 @@ paths:
           name: issue
           description: Tylko odbiorcy z problemem danych kontaktowych w danym kanale
           schema: { $ref: "#/components/schemas/Channel" }
+        - in: query
+          name: sort
+          description: Kolumna sortowania (domyslnie name)
+          schema:
+            type: string
+            enum: [name, type, class, email, phone]
+            default: name
+        - in: query
+          name: order
+          description: Kierunek sortowania (domyslnie asc)
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
         - { in: query, name: limit,  schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
         - { in: query, name: offset, schema: { type: integer, minimum: 0, default: 0 } }
       responses:
@@ -101,6 +115,20 @@ paths:
           name: class
           description: Tylko odbiorcy przypisani do tej klasy (normalizowana jak ClassName)
           schema: { $ref: "#/components/schemas/ClassName" }
+        - in: query
+          name: sort
+          description: Kolumna sortowania (domyslnie name)
+          schema:
+            type: string
+            enum: [name, type, class, email, phone]
+            default: name
+        - in: query
+          name: order
+          description: Kierunek sortowania (domyslnie asc)
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
         - { in: query, name: limit,  schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
         - { in: query, name: offset, schema: { type: integer, minimum: 0, default: 0 } }
       responses:

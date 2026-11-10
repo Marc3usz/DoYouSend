@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -77,11 +78,34 @@ type Filter struct {
 	NamesOnly bool
 }
 
+// SortField names a column by which recipients can be sorted.
+type SortField string
+
+// Supported recipient sort columns.
+const (
+	SortName  SortField = "name"
+	SortType  SortField = "type"
+	SortClass SortField = "class"
+	SortEmail SortField = "email"
+	SortPhone SortField = "phone"
+)
+
+// SortOrder is the sort direction: "asc" or "desc".
+type SortOrder string
+
+// Supported sort directions.
+const (
+	OrderAsc  SortOrder = "asc"
+	OrderDesc SortOrder = "desc"
+)
+
 // ListQuery is a page request of GET /recipients.
 type ListQuery struct {
 	Filter
 	// Issue, when set, keeps only recipients who cannot be reached on it.
 	Issue  Channel
+	Sort   SortField
+	Order  SortOrder
 	Limit  int
 	Offset int
 }
@@ -186,6 +210,8 @@ func (s *Service) List(ctx context.Context, q ListQuery) (Page, error) {
 		all = kept
 	}
 
+	sortRecipients(all, q.Sort, q.Order)
+
 	page := Page{Total: len(all), Items: []Recipient{}}
 	if q.Offset < len(all) {
 		page.Items = all[q.Offset:min(q.Offset+q.Limit, len(all))]
@@ -200,6 +226,9 @@ func (s *Service) List(ctx context.Context, q ListQuery) (Page, error) {
 func (s *Service) Lookup(ctx context.Context, q ListQuery) (Page, error) {
 	q.Issue = ""
 	q.NamesOnly = true
+	if q.Sort == SortEmail || q.Sort == SortPhone {
+		q.Sort = SortName
+	}
 	return s.List(ctx, q)
 }
 
@@ -259,6 +288,22 @@ func checkListQuery(q ListQuery) (ListQuery, error) {
 	}
 	if q.Issue != "" && q.Issue != ChannelEmail && q.Issue != ChannelSMS {
 		errs = append(errs, FieldError{Field: "issue", Message: "issue must be 'email' or 'sms'"})
+	}
+	if q.Sort == "" {
+		q.Sort = SortName
+	}
+	switch q.Sort {
+	case SortName, SortType, SortClass, SortEmail, SortPhone:
+	default:
+		errs = append(errs, FieldError{Field: "sort", Message: "sort must be one of: name, type, class, email, phone"})
+	}
+	if q.Order == "" {
+		q.Order = OrderAsc
+	}
+	switch q.Order {
+	case OrderAsc, OrderDesc:
+	default:
+		errs = append(errs, FieldError{Field: "order", Message: "order must be 'asc' or 'desc'"})
 	}
 	switch {
 	case q.Limit == 0:
@@ -451,4 +496,59 @@ func checkID(id string) (string, error) {
 		return "", &ParamError{Fields: []FieldError{{Field: "id", Message: "not a valid ID"}}}
 	}
 	return id, nil
+}
+
+func sortRecipients(rs []Recipient, field SortField, order SortOrder) {
+	cmp := func(i, j int) bool {
+		a, b := rs[i], rs[j]
+		var primary int
+		switch field {
+		case SortType:
+			primary = strings.Compare(string(a.Type), string(b.Type))
+		case SortClass:
+			ca, cb := "", ""
+			if len(a.Classes) > 0 {
+				ca = a.Classes[0]
+			}
+			if len(b.Classes) > 0 {
+				cb = b.Classes[0]
+			}
+			primary = strings.Compare(ca, cb)
+		case SortEmail:
+			primary = strings.Compare(strings.ToLower(a.Email), strings.ToLower(b.Email))
+		case SortPhone:
+			primary = strings.Compare(a.Phone, b.Phone)
+		case SortName:
+			fallthrough
+		default:
+			primary = compareNames(a, b)
+		}
+
+		if primary != 0 {
+			if order == OrderDesc {
+				return primary > 0
+			}
+			return primary < 0
+		}
+
+		tie := compareNames(a, b)
+		if tie != 0 {
+			if order == OrderDesc && field == SortName {
+				return tie > 0
+			}
+			return tie < 0
+		}
+		if order == OrderDesc && field == SortName {
+			return a.ID > b.ID
+		}
+		return a.ID < b.ID
+	}
+	sort.SliceStable(rs, cmp)
+}
+
+func compareNames(a, b Recipient) int {
+	if c := strings.Compare(strings.ToLower(a.LastName), strings.ToLower(b.LastName)); c != 0 {
+		return c
+	}
+	return strings.Compare(strings.ToLower(a.FirstName), strings.ToLower(b.FirstName))
 }

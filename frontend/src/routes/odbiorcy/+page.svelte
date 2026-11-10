@@ -4,7 +4,7 @@
 	import { navigating, page as pageState } from '$app/state';
 	import type { PageProps } from './$types';
 	import HealthPanel from './HealthPanel.svelte';
-	import { listHref, pageCount, parseListParams } from './list';
+	import { listHref, pageCount, parseListParams, sortHref, sortIndicator } from './list';
 	import { issueHint, issueText, recipientTypeLabel } from './messages';
 
 	let { data }: PageProps = $props();
@@ -87,6 +87,12 @@
 	oninput={(e) => applyFilters(e.currentTarget, FILTER_DELAY_MS)}
 	onchange={(e) => applyFilters(e.currentTarget, 0)}
 >
+	{#if data.params.sort !== 'name'}
+		<input type="hidden" name="sort" value={data.params.sort} />
+	{/if}
+	{#if data.params.order !== 'asc'}
+		<input type="hidden" name="order" value={data.params.order} />
+	{/if}
 	<label>
 		Szukaj
 		<input
@@ -148,11 +154,34 @@
 	{:else}
 		<table>
 			<thead>
-				<tr
-					><th>Nazwisko i imię</th><th>Typ</th><th>Klasa</th><th>E-mail</th><th>Telefon</th><th
-						>Uwagi</th
-					></tr
-				>
+				<tr>
+					<th>
+						<a class="th-sort" href={sortHref(data.params, 'name')}>
+							Nazwisko i imię <span class="sort-icon">{sortIndicator(data.params, 'name')}</span>
+						</a>
+					</th>
+					<th>
+						<a class="th-sort" href={sortHref(data.params, 'type')}>
+							Typ <span class="sort-icon">{sortIndicator(data.params, 'type')}</span>
+						</a>
+					</th>
+					<th>
+						<a class="th-sort" href={sortHref(data.params, 'class')}>
+							Klasa <span class="sort-icon">{sortIndicator(data.params, 'class')}</span>
+						</a>
+					</th>
+					<th>
+						<a class="th-sort" href={sortHref(data.params, 'email')}>
+							E-mail <span class="sort-icon">{sortIndicator(data.params, 'email')}</span>
+						</a>
+					</th>
+					<th>
+						<a class="th-sort" href={sortHref(data.params, 'phone')}>
+							Telefon <span class="sort-icon">{sortIndicator(data.params, 'phone')}</span>
+						</a>
+					</th>
+					<th>Uwagi</th>
+				</tr>
 			</thead>
 			<tbody>
 				{#each data.page.items as r (r.id)}
@@ -217,5 +246,19 @@
 		display: flex;
 		gap: 1rem;
 		align-items: center;
+	}
+	.th-sort {
+		color: inherit;
+		text-decoration: none;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+	.th-sort:hover {
+		text-decoration: underline;
+	}
+	.sort-icon {
+		font-size: 0.75em;
+		opacity: 0.7;
 	}
 </style>
