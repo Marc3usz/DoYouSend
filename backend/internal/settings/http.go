@@ -84,6 +84,8 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusConflict, httpx.ErrorBody{Code: "confirmation_required", Message: err.Error()})
 	case errors.Is(err, ErrDryRunLocked):
 		httpx.Error(w, http.StatusConflict, httpx.ErrorBody{Code: "dry_run_locked", Message: err.Error()})
+	case errors.Is(err, ErrBatchesRunning):
+		httpx.Error(w, http.StatusConflict, httpx.ErrorBody{Code: "batches_running", Message: err.Error()})
 	default:
 		h.logger.Error("save settings", "err", err)
 		httpx.Error(w, http.StatusInternalServerError, httpx.ErrorBody{Code: "internal", Message: "internal error"})

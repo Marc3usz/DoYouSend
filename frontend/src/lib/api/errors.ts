@@ -27,6 +27,7 @@ export const errorCodes = [
 	'provider_error',
 	'confirmation_required',
 	'dry_run_locked',
+	'batches_running',
 	'sender_not_configured',
 	'sender_exists',
 	'sender_already_verified',

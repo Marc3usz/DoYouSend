@@ -141,6 +141,9 @@ var (
 	ErrConfirmationRequired = errors.New("enabling real sending must be confirmed")
 	// ErrDryRunLocked: DRY_RUN_LOCK=true forbids turning DRY_RUN off.
 	ErrDryRunLocked = errors.New("DRY_RUN is locked on by the server (DRY_RUN_LOCK)")
+	// ErrBatchesRunning: the change would switch to real sending, or to other
+	// providers, while a batch is being sent.
+	ErrBatchesRunning = errors.New("a batch is being sent; turn DRY_RUN off or change providers once it finishes")
 )
 
 // FieldError is a problem with one setting.
@@ -180,6 +183,7 @@ type Service struct {
 	opts    Options
 	applier Applier
 	auditor Auditor
+	busy    func() int
 
 	mu        sync.RWMutex
 	current   Snapshot
@@ -200,6 +204,12 @@ func NewService(store Store, c *Cipher, opts Options) *Service {
 // SetApplier sets what builds providers from a candidate configuration.
 // Without one, Update stores values without checking that providers start.
 func (s *Service) SetApplier(a Applier) { s.applier = a }
+
+// SetBusy sets what reports how many batches are being sent right now. While it
+// is above zero, Update refuses to turn DRY_RUN off or to change providers with
+// DRY_RUN off, so the rest of a test batch cannot leave for real (ADR-0018).
+// Turning DRY_RUN on is always allowed.
+func (s *Service) SetBusy(busy func() int) { s.busy = busy }
 
 // SetAuditor sets where saved changes are recorded.
 func (s *Service) SetAuditor(a Auditor) { s.auditor = a }
@@ -375,6 +385,9 @@ func (s *Service) Update(ctx context.Context, actorID string, changes []Change, 
 		next = append(next, r)
 	}
 	after := s.resolve(next)
+	if switchesSending(before, after) && s.busy != nil && s.busy() > 0 {
+		return Snapshot{}, ErrBatchesRunning
+	}
 	if after.SendsExternally() && !before.SendsExternally() && !confirmLive {
 		return Snapshot{}, ErrConfirmationRequired
 	}
@@ -412,6 +425,17 @@ func (s *Service) Update(ctx context.Context, actorID string, changes []Change, 
 	}
 	s.opts.Logger.Info("settings changed", "keys", strings.Join(changed, ","), "dryRun", after.DryRun())
 	return after, nil
+}
+
+// switchesSending reports whether after sends through other providers than
+// before: DRY_RUN turned off, or a provider changed while DRY_RUN is off.
+func switchesSending(before, after Snapshot) bool {
+	if after.DryRun() {
+		return false
+	}
+	return before.DryRun() ||
+		before.Value(KeyEmailProvider) != after.Value(KeyEmailProvider) ||
+		before.Value(KeySMSProvider) != after.Value(KeySMSProvider)
 }
 
 // normalize checks a value of d and returns its stored form, or a message.

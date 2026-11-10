@@ -157,6 +157,7 @@ func main() {
 
 		settingsSvc.SetApplier(live)
 		settingsSvc.SetAuditor(iamSvc)
+		settingsSvc.SetBusy(batchService.Dispatching)
 		settingsSvc.OnChange(func(snap settings.Snapshot) {
 			batchService.SetSMSPrice(snap.SMSPriceMilli())
 			senders.SetOptions(senderOptions(live))

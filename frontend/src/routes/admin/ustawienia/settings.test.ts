@@ -93,4 +93,9 @@ describe('settingsFailureOf', () => {
 			settingsFailureOf(apiError(409, { code: 'dry_run_locked', message: 'x' })).failure
 		).toMatch(/DRY_RUN_LOCK/);
 	});
+	it('asks to wait for a batch being sent', () => {
+		const got = settingsFailureOf(apiError(409, { code: 'batches_running', message: 'x' }));
+		expect(got.needsConfirmation).toBe(false);
+		expect(got.failure).toMatch(/Trwa wysyłka/);
+	});
 });

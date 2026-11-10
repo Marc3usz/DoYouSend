@@ -164,6 +164,14 @@ export function settingsFailureOf(err: unknown): {
 				failure:
 					'Na tym serwerze tryb testowy jest zablokowany (DRY_RUN_LOCK). Wyłączyć go może tylko osoba z dostępem do serwera.'
 			};
+		case 'batches_running':
+			return {
+				status: 409,
+				needsConfirmation: false,
+				fields: {},
+				failure:
+					'Trwa wysyłka wiadomości. Tryb testowy można wyłączyć, a operatora zmienić dopiero po jej zakończeniu. Nic nie zostało zapisane, spróbuj ponownie za chwilę.'
+			};
 		case 'invalid_input': {
 			const fields: Record<string, string> = {};
 			let failure = 'Popraw zaznaczone pola.';
