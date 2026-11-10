@@ -8,24 +8,25 @@ import {
 	removeGroupMembers,
 	updateGroup
 } from '$lib/api/groups';
-import { listRecipients } from '$lib/api/recipients';
+import { lookupRecipients, type RecipientLookupPage } from '$lib/api/recipients';
 import type { Actions, PageServerLoad } from './$types';
-import { pickCandidates, searchLimit } from '../candidates';
 import { errorTexts, failureText, groupSaveFailure, isNotFound, readGroupForm } from '../messages';
 
-export const load: PageServerLoad = async ({ params, url, fetch }) => {
-	const q = (url.searchParams.get('q') ?? '').trim().slice(0, 100);
+/** Rows per page of the picker for adding people. */
+const PICKER_PAGE_SIZE = 20;
+
+export const load: PageServerLoad = async ({ params, fetch }) => {
 	try {
 		const [group, members] = await Promise.all([
 			getGroup(params.id, fetch),
 			listGroupMembers(params.id, fetch)
 		]);
-		let found = pickCandidates([], 0, new Set());
-		if (group.kind === 'custom' && q !== '') {
-			const page = await listRecipients({ q, limit: searchLimit(members.length) }, fetch);
-			found = pickCandidates(page.items, page.total, new Set(members.map((m) => m.id)));
+		// The picker's first page; on failure the picker shows an error and a retry.
+		let people: RecipientLookupPage | null = null;
+		if (group.kind === 'custom') {
+			people = await lookupRecipients({ limit: PICKER_PAGE_SIZE }, fetch).catch(() => null);
 		}
-		return { group, members, q, ...found };
+		return { group, members, people };
 	} catch (err) {
 		// A malformed ID is a 400 invalid_request: for the user, no such group.
 		if (isNotFound(err) || (err instanceof ApiError && err.status === 400)) {

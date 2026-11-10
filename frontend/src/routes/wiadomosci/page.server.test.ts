@@ -42,7 +42,8 @@ describe('wiadomosci load', () => {
 			groups,
 			groupsFailed: false,
 			initialDraft: null,
-			copiedBatchSubject: null
+			copiedBatchSubject: null,
+			people: null
 		});
 	});
 
@@ -57,6 +58,7 @@ describe('wiadomosci load', () => {
 		expect(got).toEqual({
 			groups,
 			groupsFailed: false,
+			people: null,
 			copiedBatchSubject: 'Zebranie rodziców',
 			initialDraft: {
 				subject: 'Zebranie rodziców',
@@ -106,7 +108,30 @@ describe('wiadomosci load', () => {
 			groups,
 			groupsFailed: false,
 			initialDraft: null,
-			copiedBatchSubject: null
+			copiedBatchSubject: null,
+			people: null
 		});
+	});
+
+	it('loads the first page of the recipient picker', async () => {
+		const people = {
+			items: [
+				{
+					id: '00000000-0000-4000-8000-000000000003',
+					firstName: 'Anna',
+					lastName: 'Testowa',
+					type: 'parent',
+					classes: ['3A'],
+					issues: []
+				}
+			],
+			total: 1
+		};
+		const ev = fakeEvent('http://localhost/wiadomosci', {
+			'/api/groups': new Response(JSON.stringify(groups), { status: 200 }),
+			'/api/recipients/lookup?limit=10': new Response(JSON.stringify(people), { status: 200 })
+		});
+		const got = await load(ev);
+		expect(got?.people).toEqual(people);
 	});
 });

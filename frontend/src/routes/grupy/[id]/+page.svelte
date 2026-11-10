@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
+	import type { RecipientLookup } from '$lib/api/recipients';
+	import RecipientPicker from '$lib/components/RecipientPicker.svelte';
 	import type { PageProps } from './$types';
 	import GroupForm from '../GroupForm.svelte';
 	import { kindLabel, peopleCount } from '../messages';
@@ -11,6 +13,20 @@
 	const g = $derived(data.group);
 	const custom = $derived(g.kind === 'custom');
 	const created = $derived(!form && page.url.searchParams.has('utworzono'));
+	const memberIds = $derived(new Set(data.members.map((m) => m.id)));
+
+	// People ticked in the picker, kept across its pages and filters.
+	let picked = $state<RecipientLookup[]>([]);
+	const pickedIds = $derived(new Set(picked.map((r) => r.id)));
+
+	function togglePeople(people: RecipientLookup[], selected: boolean) {
+		if (selected) {
+			picked = [...picked, ...people.filter((r) => !pickedIds.has(r.id))];
+		} else {
+			const drop = new Set(people.map((r) => r.id));
+			picked = picked.filter((r) => !drop.has(r.id));
+		}
+	}
 
 	function confirmDelete(): boolean {
 		return confirm(
@@ -88,53 +104,35 @@
 
 {#if custom}
 	<h2>Dodaj osoby</h2>
-	<!-- A GET form: the search lands in the URL and works without JavaScript. -->
-	<form method="GET" class="search">
-		<input
-			type="search"
-			name="q"
-			value={data.q}
-			maxlength="100"
-			placeholder="imię, nazwisko, e-mail lub telefon"
-			aria-label="Szukaj odbiorców"
-		/>
-		<button type="submit">Szukaj</button>
-	</form>
-
-	{#if data.q !== ''}
-		{#if data.candidates.length === 0}
-			<p>
-				{#if data.moreCandidates}
-					Pasuje zbyt wiele osób, a pierwsze wyniki są już w grupie. Zawęź wyszukiwanie.
-				{:else if data.alreadyMembers > 0}
-					Wszystkie pasujące osoby ({data.alreadyMembers}) są już w grupie.
-				{:else}
-					Nie znaleziono nikogo spoza grupy dla „{data.q}”.
-				{/if}
-			</p>
-		{:else}
-			<form method="POST" action="?/add" use:enhance>
-				<ul class="candidates">
-					{#each data.candidates as r (r.id)}
-						<li>
-							<label>
-								<input type="checkbox" name="recipientId" value={r.id} />
-								{r.lastName}
-								{r.firstName} ({recipientTypeLabel(r.type)})
-							</label>
-						</li>
-					{/each}
-				</ul>
-				{#if data.alreadyMembers > 0 && !data.moreCandidates}
-					<p class="note">Pominięto osoby, które już są w grupie: {data.alreadyMembers}.</p>
-				{/if}
-				{#if data.moreCandidates}
-					<p class="note">Pokazano pierwsze wyniki — zawęź wyszukiwanie, jeśli brakuje osoby.</p>
-				{/if}
-				<button type="submit" class="primary">Dodaj zaznaczone</button>
-			</form>
+	<RecipientPicker
+		initial={data.people}
+		pageSize={20}
+		selectedIds={pickedIds}
+		lockedIds={memberIds}
+		lockedLabel="(już w grupie)"
+		ontoggle={togglePeople}
+		caption="Osoby do dodania do grupy"
+	/>
+	<form
+		method="POST"
+		action="?/add"
+		use:enhance={() =>
+			async ({ result, update }) => {
+				await update();
+				if (result.type === 'success') picked = [];
+			}}
+		class="add"
+	>
+		{#each picked as r (r.id)}
+			<input type="hidden" name="recipientId" value={r.id} />
+		{/each}
+		<button type="submit" class="primary" disabled={picked.length === 0}>
+			Dodaj zaznaczonych{picked.length > 0 ? ` (${picked.length})` : ''}
+		</button>
+		{#if picked.length > 0}
+			<button type="button" class="link" onclick={() => (picked = [])}>Odznacz wszystkich</button>
 		{/if}
-	{/if}
+	</form>
 
 	<h2>Nazwa i opis</h2>
 	<GroupForm
@@ -174,14 +172,10 @@
 		color: var(--color-warning);
 		font-size: 0.85rem;
 	}
-	.search {
+	.add {
 		display: flex;
-		gap: 0.5rem;
-		margin-bottom: 0.75rem;
-	}
-	.candidates {
-		list-style: none;
-		padding: 0;
+		gap: 1rem;
+		align-items: center;
 	}
 	.link {
 		background: none;

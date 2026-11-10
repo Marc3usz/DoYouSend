@@ -1,8 +1,10 @@
 <script lang="ts">
-	import { page as pageState } from '$app/state';
+	import { untrack } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { navigating, page as pageState } from '$app/state';
 	import type { PageProps } from './$types';
 	import HealthPanel from './HealthPanel.svelte';
-	import { listHref, pageCount } from './list';
+	import { listHref, pageCount, parseListParams } from './list';
 	import { issueHint, issueText, recipientTypeLabel } from './messages';
 
 	let { data }: PageProps = $props();
@@ -15,6 +17,46 @@
 			data.params.issue !== ''
 	);
 	const deleted = $derived(pageState.url.searchParams.has('usunieto'));
+
+	// Filters apply as you type: after a pause the form state goes to the URL,
+	// and the server load runs again. The submit button stays for no-JS use.
+	const FILTER_DELAY_MS = 250;
+	let filterTimer: ReturnType<typeof setTimeout> | undefined;
+
+	// The text fields keep what is being typed. The URL holds the normalized form
+	// ("Jan " -> "Jan", "3 a" -> "3A"), and writing it back mid-typing would eat
+	// the space; so they follow the URL only when it means something else (a
+	// "Wyczyść" link, the back button).
+	let qInput = $state(untrack(() => data.params.q));
+	let klasaInput = $state(untrack(() => data.params.klasa));
+	// What applyFilters last put into the URL: a load it caused must not touch the
+	// fields, the person may have typed on while it ran.
+	let pushed: { q: string; klasa: string } | null = null;
+	$effect(() => {
+		const { q, klasa } = data.params;
+		untrack(() => {
+			if (pushed && pushed.q === q && pushed.klasa === klasa) return;
+			pushed = null;
+			const typed = parseListParams(new URLSearchParams({ q: qInput, klasa: klasaInput }));
+			if (typed.q !== q) qInput = q;
+			if (typed.klasa !== klasa) klasaInput = klasa;
+		});
+	});
+
+	function applyFilters(form: HTMLFormElement, delay: number) {
+		clearTimeout(filterTimer);
+		filterTimer = setTimeout(() => {
+			const fd = new FormData(form);
+			const search = new URLSearchParams();
+			for (const [k, v] of fd) if (typeof v === 'string') search.set(k, v);
+			const params = parseListParams(search);
+			const href = listHref({ ...params, page: 1 });
+			if (href !== pageState.url.pathname + pageState.url.search) {
+				pushed = { q: params.q, klasa: params.klasa };
+				void goto(href, { keepFocus: true, noScroll: true, replaceState: true });
+			}
+		}, delay);
+	}
 </script>
 
 <svelte:head>
@@ -39,13 +81,18 @@
 {/if}
 
 <!-- A plain GET form: the filters land in the URL, so a view can be linked. -->
-<form method="GET" class="filters">
+<form
+	method="GET"
+	class="filters"
+	oninput={(e) => applyFilters(e.currentTarget, FILTER_DELAY_MS)}
+	onchange={(e) => applyFilters(e.currentTarget, 0)}
+>
 	<label>
 		Szukaj
 		<input
 			type="search"
 			name="q"
-			value={data.params.q}
+			bind:value={qInput}
 			maxlength="100"
 			placeholder="imię, nazwisko, e-mail lub telefon"
 		/>
@@ -60,7 +107,7 @@
 	</label>
 	<label>
 		Klasa
-		<input name="klasa" value={data.params.klasa} maxlength="6" size="5" placeholder="np. 3A" />
+		<input name="klasa" bind:value={klasaInput} maxlength="6" size="5" placeholder="np. 3A" />
 	</label>
 	<label>
 		Problem z danymi
@@ -79,8 +126,9 @@
 {#if data.failure}
 	<div class="error" role="alert"><p>{data.failure}</p></div>
 {:else if data.page}
-	<p class="summary">
-		{#if filtered}Pasujących odbiorców{:else}Odbiorców w bazie{/if}:
+	<p class="summary" aria-live="polite">
+		{#if navigating.to}Szukam…
+		{/if}{#if filtered}Pasujących odbiorców{:else}Odbiorców w bazie{/if}:
 		<strong>{data.page.total}</strong>
 	</p>
 
