@@ -1,6 +1,6 @@
 import { getBatch } from '$lib/api/batches';
 import { listGroups, type Group } from '$lib/api/groups';
-import type { RecipientLookup } from '$lib/api/recipients';
+import { lookupRecipients, type RecipientLookup } from '$lib/api/recipients';
 import type { PageServerLoad } from './$types';
 
 export type InitialDraft = {
@@ -11,7 +11,12 @@ export type InitialDraft = {
 	excludedRecipientIds?: string[];
 };
 
+/** Rows per page of the recipient picker. */
+const PICKER_PAGE_SIZE = 10;
+
 export const load: PageServerLoad = async ({ url, fetch }) => {
+	// The picker's first page; on failure the picker shows an error and a retry.
+	const people = lookupRecipients({ limit: PICKER_PAGE_SIZE }, fetch).catch(() => null);
 	let groups: Group[] = [];
 	let groupsFailed = false;
 	try {
@@ -50,5 +55,5 @@ export const load: PageServerLoad = async ({ url, fetch }) => {
 		}
 	}
 
-	return { groups, groupsFailed, initialDraft, copiedBatchSubject };
+	return { groups, groupsFailed, initialDraft, copiedBatchSubject, people: await people };
 };

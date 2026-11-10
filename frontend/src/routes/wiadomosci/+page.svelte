@@ -4,9 +4,9 @@
 	import { sendBatch } from '$lib/api/batches';
 	import { resolveSelection, type ResolvedRecipient } from '$lib/api/groups';
 	import { previewMessage, type SendEstimate } from '$lib/api/messages';
-	import { fixRecipientContact, lookupRecipients, type RecipientLookup } from '$lib/api/recipients';
+	import { fixRecipientContact, type RecipientLookup } from '$lib/api/recipients';
+	import RecipientPicker from '$lib/components/RecipientPicker.svelte';
 	import { contactFixErrorText, missingChannels, validateContactFixInput } from './fix';
-	import { recipientTypeLabel } from '../odbiorcy/messages';
 	import type { PageProps } from './$types';
 	import {
 		costText,
@@ -33,6 +33,7 @@
 		untrack(() => data.initialDraft?.recipients ?? [])
 	);
 	const selectedRecipientIds = $derived(selectedRecipients.map((r) => r.id));
+	const selectedIdSet = $derived(new Set(selectedRecipientIds));
 
 	let excludedRecipientIds = $state<string[]>(
 		untrack(() => data.initialDraft?.excludedRecipientIds ?? [])
@@ -142,12 +143,6 @@
 		}
 	});
 
-	let personQuery = $state('');
-	let personSearching = $state(false);
-	let personCandidates = $state<RecipientLookup[]>([]);
-	let personSearchError = $state<string | null>(null);
-	let latestPersonSearch = 0;
-
 	let estimate = $state<SendEstimate | null>(null);
 	let failure = $state<string | null>(null);
 	let counting = $state(false);
@@ -177,42 +172,14 @@
 		sendFailure = null;
 	}
 
-	function onSearchPersonInput(e: Event) {
-		const q = (e.target as HTMLInputElement).value;
-		personQuery = q;
-		if (q.trim().length < 2) {
-			personCandidates = [];
-			personSearching = false;
-			return;
+	function togglePeople(people: RecipientLookup[], selected: boolean) {
+		if (selected) {
+			const known = new Set(selectedRecipients.map((r) => r.id));
+			selectedRecipients = [...selectedRecipients, ...people.filter((r) => !known.has(r.id))];
+		} else {
+			const drop = new Set(people.map((r) => r.id));
+			selectedRecipients = selectedRecipients.filter((r) => !drop.has(r.id));
 		}
-		const req = ++latestPersonSearch;
-		personSearching = true;
-		personSearchError = null;
-		setTimeout(async () => {
-			if (req !== latestPersonSearch) return;
-			try {
-				const res = await lookupRecipients({ q: q.trim(), limit: 10 });
-				if (req === latestPersonSearch) {
-					const selSet = new Set(selectedRecipientIds);
-					personCandidates = res.items.filter((r) => !selSet.has(r.id));
-				}
-			} catch {
-				if (req === latestPersonSearch) {
-					personSearchError = 'Nie udało się wyszukać osób.';
-				}
-			} finally {
-				if (req === latestPersonSearch) {
-					personSearching = false;
-				}
-			}
-		}, 200);
-	}
-
-	function addPerson(r: RecipientLookup) {
-		if (!selectedRecipients.some((x) => x.id === r.id)) {
-			selectedRecipients = [...selectedRecipients, r];
-		}
-		personCandidates = personCandidates.filter((x) => x.id !== r.id);
 	}
 
 	function removePerson(id: string) {
@@ -468,37 +435,16 @@
 					</div>
 				{/if}
 
-				<div class="person-search">
-					<label for="person-search-input">Dodaj pojedynczą osobę</label>
-					<input
-						id="person-search-input"
-						type="search"
-						placeholder="Wpisz nazwisko lub imię…"
-						value={personQuery}
-						oninput={onSearchPersonInput}
-						autocomplete="off"
+				<details class="person-picker" open={selectedRecipients.length > 0}>
+					<summary>Wybierz osoby z listy odbiorców</summary>
+					<RecipientPicker
+						initial={data.people}
+						pageSize={10}
+						selectedIds={selectedIdSet}
+						ontoggle={togglePeople}
+						caption="Odbiorcy do wyboru"
 					/>
-					{#if personSearching}
-						<p class="hint">Szukam…</p>
-					{:else if personSearchError}
-						<p class="error" role="alert">{personSearchError}</p>
-					{:else if personQuery.trim().length >= 2 && personCandidates.length === 0}
-						<p class="hint">Brak pasujących osób.</p>
-					{:else if personCandidates.length > 0}
-						<ul class="candidates">
-							{#each personCandidates as c (c.id)}
-								<li>
-									<span>
-										<strong>{c.lastName} {c.firstName}</strong> ({recipientTypeLabel(c.type)})
-									</span>
-									<button type="button" class="btn-add-candidate" onclick={() => addPerson(c)}>
-										+ Dodaj
-									</button>
-								</li>
-							{/each}
-						</ul>
-					{/if}
-				</div>
+				</details>
 
 				{#if fixSuccessMessage}
 					<p class="notice" role="status">
@@ -923,46 +869,12 @@
 	.chip-remove:hover {
 		color: var(--color-danger);
 	}
-	.person-search {
-		display: flex;
-		flex-direction: column;
-		gap: 0.3rem;
+	.person-picker {
 		margin-top: 0.5rem;
 	}
-	.candidates {
-		list-style: none;
-		padding: 0;
-		margin: 0.4rem 0 0;
-		border: 1px solid var(--color-border);
-		border-radius: 4px;
-		background: var(--color-surface);
-		max-height: 12rem;
-		overflow-y: auto;
-	}
-	.candidates li {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 0.35rem 0.6rem;
-		border-bottom: 1px solid var(--color-surface-muted);
-		gap: 0.5rem;
-	}
-	.candidates li:last-child {
-		border-bottom: none;
-	}
-	.btn-add-candidate {
-		min-height: 0;
-		font-weight: 600;
-		background: var(--color-surface-muted);
-		border: 1px solid var(--color-border);
-		border-radius: 4px;
-		padding: 0.2rem 0.5rem;
-		font-size: 0.85em;
+	.person-picker summary {
 		cursor: pointer;
-		margin: 0;
-	}
-	.btn-add-candidate:hover {
-		background: var(--color-border);
+		font-weight: 600;
 	}
 	.message-preview-card {
 		margin-top: 0.75rem;
