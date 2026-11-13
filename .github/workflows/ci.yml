@@ -19,8 +19,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
-          # Wlaczyc cache, gdy pojawi sie backend/go.sum (pierwsza zaleznosc).
-          cache: false
+          cache-dependency-path: backend/go.sum
       - name: gofmt
         run: |
           if [ -n "$(gofmt -l .)" ]; then
@@ -41,7 +40,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
-          cache: false
+          cache-dependency-path: backend/go.sum
       - uses: golangci/golangci-lint-action@v8
         with:
           version: v2.1.6
@@ -75,7 +74,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
-          cache: false
+          cache-dependency-path: backend/go.sum
       - name: go test -tags integration
         run: |
           set -o pipefail
@@ -107,17 +106,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Plik .env nie moze byc w repo
-        run: |
-          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
-            echo "::error::.env jest w repozytorium - usun go i uniewaznij klucze"
-            exit 1
-          fi
-      - name: Szukanie kluczy i danych kontaktowych spoza domeny testowej
-        run: |
-          pattern='(api[_-]?key|secret|password|token)\s*[:=]\s*["'"'"']?[A-Za-z0-9_\-]{16,}'
-          if git grep -nIE "$pattern" -- . ':!.env.example' ':!docs/**' ':!*.md'; then
-            echo "::error::Mozliwy sekret w repozytorium - przenies go do .env"
-            exit 1
-          fi
-          echo "Brak podejrzanych wartosci."
+      # .env w repo, klucze (takze w formacie SendGrid/Notion), adresy e-mail spoza
+      # @example.test i numery spoza +48 500 100 1NN - w calym repo, lacznie z docs/.
+      - name: Sekrety i dane kontaktowe spoza puli testowej
+        run: bash scripts/check-secrets.sh
