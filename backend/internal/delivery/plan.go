@@ -42,8 +42,11 @@ type PlannedRecipient struct {
 // Plan is a batch ready to dispatch: everything to send, nothing sent yet.
 type Plan struct {
 	// Subject is the e-mail subject; SMS has none.
-	Subject    string
-	Recipients []PlannedRecipient
+	Subject string
+	// From and ReplyTo are the e-mail sender chosen for the batch (ADR-0021).
+	// Zero values leave the provider's configured sender.
+	From, ReplyTo providers.Address
+	Recipients    []PlannedRecipient
 }
 
 // NewPlan renders body for every resolved recipient and prepares one pending delivery
@@ -113,7 +116,7 @@ func planRecipient(body string, r groups.Resolved, targets []providers.Channel) 
 		}
 		if renderErr != nil {
 			d.Status = StatusFailed
-			d.Error = fmt.Sprintf("render body: %v", renderErr)
+			d.Error = fmt.Sprintf("%s: %v", reasonRender, renderErr)
 		}
 		pr.Deliveries = append(pr.Deliveries, d)
 	}
@@ -144,7 +147,7 @@ func (p Plan) Status() BatchStatus {
 
 // clone returns a deep copy, so dispatching never changes the caller's plan.
 func (p Plan) clone() Plan {
-	out := Plan{Subject: p.Subject, Recipients: make([]PlannedRecipient, len(p.Recipients))}
+	out := Plan{Subject: p.Subject, From: p.From, ReplyTo: p.ReplyTo, Recipients: make([]PlannedRecipient, len(p.Recipients))}
 	for i, r := range p.Recipients {
 		r.Deliveries = append([]Delivery(nil), r.Deliveries...)
 		out.Recipients[i] = r
@@ -152,27 +155,56 @@ func (p Plan) clone() Plan {
 	return out
 }
 
-// RetryPlan returns a copy of p where deliveries in StatusFailed with transient, retryable
-// errors are reset to StatusPending with their error and attempts cleared, ready to be dispatched
-// again. Deliveries that are already StatusSent or StatusDelivered remain untouched to prevent
-// duplicate sends and duplicate billing (CLAUDE.md rule 5). Deliveries in StatusSending are left
-// as-is because their outcome at the gateway is unknown. Permanent errors (e.g. invalid recipient
-// or render errors) and unclassified errors are NOT retried, preventing duplicate sends if the
-// gateway accepted the message.
-// It returns the new Plan and the number of deliveries reset to pending.
-func (p Plan) RetryPlan() (Plan, int) {
+// RetryPlan returns a copy of p where the failed deliveries a retry may send again
+// (see RetryClassOf) are back in StatusPending, ready to be dispatched. Uncertain
+// ones, whose message the gateway may already have, are included only with
+// includeUncertain. Sent and delivered deliveries are never touched, so a retry
+// sends nobody a message twice and costs nothing twice (CLAUDE.md rule 5).
+// Attempts and the last error stay, so the history shows what happened; the error
+// is cleared once the delivery succeeds. It returns the new plan and how many
+// deliveries were reset.
+func (p Plan) RetryPlan(includeUncertain bool) (Plan, int) {
 	out := p.clone()
 	retried := 0
 	for i := range out.Recipients {
 		for j := range out.Recipients[i].Deliveries {
 			d := &out.Recipients[i].Deliveries[j]
-			if d.Status == StatusFailed && IsRetryableError(d.Error) {
+			if d.Status == StatusFailed && retries(d.Error, includeUncertain) {
 				d.Status = StatusPending
-				d.Error = ""
-				d.Attempts = 0
 				retried++
 			}
 		}
 	}
 	return out, retried
+}
+
+// retries reports whether a retry sends a failed delivery with this reason again.
+func retries(reason string, includeUncertain bool) bool {
+	switch RetryClassOf(reason) {
+	case RetrySafe:
+		return true
+	case RetryUncertain:
+		return includeUncertain
+	default:
+		return false
+	}
+}
+
+// RetryCounts returns how many failed deliveries a plain retry sends again, and how
+// many more it sends when asked to include the uncertain ones.
+func (p Plan) RetryCounts() (retryable, uncertain int) {
+	for _, r := range p.Recipients {
+		for _, d := range r.Deliveries {
+			if d.Status != StatusFailed {
+				continue
+			}
+			switch RetryClassOf(d.Error) {
+			case RetrySafe:
+				retryable++
+			case RetryUncertain:
+				uncertain++
+			}
+		}
+	}
+	return retryable, uncertain
 }

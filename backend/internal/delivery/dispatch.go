@@ -129,7 +129,11 @@ func (d *Dispatcher) DispatchWithObserver(ctx context.Context, plan Plan, obs Ob
 				}
 			}
 			var pauseDur time.Duration
-			r.Deliveries[j], pauseDur = d.sendWithPause(ctx, out.Subject, r.RecipientID, r.Body, r.Deliveries[j])
+			msg := providers.Message{
+				RecipientID: r.RecipientID, To: r.Deliveries[j].To, Subject: out.Subject, Body: r.Body,
+				From: out.From, ReplyTo: out.ReplyTo,
+			}
+			r.Deliveries[j], pauseDur = d.sendWithPause(ctx, msg, r.Deliveries[j])
 			if pauseDur > 0 {
 				if pauseDur > d.policy.MaxRetryAfter {
 					pauseDur = d.policy.MaxRetryAfter
@@ -167,14 +171,18 @@ func (d *Dispatcher) Dispatch(ctx context.Context, plan Plan) (Plan, error) {
 	return d.DispatchWithObserver(ctx, plan, nil)
 }
 
-func (d *Dispatcher) sendWithPause(ctx context.Context, subject, recipientID, body string, del Delivery) (Delivery, time.Duration) {
+func (d *Dispatcher) sendWithPause(ctx context.Context, msg providers.Message, del Delivery) (Delivery, time.Duration) {
+	recipientID := msg.RecipientID
 	sender, ok := d.senders[del.Channel]
 	if !ok {
 		return failed(del, fmt.Errorf("%w: %s", errNoSender, del.Channel)), 0
 	}
-	msg := providers.Message{RecipientID: recipientID, To: del.To, Subject: subject, Body: body}
 
+	// Attempts is cumulative over retries, for the history; the retry policy counts
+	// the tries of this dispatch only.
+	tries := 0
 	for {
+		tries++
 		del.Attempts++
 		res, err := sender.Send(ctx, msg)
 		if err == nil {
@@ -196,7 +204,7 @@ func (d *Dispatcher) sendWithPause(ctx context.Context, subject, recipientID, bo
 				"retry_after", retryAfter, "max_retry_after", d.policy.MaxRetryAfter)
 			return failed(del, err), 0
 		}
-		if !providers.IsTransient(err) || del.Attempts >= d.policy.MaxAttempts {
+		if !providers.IsTransient(err) || tries >= d.policy.MaxAttempts {
 			d.logger.Warn("delivery failed",
 				"recipient_id", recipientID, "channel", del.Channel,
 				"attempts", del.Attempts, "reason", describe(err))
@@ -210,7 +218,7 @@ func (d *Dispatcher) sendWithPause(ctx context.Context, subject, recipientID, bo
 			return failed(del, err), 0
 		}
 
-		backoff := d.policy.backoff(del.Attempts)
+		backoff := d.policy.backoff(tries)
 		if hasRetryAfter && retryAfter > backoff {
 			backoff = retryAfter
 		}
@@ -263,12 +271,45 @@ func describe(err error) string {
 	return kind + " provider error"
 }
 
-// IsRetryableError reports whether a delivery failure reason is a transient error
-// that can be retried safely. Unclassified provider errors and permanent errors
-// (such as invalid recipient or rendering errors) must not be retried to prevent
-// duplicate messages or futile attempts.
-func IsRetryableError(errStr string) bool {
-	return strings.HasPrefix(errStr, "transient")
+// RetryClass says whether POST /batches/{id}/retry may send a failed delivery again.
+type RetryClass int
+
+// Retry classes of a failed delivery.
+const (
+	// RetrySafe: the message certainly did not reach the person: a transient or
+	// permanent error before the gateway took it, or a failed delivery report. A
+	// permanent error is worth retrying once the contact has been corrected.
+	RetrySafe RetryClass = iota
+	// RetryUncertain: the outcome is unknown and the gateway may have the message
+	// (an unclassified error, a send cut off by a restart). Sent again only when
+	// the sender accepts a possible duplicate.
+	RetryUncertain
+	// RetryNever: sending again cannot help (the body does not render for the person).
+	RetryNever
+)
+
+// Failure reasons that do not come from a provider.
+const (
+	reasonRender      = "render body"
+	reasonInterrupted = "unclassified: interrupted while sending (API restart)"
+)
+
+// RetryClassOf classifies a failed delivery by its stored reason (see describe).
+func RetryClassOf(reason string) RetryClass {
+	switch {
+	case strings.HasPrefix(reason, reasonRender):
+		return RetryNever
+	case strings.HasPrefix(reason, "unclassified"):
+		return RetryUncertain
+	default:
+		return RetrySafe
+	}
+}
+
+// IsRetryableError reports whether a plain retry sends a failed delivery with this
+// reason again (RetrySafe).
+func IsRetryableError(reason string) bool {
+	return RetryClassOf(reason) == RetrySafe
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {

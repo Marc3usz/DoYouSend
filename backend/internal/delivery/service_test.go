@@ -341,7 +341,7 @@ func TestServiceRetryBatch(t *testing.T) {
 	sms.errs = nil
 	sms.sent = nil
 
-	retried, err := svc.RetryBatch(ctx, batch.ID)
+	retried, err := svc.RetryBatch(ctx, batch.ID, false)
 	if err != nil {
 		t.Fatalf("unexpected RetryBatch error: %v", err)
 	}
@@ -364,7 +364,7 @@ func TestServiceRetryBatch(t *testing.T) {
 	}
 }
 
-func TestServiceRetryBatch_DoesNotRetryUnclassifiedOrPermanentErrors(t *testing.T) {
+func TestServiceRetryBatch_RetriesPermanentButUnclassifiedOnlyOnRequest(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemStore()
 	sms := &scriptedSender{
@@ -384,9 +384,80 @@ func TestServiceRetryBatch_DoesNotRetryUnclassifiedOrPermanentErrors(t *testing.
 		t.Fatalf("first run status = %s, want done_with_errors", batch.Status)
 	}
 
-	_, err = svc.RetryBatch(ctx, batch.ID)
-	if !errors.Is(err, ErrNoFailedDeliveries) {
-		t.Errorf("RetryBatch err = %v, want ErrNoFailedDeliveries (no transient failures)", err)
+	// The scripted errors are used up, so every re-sent delivery now succeeds.
+	retried, err := svc.RetryBatch(ctx, batch.ID, false)
+	if err != nil {
+		t.Fatalf("RetryBatch err = %v", err)
+	}
+	if got := smsOf(retried.Plan.Recipients[1]); got.Status != StatusSent || got.Error != "" || got.Attempts != 2 {
+		t.Errorf("permanent failure after retry = %+v, want sent, error cleared, 2 attempts", got)
+	}
+	if got := smsOf(retried.Plan.Recipients[0]); got.Status != StatusFailed {
+		t.Errorf("unclassified failure after plain retry = %+v, want still failed", got)
+	}
+	if retried.RetryCount != 1 || retried.LastRetryAt.IsZero() {
+		t.Errorf("RetryCount = %d, LastRetryAt = %v; want 1 and set", retried.RetryCount, retried.LastRetryAt)
+	}
+
+	again, err := svc.RetryBatch(ctx, batch.ID, true)
+	if err != nil {
+		t.Fatalf("RetryBatch(includeUncertain) err = %v", err)
+	}
+	if got := smsOf(again.Plan.Recipients[0]); got.Status != StatusSent {
+		t.Errorf("unclassified failure after includeUncertain retry = %+v, want sent", got)
+	}
+	if again.Status != BatchDone {
+		t.Errorf("status = %s, want done", again.Status)
+	}
+	if _, err := svc.RetryBatch(ctx, batch.ID, true); !errors.Is(err, ErrNoFailedDeliveries) {
+		t.Errorf("third RetryBatch err = %v, want ErrNoFailedDeliveries", err)
+	}
+}
+
+// smsOf returns r's SMS delivery.
+func smsOf(r PlannedRecipient) Delivery {
+	for _, d := range r.Deliveries {
+		if d.Channel == providers.ChannelSMS {
+			return d
+		}
+	}
+	return Delivery{}
+}
+
+func TestServiceRecoverResumesInterruptedBatch(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemStore()
+	plan := NewPlan("S", "B", twoRecipients().Recipients, providers.ChannelSMS)
+	plan.Recipients[0].Deliveries[0].Status = StatusSending // cut off mid-send
+	b, err := store.CreateBatch(ctx, Batch{CreatedBy: userID, Status: BatchRunning, Plan: plan})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sms := &scriptedSender{channel: providers.ChannelSMS}
+	svc := newTestService(t, twoRecipients(), store, sms)
+
+	n, err := svc.Recover(ctx)
+	if err != nil || n != 1 {
+		t.Fatalf("Recover() = %d, %v; want 1, nil", n, err)
+	}
+	svc.Wait()
+
+	got, err := store.Batch(ctx, b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cut, never := got.Plan.Recipients[0].Deliveries[0], got.Plan.Recipients[1].Deliveries[0]
+	if cut.Status != StatusFailed || RetryClassOf(cut.Error) != RetryUncertain {
+		t.Errorf("interrupted delivery = %+v, want failed with an uncertain reason", cut)
+	}
+	if never.Status != StatusSent {
+		t.Errorf("never-tried delivery = %+v, want sent", never)
+	}
+	if got.Status != BatchDoneWithErrors {
+		t.Errorf("status = %s, want done_with_errors", got.Status)
+	}
+	if n, _ := svc.Recover(ctx); n != 0 {
+		t.Errorf("second Recover() = %d, want 0", n)
 	}
 }
 
@@ -404,7 +475,7 @@ func TestServiceRetryBatch_NothingToRetry(t *testing.T) {
 		t.Fatalf("batch status = %s, want done", batch.Status)
 	}
 
-	_, err = svc.RetryBatch(ctx, batch.ID)
+	_, err = svc.RetryBatch(ctx, batch.ID, false)
 	if !errors.Is(err, ErrNoFailedDeliveries) {
 		t.Errorf("err = %v, want ErrNoFailedDeliveries", err)
 	}
@@ -422,7 +493,7 @@ func TestServiceRetryBatch_AlreadyRunning(t *testing.T) {
 	}
 
 	svc := newTestService(t, twoRecipients(), store, &scriptedSender{channel: providers.ChannelSMS})
-	_, err = svc.RetryBatch(ctx, b.ID)
+	_, err = svc.RetryBatch(ctx, b.ID, false)
 	if !errors.Is(err, ErrBatchRunning) {
 		t.Errorf("err = %v, want ErrBatchRunning", err)
 	}
@@ -430,7 +501,7 @@ func TestServiceRetryBatch_AlreadyRunning(t *testing.T) {
 
 func TestServiceRetryBatch_NotFound(t *testing.T) {
 	svc := newTestService(t, twoRecipients(), NewMemStore(), &scriptedSender{channel: providers.ChannelSMS})
-	_, err := svc.RetryBatch(context.Background(), id1)
+	_, err := svc.RetryBatch(context.Background(), id1, false)
 	if !errors.Is(err, ErrBatchNotFound) {
 		t.Errorf("err = %v, want ErrBatchNotFound", err)
 	}
@@ -507,7 +578,7 @@ func TestServiceStartRetry(t *testing.T) {
 	sms.errs = nil
 	sms.sent = nil
 
-	retried, err := svc.StartRetry(ctx, batch.ID)
+	retried, err := svc.StartRetry(ctx, batch.ID, false)
 	if err != nil {
 		t.Fatalf("unexpected StartRetry error: %v", err)
 	}
@@ -539,7 +610,7 @@ func TestServiceStartRetry_ShuttingDown(t *testing.T) {
 	}()
 	<-done
 
-	_, err := svc.StartRetry(context.Background(), id1)
+	_, err := svc.StartRetry(context.Background(), id1, false)
 	if !errors.Is(err, ErrShuttingDown) {
 		t.Errorf("StartRetry while shutting down error = %v, want ErrShuttingDown", err)
 	}

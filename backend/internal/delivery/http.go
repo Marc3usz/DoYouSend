@@ -3,6 +3,7 @@ package delivery
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -94,6 +95,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		CreatedBy:      user.ID,
 		CreatedByName:  user.FullName,
 		IdempotencyKey: key,
+		SenderID:       strings.TrimSpace(req.SenderID),
 	})
 	if err != nil {
 		h.sendError(w, err)
@@ -136,6 +138,8 @@ func (h *Handler) sendError(w http.ResponseWriter, err error) {
 		httpx.Error(w, http.StatusServiceUnavailable, httpx.ErrorBody{Code: "internal", Message: ErrShuttingDown.Error()})
 	case errors.Is(err, ErrIdempotencyConflict):
 		httpx.Error(w, http.StatusConflict, httpx.ErrorBody{Code: "idempotency_conflict", Message: ErrIdempotencyConflict.Error()})
+	case errors.Is(err, ErrSenderNotAllowed):
+		invalidInput(w, "senderId", "you may not send from this address")
 	default:
 		h.logger.Error("send batch", "err", err)
 		internalError(w)
@@ -236,7 +240,17 @@ func (h *Handler) retry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	retried, err := h.svc.StartRetry(r.Context(), id)
+	// The body is optional: no body is a plain retry.
+	var opts struct {
+		IncludeUncertain bool `json:"includeUncertain"`
+	}
+	if r.ContentLength != 0 {
+		if err := httpx.DecodeJSON(w, r, &opts); err != nil && !errors.Is(err, io.EOF) {
+			httpx.Error(w, http.StatusBadRequest, httpx.ErrorBody{Code: "invalid_request", Message: "expected a JSON RetryRequest"})
+			return
+		}
+	}
+	retried, err := h.svc.StartRetry(r.Context(), id, opts.IncludeUncertain)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrBatchRunning):
@@ -285,6 +299,11 @@ type (
 		Body      string        `json:"body"`
 		Channels  []string      `json:"channels,omitempty"`
 		Selection selectionJSON `json:"selection"`
+		SenderID  string        `json:"senderId,omitempty"`
+	}
+	addressJSON struct {
+		Email string `json:"email"`
+		Name  string `json:"name"`
 	}
 	selectionJSON struct {
 		GroupIDs             []string `json:"groupIds"`
@@ -312,6 +331,11 @@ type (
 		FailedCount    int            `json:"failedCount"`
 		TotalSMSParts  int            `json:"totalSmsParts"`
 		CostMilli      int64          `json:"costMilli"`
+		Channels       []string       `json:"channels"`
+		// From is null for batches sent before the sender was recorded.
+		From        *addressJSON `json:"from"`
+		RetryCount  int          `json:"retryCount"`
+		LastRetryAt *time.Time   `json:"lastRetryAt"`
 	}
 	batchPageJSON struct {
 		Items []batchSummaryJSON `json:"items"`
@@ -323,6 +347,10 @@ type (
 		RecipientIDs         []string             `json:"recipientIds"`
 		ExcludedRecipientIDs []string             `json:"excludedRecipientIds"`
 		Recipients           []batchRecipientJSON `json:"recipients"`
+		// RetryableCount failed deliveries a plain retry sends again; UncertainCount
+		// more with includeUncertain (the gateway may already have them).
+		RetryableCount int `json:"retryableCount"`
+		UncertainCount int `json:"uncertainCount"`
 	}
 	batchRecipientJSON struct {
 		RecipientID  string         `json:"recipientId"`
@@ -364,10 +392,19 @@ func toSummaryJSON(b Batch) batchSummaryJSON {
 		FailedCount:    b.Counts.Failed,
 		TotalSMSParts:  b.SMSParts,
 		CostMilli:      b.CostMilli,
+		Channels:       channelNames(b.Channels),
+		RetryCount:     b.RetryCount,
 	}
 	if !b.FinishedAt.IsZero() {
 		finished := b.FinishedAt
 		out.FinishedAt = &finished
+	}
+	if !b.LastRetryAt.IsZero() {
+		retried := b.LastRetryAt
+		out.LastRetryAt = &retried
+	}
+	if !b.Plan.From.IsZero() {
+		out.From = &addressJSON{Email: b.Plan.From.Email, Name: b.Plan.From.Name}
 	}
 	for _, g := range b.Groups {
 		out.Groups = append(out.Groups, groupRefJSON(g))
@@ -383,6 +420,7 @@ func toDetailJSON(b Batch) batchDetailJSON {
 		ExcludedRecipientIDs: append([]string{}, b.ExcludedRecipientIDs...),
 		Recipients:           make([]batchRecipientJSON, 0, len(b.Plan.Recipients)),
 	}
+	out.RetryableCount, out.UncertainCount = b.Plan.RetryCounts()
 	for _, r := range b.Plan.Recipients {
 		rj := batchRecipientJSON{
 			RecipientID: r.RecipientID, FirstName: r.FirstName, LastName: r.LastName,

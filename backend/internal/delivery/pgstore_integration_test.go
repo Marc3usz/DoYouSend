@@ -712,7 +712,7 @@ func TestPGStoreResetFailedDeliveries(t *testing.T) {
 	}
 
 	// While batch is running, ResetFailedDeliveries returns ErrBatchRunning.
-	if _, err := store.ResetFailedDeliveries(ctx, created.ID); !errors.Is(err, ErrBatchRunning) {
+	if _, err := store.ResetFailedDeliveries(ctx, created.ID, false); !errors.Is(err, ErrBatchRunning) {
 		t.Fatalf("ResetFailedDeliveries() on running batch = %v; want ErrBatchRunning", err)
 	}
 
@@ -752,7 +752,7 @@ func TestPGStoreResetFailedDeliveries(t *testing.T) {
 	}
 
 	// Reset failed deliveries: only the transient failure should be reset to pending.
-	resetBatch, err := store.ResetFailedDeliveries(ctx, created.ID)
+	resetBatch, err := store.ResetFailedDeliveries(ctx, created.ID, false)
 	if err != nil {
 		t.Fatalf("ResetFailedDeliveries() error = %v", err)
 	}
@@ -781,7 +781,7 @@ func TestPGStoreResetFailedDeliveries(t *testing.T) {
 	}
 
 	// Calling again while running returns ErrBatchRunning.
-	if _, err := store.ResetFailedDeliveries(ctx, created.ID); !errors.Is(err, ErrBatchRunning) {
+	if _, err := store.ResetFailedDeliveries(ctx, created.ID, false); !errors.Is(err, ErrBatchRunning) {
 		t.Errorf("second ResetFailedDeliveries() error = %v; want ErrBatchRunning", err)
 	}
 
@@ -811,13 +811,13 @@ func TestPGStoreResetFailedDeliveries(t *testing.T) {
 	}
 
 	// When no retryable failed deliveries exist (only unclassified remains), ResetFailedDeliveries returns ErrNoFailedDeliveries.
-	if _, err := store.ResetFailedDeliveries(ctx, created.ID); !errors.Is(err, ErrNoFailedDeliveries) {
+	if _, err := store.ResetFailedDeliveries(ctx, created.ID, false); !errors.Is(err, ErrNoFailedDeliveries) {
 		t.Errorf("ResetFailedDeliveries() when no retryable deliveries exist error = %v; want ErrNoFailedDeliveries", err)
 	}
 
 	// Unknown or invalid batch ID returns ErrBatchNotFound.
 	for _, id := range []string{"00000000-0000-4000-8000-0000000000ee", "not-a-uuid"} {
-		if _, err := store.ResetFailedDeliveries(ctx, id); !errors.Is(err, ErrBatchNotFound) {
+		if _, err := store.ResetFailedDeliveries(ctx, id, false); !errors.Is(err, ErrBatchNotFound) {
 			t.Errorf("ResetFailedDeliveries(%q) error = %v; want ErrBatchNotFound", id, err)
 		}
 	}

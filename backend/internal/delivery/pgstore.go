@@ -40,12 +40,13 @@ func (s *PGStore) CreateBatch(ctx context.Context, b Batch) (Batch, error) {
 		err := tx.QueryRow(ctx, `
 			INSERT INTO message_batches (subject, body, status, created_by, confirmed_by,
 				selected_groups, selected_recipient_ids, excluded_recipient_ids, recipient_count, sms_part_count,
-				estimated_cost, confirmed_at, idempotency_key, request_hash)
+				estimated_cost, confirmed_at, idempotency_key, request_hash, channels, from_email, from_name, reply_to)
 			VALUES ($1, $2, $3::text::batch_status, $4, $4, $5, $6::uuid[], $7::uuid[], $8, $9, $10::bigint / 1000.0, now(),
-				nullif($11, '')::uuid, nullif($12, ''))
+				nullif($11, '')::uuid, nullif($12, ''), $13::text[], nullif($14, ''), nullif($15, ''), nullif($16, ''))
 			RETURNING id::text, created_at, (SELECT full_name FROM users WHERE id = created_by)`,
 			b.Subject, b.Body, string(b.Status), b.CreatedBy, groupsJSON, nonNil(b.RecipientIDs),
 			nonNil(b.ExcludedRecipientIDs), len(b.Plan.Recipients), b.SMSParts, b.CostMilli, b.IdempotencyKey, b.RequestHash,
+			channelNames(b.Channels), b.Plan.From.Email, b.Plan.From.Name, b.Plan.ReplyTo.Email,
 		).Scan(&b.ID, &b.CreatedAt, &b.CreatedByName)
 		if constraint, ok := database.UniqueViolation(err); ok && constraint == "message_batches_idempotency_key" {
 			return ErrDuplicateKey
@@ -60,6 +61,7 @@ func (s *PGStore) CreateBatch(ctx context.Context, b Batch) (Batch, error) {
 	}
 	b.Plan = b.Plan.clone()
 	b.Counts = b.Plan.Counts()
+	b.Channels = append([]providers.Channel(nil), b.Channels...)
 	b.Groups = append([]GroupRef(nil), b.Groups...)
 	b.RecipientIDs = append([]string(nil), b.RecipientIDs...)
 	b.ExcludedRecipientIDs = append([]string(nil), b.ExcludedRecipientIDs...)
@@ -282,41 +284,55 @@ func (s *PGStore) Batch(ctx context.Context, id string) (Batch, error) {
 	if !groups.IsValidID(id) {
 		return Batch{}, fmt.Errorf("batch %s: %w", id, ErrBatchNotFound)
 	}
-	var (
-		b          Batch
-		groupsJSON []byte
-		status     string
-		finishedAt *time.Time
-	)
+	var b Batch
 	// One snapshot for the batch row and its plan, so a SaveOutcome committing in
 	// between never shows a running batch whose deliveries have all finished.
 	snapshot := pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}
 	err := pgx.BeginTxFunc(ctx, s.pool, snapshot, func(tx pgx.Tx) error {
-		err := tx.QueryRow(ctx, `
-			SELECT b.id::text, b.subject, b.body, b.created_by::text, u.full_name, b.selected_groups,
-				b.selected_recipient_ids::text[], coalesce(b.excluded_recipient_ids::text[], '{}'::text[]), b.status::text, b.sms_part_count,
-				(b.estimated_cost * 1000)::bigint, b.created_at, b.finished_at,
-				coalesce(b.idempotency_key::text, ''), coalesce(b.request_hash, '')
-			FROM message_batches b JOIN users u ON u.id = b.created_by
-			WHERE b.id = $1`, id,
-		).Scan(&b.ID, &b.Subject, &b.Body, &b.CreatedBy, &b.CreatedByName, &groupsJSON, &b.RecipientIDs, &b.ExcludedRecipientIDs,
-			&status, &b.SMSParts, &b.CostMilli, &b.CreatedAt, &finishedAt, &b.IdempotencyKey, &b.RequestHash)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrBatchNotFound
-		}
-		if err != nil {
-			return fmt.Errorf("query batch: %w", err)
-		}
-		b.Plan, err = loadPlan(ctx, tx, id)
+		var err error
+		b, err = readBatch(ctx, tx, id)
 		return err
 	})
 	if err != nil {
 		return Batch{}, fmt.Errorf("batch %s: %w", id, err)
 	}
+	return b, nil
+}
+
+// readBatch reads one batch with its plan inside tx, or ErrBatchNotFound.
+func readBatch(ctx context.Context, tx pgx.Tx, id string) (Batch, error) {
+	var (
+		b                 Batch
+		groupsJSON        []byte
+		status            string
+		channels          []string
+		finishedAt, retry *time.Time
+	)
+	err := tx.QueryRow(ctx, `
+		SELECT b.id::text, b.subject, b.body, b.created_by::text, u.full_name, b.selected_groups,
+			b.selected_recipient_ids::text[], coalesce(b.excluded_recipient_ids::text[], '{}'::text[]), b.status::text, b.sms_part_count,
+			(b.estimated_cost * 1000)::bigint, b.created_at, b.finished_at,
+			coalesce(b.idempotency_key::text, ''), coalesce(b.request_hash, ''),
+			b.channels, b.retry_count, b.last_retry_at
+		FROM message_batches b JOIN users u ON u.id = b.created_by
+		WHERE b.id = $1`, id,
+	).Scan(&b.ID, &b.Subject, &b.Body, &b.CreatedBy, &b.CreatedByName, &groupsJSON, &b.RecipientIDs, &b.ExcludedRecipientIDs,
+		&status, &b.SMSParts, &b.CostMilli, &b.CreatedAt, &finishedAt, &b.IdempotencyKey, &b.RequestHash,
+		&channels, &b.RetryCount, &retry)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Batch{}, ErrBatchNotFound
+	}
+	if err != nil {
+		return Batch{}, fmt.Errorf("query batch: %w", err)
+	}
+	if b.Plan, err = loadPlan(ctx, tx, id); err != nil {
+		return Batch{}, err
+	}
 	if err := json.Unmarshal(groupsJSON, &b.Groups); err != nil {
-		return Batch{}, fmt.Errorf("batch %s: decode groups: %w", id, err)
+		return Batch{}, fmt.Errorf("decode groups: %w", err)
 	}
 	b.Status = BatchStatus(status)
+	b.Channels = toChannels(channels)
 	b.Counts = b.Plan.Counts()
 	if len(b.ExcludedRecipientIDs) == 0 {
 		b.ExcludedRecipientIDs = nil
@@ -324,7 +340,29 @@ func (s *PGStore) Batch(ctx context.Context, id string) (Batch, error) {
 	if finishedAt != nil {
 		b.FinishedAt = *finishedAt
 	}
+	if retry != nil {
+		b.LastRetryAt = *retry
+	}
 	return b, nil
+}
+
+func channelNames(cs []providers.Channel) []string {
+	if len(cs) == 0 {
+		return []string{string(providers.ChannelEmail), string(providers.ChannelSMS)}
+	}
+	out := make([]string, len(cs))
+	for i, c := range cs {
+		out[i] = string(c)
+	}
+	return out
+}
+
+func toChannels(names []string) []providers.Channel {
+	out := make([]providers.Channel, len(names))
+	for i, n := range names {
+		out[i] = providers.Channel(n)
+	}
+	return out
 }
 
 // BatchByKey implements Store.
@@ -363,7 +401,8 @@ func (s *PGStore) ListBatches(ctx context.Context, f BatchFilter) ([]Batch, int,
 	rows, err := s.pool.Query(ctx, `
 		SELECT b.id::text, b.subject, b.created_by::text, u.full_name, b.selected_groups,
 			b.status::text, b.sms_part_count, (b.estimated_cost * 1000)::bigint,
-			b.created_at, b.finished_at, c.recipients, c.partial, c.failed
+			b.created_at, b.finished_at, c.recipients, c.partial, c.failed,
+			b.channels, coalesce(b.from_email, ''), coalesce(b.from_name, ''), b.retry_count, b.last_retry_at
 		FROM message_batches b
 		JOIN users u ON u.id = b.created_by
 		CROSS JOIN LATERAL (
@@ -388,22 +427,28 @@ func (s *PGStore) ListBatches(ctx context.Context, f BatchFilter) ([]Batch, int,
 	var out []Batch
 	for rows.Next() {
 		var (
-			b          Batch
-			groupsJSON []byte
-			status     string
-			finishedAt *time.Time
+			b                 Batch
+			groupsJSON        []byte
+			status            string
+			channels          []string
+			finishedAt, retry *time.Time
 		)
 		if err := rows.Scan(&b.ID, &b.Subject, &b.CreatedBy, &b.CreatedByName, &groupsJSON,
 			&status, &b.SMSParts, &b.CostMilli, &b.CreatedAt, &finishedAt,
-			&b.Counts.Recipients, &b.Counts.Partial, &b.Counts.Failed); err != nil {
+			&b.Counts.Recipients, &b.Counts.Partial, &b.Counts.Failed,
+			&channels, &b.Plan.From.Email, &b.Plan.From.Name, &b.RetryCount, &retry); err != nil {
 			return nil, 0, fmt.Errorf("scan batch: %w", err)
 		}
 		if err := json.Unmarshal(groupsJSON, &b.Groups); err != nil {
 			return nil, 0, fmt.Errorf("batch %s: decode groups: %w", b.ID, err)
 		}
 		b.Status = BatchStatus(status)
+		b.Channels = toChannels(channels)
 		if finishedAt != nil {
 			b.FinishedAt = *finishedAt
+		}
+		if retry != nil {
+			b.LastRetryAt = *retry
 		}
 		out = append(out, b)
 	}
@@ -413,18 +458,14 @@ func (s *PGStore) ListBatches(ctx context.Context, f BatchFilter) ([]Batch, int,
 	return out, total, nil
 }
 
-// ResetFailedDeliveries implements Store.
-func (s *PGStore) ResetFailedDeliveries(ctx context.Context, batchID string) (Batch, error) {
+// ResetFailedDeliveries implements Store. Which failures are sent again follows
+// RetryClassOf, expressed on the stored reasons.
+func (s *PGStore) ResetFailedDeliveries(ctx context.Context, batchID string, includeUncertain bool) (Batch, error) {
 	id := strings.ToLower(batchID)
 	if !groups.IsValidID(id) {
 		return Batch{}, fmt.Errorf("reset failed deliveries for batch %s: %w", batchID, ErrBatchNotFound)
 	}
-	var (
-		b          Batch
-		groupsJSON []byte
-		status     string
-		finishedAt *time.Time
-	)
+	var b Batch
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		var currentStatus string
 		err := tx.QueryRow(ctx, `SELECT status::text FROM message_batches WHERE id = $1 FOR UPDATE`, id).Scan(&currentStatus)
@@ -438,57 +479,94 @@ func (s *PGStore) ResetFailedDeliveries(ctx context.Context, batchID string) (Ba
 			return ErrBatchRunning
 		}
 
-		res, err := tx.Exec(ctx, `
+		// Error and attempts stay for the history; a success clears the error.
+		rows, err := tx.Query(ctx, `
 			UPDATE deliveries d
-			SET status = 'pending', error = NULL, attempts = 0, updated_at = now()
+			SET status = 'pending', updated_at = now()
 			FROM batch_recipients br
-			WHERE br.batch_id = $1 
-				AND d.batch_recipient_id = br.id 
-				AND d.status = 'failed' 
-				AND d.error LIKE 'transient%'`, id)
+			WHERE br.batch_id = $1
+				AND d.batch_recipient_id = br.id
+				AND d.status = 'failed'
+				AND coalesce(d.error, '') NOT LIKE $2 || '%'
+				AND ($3 OR coalesce(d.error, '') NOT LIKE 'unclassified%')
+			RETURNING br.id, d.channel::text`, id, reasonRender, includeUncertain)
 		if err != nil {
 			return fmt.Errorf("reset deliveries: %w", err)
 		}
-		if res.RowsAffected() == 0 {
+		var rowIDs, channels []string
+		for rows.Next() {
+			var rowID, channel string
+			if err := rows.Scan(&rowID, &channel); err != nil {
+				rows.Close()
+				return fmt.Errorf("scan reset delivery: %w", err)
+			}
+			rowIDs, channels = append(rowIDs, rowID), append(channels, channel)
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("reset deliveries: %w", err)
+		}
+		if len(rowIDs) == 0 {
 			return ErrNoFailedDeliveries
 		}
 
-		_, err = tx.Exec(ctx, `UPDATE message_batches SET status = 'running', finished_at = NULL WHERE id = $1`, id)
+		// Send to the contact as it is now: a corrected address is the usual reason
+		// for a retry. A contact removed since keeps the one the batch had.
+		_, err = tx.Exec(ctx, `
+			UPDATE batch_recipients br
+			SET email_snapshot = CASE WHEN t.channel = 'email' THEN coalesce(r.email, br.email_snapshot) ELSE br.email_snapshot END,
+				phone_snapshot = CASE WHEN t.channel = 'sms' THEN coalesce(r.phone, br.phone_snapshot) ELSE br.phone_snapshot END
+			FROM unnest($1::uuid[], $2::text[]) AS t(row_id, channel), recipients r
+			WHERE br.id = t.row_id AND r.id = br.recipient_id`, rowIDs, channels)
+		if err != nil {
+			return fmt.Errorf("refresh contacts: %w", err)
+		}
+
+		_, err = tx.Exec(ctx, `
+			UPDATE message_batches
+			SET status = 'running', finished_at = NULL, retry_count = retry_count + 1, last_retry_at = now()
+			WHERE id = $1`, id)
 		if err != nil {
 			return fmt.Errorf("set batch running: %w", err)
 		}
-
-		err = tx.QueryRow(ctx, `
-			SELECT b.id::text, b.subject, b.body, b.created_by::text, u.full_name, b.selected_groups,
-				b.selected_recipient_ids::text[], coalesce(b.excluded_recipient_ids::text[], '{}'::text[]), b.status::text, b.sms_part_count,
-				(b.estimated_cost * 1000)::bigint, b.created_at, b.finished_at,
-				coalesce(b.idempotency_key::text, ''), coalesce(b.request_hash, '')
-			FROM message_batches b JOIN users u ON u.id = b.created_by
-			WHERE b.id = $1`, id,
-		).Scan(&b.ID, &b.Subject, &b.Body, &b.CreatedBy, &b.CreatedByName, &groupsJSON, &b.RecipientIDs, &b.ExcludedRecipientIDs,
-			&status, &b.SMSParts, &b.CostMilli, &b.CreatedAt, &finishedAt, &b.IdempotencyKey, &b.RequestHash)
-		if err != nil {
-			return fmt.Errorf("query batch: %w", err)
-		}
-
-		b.Plan, err = loadPlan(ctx, tx, id)
+		b, err = readBatch(ctx, tx, id)
 		return err
 	})
 	if err != nil {
 		return Batch{}, fmt.Errorf("reset failed deliveries for batch %s: %w", batchID, err)
 	}
-	if err := json.Unmarshal(groupsJSON, &b.Groups); err != nil {
-		return Batch{}, fmt.Errorf("batch %s: decode groups: %w", id, err)
-	}
-	b.Status = BatchStatus(status)
-	b.Counts = b.Plan.Counts()
-	if len(b.ExcludedRecipientIDs) == 0 {
-		b.ExcludedRecipientIDs = nil
-	}
-	if finishedAt != nil {
-		b.FinishedAt = *finishedAt
-	}
 	return b, nil
+}
+
+// RunningBatchIDs implements Store.
+func (s *PGStore) RunningBatchIDs(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id::text FROM message_batches WHERE status = 'running' ORDER BY created_at, id`)
+	if err != nil {
+		return nil, fmt.Errorf("list running batches: %w", err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("list running batches: %w", err)
+	}
+	return ids, nil
+}
+
+// InterruptSending implements Store.
+func (s *PGStore) InterruptSending(ctx context.Context, batchID string) error {
+	id := strings.ToLower(batchID)
+	if !groups.IsValidID(id) {
+		return fmt.Errorf("interrupt batch %s: %w", batchID, ErrBatchNotFound)
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE deliveries d
+		SET status = 'failed', error = $2, updated_at = now()
+		FROM batch_recipients br
+		WHERE br.batch_id = $1 AND d.batch_recipient_id = br.id AND d.status = 'sending'`,
+		id, reasonInterrupted)
+	if err != nil {
+		return fmt.Errorf("interrupt batch %s: %w", batchID, err)
+	}
+	return nil
 }
 
 // loadPlan reads the recipients of a batch in plan order, each with its deliveries
@@ -496,7 +574,10 @@ func (s *PGStore) ResetFailedDeliveries(ctx context.Context, batchID string) (Ba
 // usable channel when the batch was planned.
 func loadPlan(ctx context.Context, tx pgx.Tx, batchID string) (Plan, error) {
 	plan := Plan{}
-	err := tx.QueryRow(ctx, `SELECT subject FROM message_batches WHERE id = $1`, batchID).Scan(&plan.Subject)
+	err := tx.QueryRow(ctx, `
+		SELECT subject, coalesce(from_email, ''), coalesce(from_name, ''), coalesce(reply_to, '')
+		FROM message_batches WHERE id = $1`, batchID,
+	).Scan(&plan.Subject, &plan.From.Email, &plan.From.Name, &plan.ReplyTo.Email)
 	if err != nil {
 		return Plan{}, fmt.Errorf("query plan subject: %w", err)
 	}

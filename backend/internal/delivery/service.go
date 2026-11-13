@@ -91,7 +91,25 @@ type Draft struct {
 	// IdempotencyKey, when set, makes a repeated confirmation return the batch it
 	// created the first time instead of sending again.
 	IdempotencyKey string
+	// SenderID picks the e-mail sender among the options of the signed-in user
+	// (ADR-0021); empty means their default option.
+	SenderID string
 }
+
+// EmailSender is the e-mail From and Reply-To of a batch.
+type EmailSender struct {
+	From, ReplyTo providers.Address
+}
+
+// SenderResolver turns the sender a user picked into the address the batch is
+// sent from, refusing one the user may not use with an error matching
+// ErrSenderNotAllowed (ADR-0021). main adapts the senders package to it.
+type SenderResolver interface {
+	ResolveSender(ctx context.Context, userID, senderID string) (EmailSender, error)
+}
+
+// ErrSenderNotAllowed means the user may not send from the chosen address.
+var ErrSenderNotAllowed = errors.New("sender address not allowed for this user")
 
 // BatchAuditor records who confirmed a batch in the audit log (description.md:
 // the system records who prepared and launched each send). main adapts the
@@ -110,6 +128,7 @@ type Service struct {
 	pricePerPartMilli atomic.Int64 // changed from the settings panel (ADR-0018)
 	logger            *slog.Logger
 	auditor           BatchAuditor
+	senders           SenderResolver
 	// running tracks Start calls and the dispatches they leave in the background, for
 	// Wait. closing, guarded by mu, stops new ones once Wait has begun.
 	mu      sync.Mutex
@@ -143,6 +162,12 @@ func (s *Service) SetSMSPrice(pricePerPartMilli int64) { s.pricePerPartMilli.Sto
 // records nothing: the confirmation was logged the first time.
 func (s *Service) SetAuditor(a BatchAuditor) {
 	s.auditor = a
+}
+
+// SetSenderResolver makes every new batch go out from the sender its author picked
+// (ADR-0021). Without one, batches use the provider's configured sender.
+func (s *Service) SetSenderResolver(r SenderResolver) {
+	s.senders = r
 }
 
 // Send checks the draft, resolves its recipients, records the batch and dispatches it.
@@ -244,12 +269,17 @@ func (s *Service) record(ctx context.Context, d Draft) (Batch, bool, error) {
 		return Batch{}, false, fmt.Errorf("send batch: %w", err)
 	}
 
-	targets := d.Channels
-	if len(targets) == 0 {
-		targets = []providers.Channel{providers.ChannelEmail, providers.ChannelSMS}
+	targets := normalizeChannels(d.Channels)
+	var sender EmailSender
+	if s.senders != nil && slices.Contains(targets, providers.ChannelEmail) {
+		sender, err = s.senders.ResolveSender(ctx, d.CreatedBy, d.SenderID)
+		if err != nil {
+			return Batch{}, false, fmt.Errorf("send batch: %w", err)
+		}
 	}
 
 	plan := NewPlan(d.Subject, d.Body, res.Recipients, targets...)
+	plan.From, plan.ReplyTo = sender.From, sender.ReplyTo
 	parts := plan.smsParts()
 	batch, err := s.store.CreateBatch(ctx, Batch{
 		Subject:              d.Subject,
@@ -262,6 +292,7 @@ func (s *Service) record(ctx context.Context, d Draft) (Batch, bool, error) {
 		RecipientIDs:         d.Selection.Normalize().RecipientIDs,
 		ExcludedRecipientIDs: d.Selection.Normalize().ExcludedRecipientIDs,
 		Status:               BatchRunning,
+		Channels:             targets,
 		SMSParts:             parts,
 		CostMilli:            int64(parts) * s.pricePerPartMilli.Load(),
 		Plan:                 plan,
@@ -302,11 +333,17 @@ func requestHash(d Draft) (string, error) {
 		channels[i] = string(c)
 	}
 	slices.Sort(channels)
-	data, err := json.Marshal([]any{d.Subject, d.Body,
+	fields := []any{d.Subject, d.Body,
 		channels,
 		slices.Sorted(slices.Values(sel.GroupIDs)),
 		slices.Sorted(slices.Values(sel.RecipientIDs)),
-		slices.Sorted(slices.Values(sel.ExcludedRecipientIDs))})
+		slices.Sorted(slices.Values(sel.ExcludedRecipientIDs))}
+	// Appended only when set, so batches confirmed before senders existed keep
+	// their fingerprint.
+	if d.SenderID != "" {
+		fields = append(fields, d.SenderID)
+	}
+	data, err := json.Marshal(fields)
 	if err != nil {
 		return "", fmt.Errorf("hash request: %w", err)
 	}
@@ -351,12 +388,12 @@ func (s *Service) dispatch(ctx context.Context, batch Batch) (Batch, error) {
 	return batch, nil
 }
 
-// RetryBatch re-sends only the failed deliveries of batchID. Succeeded deliveries
-// (sent or delivered) are never retried, preventing duplicate messages and duplicate
-// costs (CLAUDE.md rule 5). If the batch is currently running or has no failed deliveries,
-// it returns an error.
-func (s *Service) RetryBatch(ctx context.Context, batchID string) (Batch, error) {
-	batch, err := s.store.ResetFailedDeliveries(ctx, batchID)
+// RetryBatch sends the failed deliveries of batchID again (Plan.RetryPlan). Sent and
+// delivered deliveries are never sent again, so nobody gets a duplicate and nothing is
+// paid twice (CLAUDE.md rule 5); uncertain ones only with includeUncertain. It fails
+// while the batch is running or when there is nothing to send again.
+func (s *Service) RetryBatch(ctx context.Context, batchID string, includeUncertain bool) (Batch, error) {
+	batch, err := s.store.ResetFailedDeliveries(ctx, batchID, includeUncertain)
 	if err != nil {
 		return Batch{}, fmt.Errorf("retry batch: %w", err)
 	}
@@ -366,13 +403,13 @@ func (s *Service) RetryBatch(ctx context.Context, batchID string) (Batch, error)
 	return s.dispatch(context.WithoutCancel(ctx), batch)
 }
 
-// StartRetry resets the failed deliveries of batchID and launches their dispatch in the
-// background, returning a 202-ready Batch (Status: BatchRunning) immediately.
-func (s *Service) StartRetry(ctx context.Context, batchID string) (Batch, error) {
+// StartRetry does what RetryBatch does but returns as soon as the deliveries are reset
+// (POST /batches/{id}/retry answers 202); the dispatch goes on in the background.
+func (s *Service) StartRetry(ctx context.Context, batchID string, includeUncertain bool) (Batch, error) {
 	if !s.enter() {
 		return Batch{}, fmt.Errorf("retry batch: %w", ErrShuttingDown)
 	}
-	batch, err := s.store.ResetFailedDeliveries(ctx, batchID)
+	batch, err := s.store.ResetFailedDeliveries(ctx, batchID, includeUncertain)
 	if err != nil {
 		s.running.Done()
 		return Batch{}, fmt.Errorf("retry batch: %w", err)
@@ -390,6 +427,55 @@ func (s *Service) StartRetry(ctx context.Context, batchID string) (Batch, error)
 		}
 	}(batch)
 	return batch, nil
+}
+
+// Recover finishes the batches a stopped process left running. It must run once at
+// startup, before this process starts sending anything, and assumes a single API
+// instance. Deliveries cut off mid-send become failed with an uncertain reason (the
+// gateway may have them, so they are not sent again without a person deciding);
+// deliveries never tried are sent now, in the background. It returns how many
+// batches it resumed.
+func (s *Service) Recover(ctx context.Context) (int, error) {
+	ids, err := s.store.RunningBatchIDs(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("recover batches: %w", err)
+	}
+	resumed := 0
+	for _, id := range ids {
+		if err := s.store.InterruptSending(ctx, id); err != nil {
+			return resumed, fmt.Errorf("recover batch %s: %w", id, err)
+		}
+		batch, err := s.store.Batch(ctx, id)
+		if err != nil {
+			return resumed, fmt.Errorf("recover batch %s: %w", id, err)
+		}
+		if !s.enter() {
+			return resumed, fmt.Errorf("recover batch %s: %w", id, ErrShuttingDown)
+		}
+		resumed++
+		s.logger.Warn("resuming a batch left running by a stopped process", "batch_id", id)
+		go func(b Batch) {
+			defer s.running.Done()
+			// dispatch sends only pending deliveries and then saves the batch status,
+			// which also finishes a batch that has nothing left to send.
+			if _, err := s.dispatch(context.WithoutCancel(ctx), b); err != nil {
+				s.logger.Error("recovered batch dispatch", "batch_id", b.ID, "err", err)
+			}
+		}(batch)
+	}
+	return resumed, nil
+}
+
+// normalizeChannels returns the channels in a fixed order (e-mail, SMS) without
+// repeats; none means both.
+func normalizeChannels(in []providers.Channel) []providers.Channel {
+	var out []providers.Channel
+	for _, c := range []providers.Channel{providers.ChannelEmail, providers.ChannelSMS} {
+		if len(in) == 0 || slices.Contains(in, c) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func checkDraft(d Draft) error {

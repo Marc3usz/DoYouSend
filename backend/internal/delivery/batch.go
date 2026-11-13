@@ -49,15 +49,22 @@ type Batch struct {
 	// ExcludedRecipientIDs are the people explicitly excluded from this send.
 	ExcludedRecipientIDs []string
 	Status               BatchStatus
+	// Channels are the channels the sender chose (ADR-0019): both, or one of them.
+	Channels []providers.Channel
 	// SMSParts is the number of SMS parts the batch was planned with; CostMilli their
 	// price in thousandths of a złoty (see messaging.ParsePrice).
 	SMSParts  int
 	CostMilli int64
-	Plan      Plan
+	// Plan carries the e-mail From and Reply-To chosen for the batch (ADR-0021).
+	Plan Plan
 	// Counts summarises Plan; ListBatches fills it without loading the plan.
 	Counts     Counts
 	CreatedAt  time.Time
 	FinishedAt time.Time
+	// RetryCount is how many times the failed deliveries were sent again, the
+	// last time at LastRetryAt.
+	RetryCount  int
+	LastRetryAt time.Time
 }
 
 // Counts is the history summary of a batch (BatchSummary in openapi.yaml).
@@ -102,9 +109,18 @@ type Store interface {
 	// ListBatches returns one page of batches without their plans, newest first,
 	// and how many batches match f in total.
 	ListBatches(ctx context.Context, f BatchFilter) ([]Batch, int, error)
-	// ResetFailedDeliveries resets all failed deliveries in batchID back to pending,
-	// marks the batch as running, and returns the updated batch with its plan ready to dispatch.
-	ResetFailedDeliveries(ctx context.Context, batchID string) (Batch, error)
+	// ResetFailedDeliveries puts the failed deliveries of batchID that a retry sends
+	// again (Plan.RetryPlan) back to pending, refreshing their address from the
+	// recipient's current contact, counts the retry, marks the batch running and
+	// returns it ready to dispatch. ErrBatchRunning while it is being sent,
+	// ErrNoFailedDeliveries when there is nothing to send again.
+	ResetFailedDeliveries(ctx context.Context, batchID string, includeUncertain bool) (Batch, error)
+	// RunningBatchIDs returns the batches whose status is running, oldest first.
+	RunningBatchIDs(ctx context.Context) ([]string, error)
+	// InterruptSending marks the deliveries of batchID still in sending as failed
+	// with an uncertain reason: the process sending them stopped, and the gateway
+	// may or may not have the message.
+	InterruptSending(ctx context.Context, batchID string) error
 }
 
 // Counts summarises the plan for the history list.
