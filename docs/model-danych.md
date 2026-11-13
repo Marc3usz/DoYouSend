@@ -19,6 +19,8 @@ tak. Numer w nawiasie to migracja, która dodała tabelę albo kolumnę.
 | `audit_log` | kto co zrobił i kiedy (wysyłka, ponowienia, użytkownicy, ustawienia, importy) |
 | `user_sender_identities` (0009) | tożsamość nadawcy SendGrid użytkownika i jej stan (ADR-0016) |
 | `app_settings` (0010) | ustawienia wysyłki z panelu; sekrety zaszyfrowane (ADR-0018) |
+| `sender_domains` (0012) | domeny uwierzytelnione u operatora e-mail i ich rekordy DNS (ADR-0021) |
+| `sender_addresses`, `sender_address_users` (0012) | skrzynki nadawcze delegowane użytkownikom (ADR-0021) |
 
 ## Kolumny
 
@@ -45,6 +47,8 @@ klucz główny na parze.
 - wybór: `selected_groups` (jsonb: id i nazwa grupy w chwili wysyłki),
   `selected_recipient_ids` (0005, osoby wybrane ręcznie), `excluded_recipient_ids` (0008),
   `channels` (0011, kanały wysyłki — oba albo jeden, ADR-0019);
+- nadawca e-maila: `from_email`, `from_name`, `reply_to` (0011, ADR-0021; NULL we wsadach
+  sprzed migracji — wtedy `EMAIL_FROM` z chwili wysyłki);
 - podsumowanie: `recipient_count`, `sms_part_count`, `estimated_cost` (`numeric(12,3)` od 0005;
   koszt wyliczony ceną z chwili wysyłki);
 - idempotencja: `idempotency_key`, `request_hash` (0006) — ten sam klucz od tego samego autora
@@ -69,6 +73,16 @@ danych kontaktowych i treści), `created_at`.
 
 **`app_settings`** (0010) — `key`, `value` (przy `encrypted = true`: `v1:` + base64 nonce
 i szyfrogramu), `encrypted`, `updated_at`, `updated_by`.
+
+**`sender_domains`** (0012) — `id`, `domain` (unikalna, małymi literami), `provider`,
+`provider_domain_id`, `status` (`pending` / `valid` / `missing`), `dns_records` (jsonb: typ,
+host, wartość i wynik ostatniego sprawdzenia), `created_by`, `created_at`, `checked_at`,
+`validated_at` (pierwsze potwierdzenie).
+
+**`sender_addresses`** (0012) — `id`, `email` (unikalny, małymi literami), `name` (nazwa
+nadawcy), `created_by`, `created_at`, `updated_at`.
+**`sender_address_users`** (0012) — `address_id`, `user_id` (klucz główny na parze),
+`granted_by`, `granted_at`; usunięcie skrzynki albo użytkownika usuwa delegację.
 
 ## Więzy i wyzwalacze, które pilnują wymagań
 

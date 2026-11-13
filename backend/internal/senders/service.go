@@ -178,6 +178,15 @@ func (s *Service) AddDomain(ctx context.Context, actorID, domain string) (Domain
 	if len(domain) > 253 || !hostname.MatchString(domain) {
 		return Domain{}, invalid("domain", "must be a domain name like szkola.example.test")
 	}
+	// Checked before the operator, which would refuse a duplicate with a less
+	// helpful error and must not get a second copy of a domain we already track.
+	existing, err := s.store.ListDomains(ctx)
+	if err != nil {
+		return Domain{}, fmt.Errorf("list sender domains: %w", err)
+	}
+	if slices.ContainsFunc(existing, func(d Domain) bool { return d.Domain == domain }) {
+		return Domain{}, ErrDomainExists
+	}
 	cfg := s.opts.Config()
 	pd, err := s.opts.API().CreateDomain(ctx, domain)
 	if err != nil {

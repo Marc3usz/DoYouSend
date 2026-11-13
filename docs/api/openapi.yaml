@@ -18,6 +18,7 @@ tags:
   - name: batches      # domena B
   - name: admin        # domena D
   - name: auth         # domena D
+  - name: senders      # domeny C i D (ADR-0021)
   - name: webhooks     # domena C
     description: |
       Raporty doreczen od operatorow. Poza prefiksem /api, bez cookie sesji: SMSAPI uwierzytelnia
@@ -679,6 +680,8 @@ paths:
         wybrana grupa lub osoba juz nie istnieje -> 409 selection_changed (brakujace ID w ids);
         wybor nie daje nikogo -> 422 no_recipients. Problemy pojedynczych odbiorcow (brak kanalu,
         brak imienia) nie blokuja wysylki - trafiaja do statusow tego odbiorcy.
+        senderId spoza GET /me/senders zalogowanego uzytkownika albo adres, ktorego operator teraz
+        nie przyjmie (usable=false) -> 400 invalid_input z polem senderId (ADR-0021).
 
         Idempotency-Key chroni przed podwojnym kliknieciem i ponowieniem zadania przez siec:
         ten sam klucz z ta sama trescia zwraca istniejacy wsad (200) i niczego nie wysyla
@@ -728,12 +731,24 @@ paths:
       tags: [batches]
       summary: Ponawia nieudane wiadomosci we wsadzie
       description: |
-        Resetuje status nieudanych wysylek (failed z bledem przejsciowym) z powrotem do pending i uruchamia ponowna wysylke w tle.
+        Przywraca do pending nieudane dostawy, o ktorych wiadomo, ze nie dotarly (blad przejsciowy,
+        trwaly albo raport operatora o niedoreczeniu), i wysyla je ponownie w tle na aktualny adres
+        lub numer odbiorcy (poprawiony kontakt to najczestszy powod ponowienia). Liczba prob
+        (attempts) sie sumuje, a ostatni blad zostaje do chwili udanej wysylki.
+        Dostawy niepewne (blad "unclassified...", np. przerwanie w trakcie wysylki) operator mogl juz
+        przyjac - sa wysylane ponownie tylko przy includeUncertain=true (mozliwy duplikat).
+        Dostawy z bledem renderowania tresci nie sa ponawiane nigdy.
         Wiadomosci juz doreczone lub wyslane (sent/delivered) nie sa wysylane ponownie (ochrona przed duplikatami i podwojnym kosztem).
-        Wsad ze statusem done_with_errors wraca do stanu running na czas trwania ponowienia w tle (wyjatek od niemutowalnosci wyslanego wsadu).
+        Wsad wraca do stanu running na czas ponowienia (wyjatek od niemutowalnosci wyslanego wsadu);
+        retryCount i lastRetryAt zapisuja kazde ponowienie (ADR-0019).
         Wymaga uprawnien administratora lub bycia autorem wsadu (dla cudzego wsadu zwraca 404).
       parameters:
         - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RetryRequest" }
       responses:
         "202":
           description: Ponowienie uruchomione w tle
@@ -794,6 +809,47 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /auth/password:
+    put:
+      tags: [auth]
+      summary: Zmiana wlasnego hasla (kazdy zalogowany uzytkownik)
+      description: |
+        Wymaga obecnego hasla. Bledne obecne haslo daje 403 wrong_password i liczy sie do tego samego
+        limitu co nieudane logowania (po 5 w ciagu 15 minut 429 too_many_attempts). Po zmianie
+        wszystkie inne sesje uzytkownika wygasaja, a odpowiedz ustawia nowe cookie sesji.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PasswordChange" }
+      responses:
+        "204":
+          description: Zmieniono haslo
+          headers:
+            Set-Cookie: { schema: { type: string }, description: "nowa sesja dys_session" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+
+  /me/senders:
+    get:
+      tags: [senders]
+      summary: Adresy, z ktorych zalogowany uzytkownik moze wyslac e-mail (ADR-0021)
+      description: |
+        shared - wspolny adres z ustawien (EMAIL_FROM); own - adres logowania uzytkownika;
+        delegated - skrzynki, ktore administrator mu przekazal. Gdy operator sprawdza nadawcow
+        (SendGrid przy wylaczonym DRY_RUN), adres jest usable dopiero, gdy jego domena jest
+        uwierzytelniona albo jest zweryfikowanym pojedynczym nadawca (ADR-0016). defaultId to
+        own, gdy jest usable i ustawienie email_sender_default=own, inaczej shared.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SenderOptions" }
         "401": { $ref: "#/components/responses/Error" }
 
   /users:
@@ -956,6 +1012,151 @@ paths:
               schema: { $ref: "#/components/schemas/SenderIdentityList" }
         "403": { $ref: "#/components/responses/Error" }
 
+  /admin/sender-domains:
+    get:
+      tags: [senders]
+      summary: Domeny uwierzytelnione u operatora e-mail (SendGrid Domain Authentication)
+      description: |
+        Stan z ostatniego sprawdzenia; nie odpytuje operatora. live=false: DRY_RUN albo operator inny
+        niz SendGrid - domeny i rekordy DNS sa symulowane i nic nie trafia do SendGrid.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SenderDomainList" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [senders]
+      summary: Zaklada uwierzytelnienie domeny i zwraca rekordy DNS do dodania
+      description: |
+        SendGrid z automatic_security: trzy rekordy CNAME (SPF i DKIM zarzadzane przez SendGrid).
+        Gdy domena stanie sie valid, kazdy adres w niej moze byc nadawca, wiec uzytkownicy z kontem
+        w tej domenie automatycznie wysylaja ze swojego adresu.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [domain]
+              properties:
+                domain: { type: string, example: szkola.example.test }
+      responses:
+        "201":
+          description: Utworzono
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SenderDomain" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409":
+          description: domain_exists
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorBody" }
+        "502":
+          description: provider_rejected - operator odrzucil zadanie (message to jego tekst)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorBody" }
+
+  /admin/sender-domains/{id}/validate:
+    post:
+      tags: [senders]
+      summary: Prosi operatora o sprawdzenie rekordow DNS teraz
+      description: Domena nieznana juz operatorowi albo zalozona u innego operatora dostaje status missing.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Stan po sprawdzeniu (status i valid kazdego rekordu)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SenderDomain" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+
+  /admin/sender-domains/{id}:
+    delete:
+      tags: [senders]
+      summary: Usuwa uwierzytelnienie domeny (u operatora i lokalnie)
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204": { description: Usunieto }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+
+  /admin/sender-addresses:
+    get:
+      tags: [senders]
+      summary: Skrzynki delegowane uzytkownikom (np. sekretariat@)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SenderAddressList" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [senders]
+      summary: Dodaje skrzynke i deleguje ja uzytkownikom
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SenderAddressInput" }
+      responses:
+        "201":
+          description: Utworzono
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SenderAddress" }
+        "400":
+          description: invalid_input (pola email, name, userIds - kazde ID musi byc aktywnym uzytkownikiem)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorBody" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409":
+          description: address_exists
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorBody" }
+
+  /admin/sender-addresses/{id}:
+    patch:
+      tags: [senders]
+      summary: Zmienia nazwe i/lub zastepuje liste uzytkownikow (pominiete pole zostaje)
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SenderAddressChange" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SenderAddress" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [senders]
+      summary: Usuwa skrzynke; nikt nie moze juz z niej wysylac
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204": { description: Usunieto }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
   /audit:
     get:
       tags: [admin]
@@ -1009,8 +1210,9 @@ paths:
         Tylko podane klucze sie zmieniaja; null usuwa wartosc z panelu (wraca .env albo domyslna).
         Przed zapisem backend buduje operatorow z nowej konfiguracji - gdy sie nie da (np. sendgrid
         bez klucza), nic nie jest zapisane: 400 invalid_input z polem "config".
-        Zmiana, po ktorej wiadomosci wychodza na zewnatrz (DRY_RUN off i sendgrid albo smsapi), a
-        przedtem nie wychodzily, wymaga confirmLiveSending=true, inaczej 409 confirmation_required.
+        Zmiana, po ktorej wiadomosci wychodza na zewnatrz (DRY_RUN off i sendgrid, smsapi albo
+        SMTP na hoscie innym niz lokalny - localhost, adres petli zwrotnej, mailpit), a przedtem nie
+        wychodzily, wymaga confirmLiveSending=true, inaczej 409 confirmation_required.
         Przy DRY_RUN_LOCK=true na serwerze wylaczenie DRY_RUN daje 409 dry_run_locked.
         Gdy serwer wlasnie wysyla jakis wsad (wysylka albo ponowienie), wylaczenie DRY_RUN albo
         zmiana operatora e-mail lub SMS przy wylaczonym DRY_RUN daje 409 batches_running i nic
@@ -1032,6 +1234,30 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+
+  /admin/settings/test:
+    post:
+      tags: [admin]
+      summary: Wysyla wiadomosc testowa przez aktualnego operatora kanalu
+      description: |
+        E-mail domyslnie na adres zalogowanego administratora; SMS wymaga numeru w "to".
+        Respektuje DRY_RUN (wtedy dryRun=true i nic nie wychodzi). Tresc jest stala i identyczna
+        w obu kanalach. Blad operatora -> 502 provider_error z opisem rodzaju bledu (bez surowej
+        odpowiedzi operatora).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TestMessageRequest" }
+      responses:
+        "200":
+          description: Wyslano (albo zasymulowano przy DRY_RUN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TestMessageResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
 
   /admin/providers/sms/profile:
     get:
@@ -1334,14 +1560,19 @@ components:
                  sendgrid_api_key, sendgrid_sandbox, sendgrid_region, sendgrid_webhook_public_key,
                  sendgrid_sender_address, sendgrid_sender_city, sendgrid_sender_zip, sendgrid_sender_country,
                  sms_provider, sms_api_key, sms_sender_name, sms_test_mode, sms_price_per_part_pln, smsapi_dlr_token,
-                 notion_token, notion_database_id, notion_data_source_id, notion_property_map]
+                 notion_token, notion_database_id, notion_data_source_id, notion_property_map,
+                 email_reply_to, email_sender_default, sms_max_parts]
           description: |
             Grupa notion (ADR-0017) nie dotyczy wysylki: notion_token (sekret integracji wewnetrznej,
             tylko odczyt), notion_database_id (ID albo wklejony URL bazy), notion_data_source_id
             (potrzebne, gdy baza ma kilka zrodel danych), notion_property_map ("Wlasciwosc Notion=kolumna,...",
             np. "Name=imie,Mail=e-mail"). Zmiana w grupie notion nigdy nie wymaga confirmLiveSending.
+            ADR-0021: email_reply_to - adres odpowiedzi dla wysylek ze wspolnego adresu (puste:
+            odpowiedzi ida na EMAIL_FROM); email_sender_default - own (domyslnie adres autora, gdy
+            operator go przyjmie) albo shared (zawsze EMAIL_FROM). sms_max_parts - limit czesci jednego
+            SMS-a w SMSAPI (0 = ustawienie konta).
         group:   { type: string, enum: [general, email, sms, notion] }
-        kind:    { type: string, enum: [text, bool, enum, secret, price, port, address] }
+        kind:    { type: string, enum: [text, bool, enum, secret, price, port, address, int] }
         options: { type: array, items: { type: string }, description: "Dla kind=enum" }
         value:   { type: string, nullable: true, description: "null dla sekretow; bool jako \"true\"/\"false\"" }
         set:     { type: boolean }
@@ -1805,6 +2036,142 @@ components:
           description: "Docelowe kanaly wysylki. Domyslnie [email, sms]. Mozliwe: [email, sms], [email], [sms]."
           items: { type: string, enum: [email, sms] }
         selection: { $ref: "#/components/schemas/RecipientSelection" }
+        senderId:
+          type: string
+          description: 'ID opcji z GET /me/senders ("shared", "own" albo UUID skrzynki); brak = defaultId. Dotyczy tylko e-maila (ADR-0021).'
+
+    RetryRequest:
+      type: object
+      properties:
+        includeUncertain:
+          type: boolean
+          default: false
+          description: Wyslij ponownie takze dostawy niepewne (operator mogl je juz przyjac - mozliwy duplikat)
+
+    EmailAddress:
+      type: object
+      required: [email, name]
+      properties:
+        email: { type: string, format: email }
+        name:  { type: string }
+
+    PasswordChange:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword: { type: string, format: password }
+        newPassword:     { type: string, format: password, minLength: 12 }
+
+    SenderOption:
+      type: object
+      required: [id, email, name, kind, usable, reason]
+      properties:
+        id:     { type: string, description: '"shared", "own" albo UUID delegowanej skrzynki' }
+        email:  { type: string, format: email }
+        name:   { type: string }
+        kind:   { type: string, enum: [shared, own, delegated] }
+        usable: { type: boolean, description: "Operator przyjmie ten adres jako nadawce teraz" }
+        reason:
+          type: string
+          nullable: true
+          enum: [domain_not_authenticated, not_verified, null]
+          description: Dlaczego adres nie jest usable
+
+    SenderOptions:
+      type: object
+      required: [defaultId, items]
+      properties:
+        defaultId: { type: string }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/SenderOption" }
+
+    DNSRecord:
+      type: object
+      required: [type, host, data, valid]
+      properties:
+        type:  { type: string, enum: [cname, txt, mx] }
+        host:  { type: string }
+        data:  { type: string }
+        valid: { type: boolean, description: "Wynik ostatniego sprawdzenia przez operatora" }
+
+    SenderDomain:
+      type: object
+      required: [id, domain, status, dnsRecords, createdAt, checkedAt, validatedAt]
+      properties:
+        id:          { type: string, format: uuid }
+        domain:      { type: string }
+        status:      { type: string, enum: [pending, valid, missing] }
+        dnsRecords:
+          type: array
+          items: { $ref: "#/components/schemas/DNSRecord" }
+        createdAt:   { type: string, format: date-time }
+        checkedAt:   { type: string, format: date-time, nullable: true }
+        validatedAt: { type: string, format: date-time, nullable: true, description: "Pierwsze potwierdzenie" }
+
+    SenderDomainList:
+      type: object
+      required: [live, items]
+      properties:
+        live: { type: boolean, description: "false: DRY_RUN albo operator inny niz SendGrid - domeny symulowane" }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/SenderDomain" }
+
+    SenderAddress:
+      type: object
+      required: [id, email, name, users, usable, reason, createdAt]
+      properties:
+        id:     { type: string, format: uuid }
+        email:  { type: string, format: email }
+        name:   { type: string, description: "Nazwa nadawcy widoczna u odbiorcy" }
+        users:
+          type: array
+          items: { $ref: "#/components/schemas/UserRef" }
+        usable: { type: boolean }
+        reason: { type: string, nullable: true, enum: [domain_not_authenticated, not_verified, null] }
+        createdAt: { type: string, format: date-time }
+
+    SenderAddressList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/SenderAddress" }
+
+    SenderAddressInput:
+      type: object
+      required: [email, name]
+      properties:
+        email:   { type: string, format: email, description: "Sam adres, bez nazwy" }
+        name:    { type: string, maxLength: 100 }
+        userIds:
+          type: array
+          items: { type: string, format: uuid }
+
+    SenderAddressChange:
+      type: object
+      properties:
+        name:    { type: string, maxLength: 100 }
+        userIds:
+          type: array
+          description: Zastepuje cala liste; pominiete pole zostawia ja bez zmian
+          items: { type: string, format: uuid }
+
+    TestMessageRequest:
+      type: object
+      required: [channel]
+      properties:
+        channel: { type: string, enum: [email, sms] }
+        to:      { type: string, description: "E-mail: domyslnie adres administratora; SMS: wymagany numer" }
+
+    TestMessageResult:
+      type: object
+      required: [dryRun, providerMessageId]
+      properties:
+        dryRun:            { type: boolean }
+        providerMessageId: { type: string }
 
     GroupRef:
       type: object
@@ -1841,6 +2208,16 @@ components:
         failedCount:    { type: integer, description: "Odbiorcy z co najmniej jedna dostawa failed albo bez zadnego kanalu" }
         totalSmsParts:  { type: integer }
         costMilli:      { type: integer, format: int64, description: "Koszt SMS w tysiecznych PLN, wg ceny z chwili wysylki" }
+        channels:
+          type: array
+          description: "Kanaly wybrane przez wysylajacego (ADR-0019); wysylka jednym kanalem jest tak oznaczona"
+          items: { type: string, enum: [email, sms] }
+        from:
+          description: "Nadawca e-maila uzyty we wsadzie (ADR-0021); null dla wsadow sprzed migracji 0011"
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/EmailAddress" }]
+        retryCount:  { type: integer, description: "Ile razy ponowiono nieudane wiadomosci" }
+        lastRetryAt: { type: string, format: date-time, nullable: true }
 
     BatchPage:
       type: object
@@ -1872,6 +2249,12 @@ components:
               type: array
               description: Ostateczna lista odbiorcow, po nazwisku i imieniu
               items: { $ref: "#/components/schemas/BatchRecipient" }
+            retryableCount:
+              type: integer
+              description: Nieudane dostawy, ktore POST /batches/{id}/retry wysle ponownie
+            uncertainCount:
+              type: integer
+              description: Nieudane dostawy o nieznanym wyniku - wysylane ponownie tylko z includeUncertain
 
     BatchRecipient:
       type: object
@@ -1899,11 +2282,11 @@ components:
         channel:  { $ref: "#/components/schemas/Channel" }
         status:   { $ref: "#/components/schemas/DeliveryStatus" }
         parts:    { type: integer, description: "Czesci SMS; 1 dla e-maila" }
-        attempts: { type: integer }
+        attempts: { type: integer, description: "Wszystkie proby, lacznie z ponowieniami" }
         error:
           type: string
           nullable: true
-          description: 'Krotki sklasyfikowany powod, np. "permanent: invalid recipient"; nigdy surowa odpowiedz operatora'
+          description: 'Krotki sklasyfikowany powod ostatniej nieudanej proby, np. "permanent: invalid recipient"; nigdy surowa odpowiedz operatora. Zostaje do udanej wysylki.'
         updatedAt: { type: string, format: date-time }
 
     ImportFile:
@@ -2032,8 +2415,12 @@ components:
       type: object
       description: |
         Zagregowane statystyki wykorzystania i kosztow SMS.
+        Kazda czesc jest wyceniana wedlug ceny zapisanej we wsadzie w chwili wysylki, wiec zmiana
+        ceny w ustawieniach nie zmienia kosztow minionych wysylek.
         plannedCostMilli to koszt zaplanowany (wszystkie czesci SMS).
         billedCostMilli to koszt faktycznie rozliczonych SMS-ow przez bramke (przekazanych do operatora: sent + delivered oraz failed z nadanym provider_message_id; nie obejmuje bledow odrzuconych przed przyjeciem do sieci).
+        Wysylki symulowane (DRY_RUN, operator fake, tryb testowy SMSAPI) sa liczone osobno
+        (simulatedMessages, simulatedParts) i nigdy nie wchodza do kosztu rozliczonego ani doreczonego.
       required:
         - pricePerPartMilli
         - totalMessages
@@ -2096,6 +2483,12 @@ components:
         inFlightParts:
           type: integer
           description: Liczba czesci wiadomosci w trakcie przetwarzania
+        simulatedMessages:
+          type: integer
+          description: Wiadomosci "wyslane" bez operatora (DRY_RUN, fake, tryb testowy SMSAPI)
+        simulatedParts:
+          type: integer
+          description: Czesci tych wiadomosci
 
     EmailUsageStats:
       type: object

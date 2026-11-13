@@ -34,6 +34,7 @@ backend/            Go API + delivery worker
     providers/      email/ + sms/ adapters (incl. fake ones)              -> domain C
     iam/            users, roles, auth, audit log, sender identities      -> domain D
     settings/       sending settings edited in the admin panel            -> domain D
+    senders/        e-mail sender options, domain auth, delegated addresses -> domains C/D
   migrations/       numbered SQL migrations (shared, see below)
 frontend/           SvelteKit UI (routes mirror the same domain split)
 docs/               architecture, work split, git workflow, ADRs

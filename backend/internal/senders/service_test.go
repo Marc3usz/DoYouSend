@@ -407,6 +407,20 @@ func TestInputValidation(t *testing.T) {
 	}
 }
 
+func TestAddDomainTwiceNeverReachesTheOperator(t *testing.T) {
+	svc, _, api, _ := newService(liveConfig())
+	ctx := context.Background()
+	if _, err := svc.AddDomain(ctx, admin, "szkola.example.test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddDomain(ctx, admin, "SZKOLA.example.test"); !errors.Is(err, ErrDomainExists) {
+		t.Errorf("second AddDomain err = %v, want ErrDomainExists", err)
+	}
+	if len(api.created) != 1 {
+		t.Errorf("operator calls = %v, want only the first", api.created)
+	}
+}
+
 func TestAddDomainRollsBackWhenNotStored(t *testing.T) {
 	svc, store, api, _ := newService(liveConfig())
 	store.failNext = errors.New("db down")

@@ -33,6 +33,10 @@ export const settingLabels: Record<string, Label> = {
 		label: 'Adres do odpowiedzi dla wysyłek ze wspólnego adresu',
 		hint: 'Gdzie trafią odpowiedzi na e-maile wysłane ze wspólnego adresu szkoły. Pusty = na adres nadawcy.'
 	},
+	email_sender_default: {
+		label: 'Domyślny nadawca e-maili',
+		hint: 'own = własny adres wysyłającego, gdy operator go przyjmie (np. po uwierzytelnieniu domeny szkoły); shared = zawsze wspólny adres powyżej.'
+	},
 	smtp_host: { label: 'Serwer SMTP (Mailpit)' },
 	smtp_port: { label: 'Port SMTP' },
 	smtp_username: { label: 'Login SMTP' },
@@ -133,7 +137,10 @@ export function collectChanges(data: FormData, current: Settings): Record<string
 			if (v.trim() !== '') out[item.key] = v.trim();
 			continue;
 		}
-		if (v.trim() !== (item.value ?? '')) out[item.key] = v.trim();
+		if (v.trim() === (item.value ?? '')) continue;
+		// An emptied address cannot be stored as "": drop the panel value instead
+		// (the setting falls back to .env or its default, e.g. no Reply-To).
+		out[item.key] = v.trim() === '' && item.kind === 'address' ? null : v.trim();
 	}
 	return out;
 }
@@ -229,7 +236,7 @@ function fieldText(key: string): string {
 		case 'smtp_port':
 			return 'Podaj numer portu od 1 do 65535.';
 		case 'sms_max_parts':
-			return 'Podaj liczbę całkowitą od 0 wzwyż (0 = bez limitu).';
+			return 'Podaj liczbę całkowitą od 0 do 1000 (0 = bez limitu).';
 		case 'email_reply_to':
 			return 'Podaj adres e-mail, np. sekretariat@example.test, albo zostaw puste.';
 		case 'email_from':
