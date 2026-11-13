@@ -6,8 +6,7 @@ import type {
 	ImportFieldError,
 	ImportFileError,
 	ImportReport,
-	NotionImportError,
-	RecipientType
+	NotionImportError
 } from '$lib/api/recipients';
 
 const fieldErrorTexts: Record<ImportFieldError['field'], string> = {

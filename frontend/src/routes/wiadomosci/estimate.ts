@@ -50,7 +50,7 @@ export function estimateWarnings(est: SendEstimate): string[] {
 /** Text for a preview request that failed as a whole. */
 export function previewFailureText(err: unknown): string {
 	if (err instanceof ApiError && err.status === 400) {
-		return 'Serwer odrzucił wybór odbiorców. Odśwież stronę i zaznacz grupy ponownie.';
+		return 'Serwer odrzucił wybór odbiorców. Odśwież stronę i wybierz odbiorców ponownie.';
 	}
 	return 'Nie udało się policzyć podsumowania. Spróbuj ponownie za chwilę.';
 }
