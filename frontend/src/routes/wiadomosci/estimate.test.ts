@@ -37,7 +37,7 @@ describe('costText', () => {
 		[80, '0,08 zł'],
 		[65, '0,065 zł'],
 		[123450, '123,45 zł'],
-		[1234500, '1234,50 zł']
+		[1234500, '1 234,50 zł']
 	])('formats %d thousandths as %s', (milli, want) => {
 		expect(spaces(costText(milli))).toBe(want);
 	});

@@ -2,29 +2,12 @@
 // (field, code, channel, reason); the English message is never shown alone.
 import { ApiError } from '$lib/api/client';
 import { errorBody } from '$lib/api/errors';
-import type { ContactIssue } from '$lib/api/recipients';
+import { commonErrorTexts } from '$lib/format/recipients';
 
-export { recipientTypeLabel } from './import/messages';
-
-const issueTexts: Record<ContactIssue['channel'], Record<ContactIssue['reason'], string>> = {
-	email: { missing: 'Brak e-maila', invalid: 'Błędny e-mail' },
-	sms: { missing: 'Brak telefonu', invalid: 'Błędny numer' }
-};
-
-export function issueText(issue: ContactIssue): string {
-	return issueTexts[issue.channel][issue.reason];
-}
-
-/** Explains on the list what an issue means for sending. */
-export function issueHint(issue: ContactIssue): string {
-	const channel = issue.channel === 'email' ? 'e-mail' : 'SMS';
-	return `Ta osoba nie dostanie wiadomości kanałem ${channel}, dopóki dane nie zostaną poprawione.`;
-}
+export { issueHint, issueText, recipientTypeLabel } from '$lib/format/recipients';
 
 export const errorTexts = {
-	unavailable:
-		'Nie udało się połączyć z API. Sprawdź, czy backend działa (make dev-api) i ma ustawione DATABASE_URL.',
-	unexpected: 'Coś poszło nie tak. Spróbuj ponownie za chwilę.',
+	...commonErrorTexts,
 	notFound: 'Nie ma takiego odbiorcy — mógł zostać usunięty.',
 	inUse:
 		'Tego odbiorcy nie można usunąć, bo występuje w historii wysyłek. Historia musi pokazywać, do kogo poszła wiadomość.'

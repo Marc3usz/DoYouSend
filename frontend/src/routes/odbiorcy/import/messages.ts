@@ -6,8 +6,7 @@ import type {
 	ImportFieldError,
 	ImportFileError,
 	ImportReport,
-	NotionImportError,
-	RecipientType
+	NotionImportError
 } from '$lib/api/recipients';
 
 const fieldErrorTexts: Record<ImportFieldError['field'], string> = {
@@ -79,9 +78,7 @@ export function duplicateText(duplicate: ImportDuplicate): string {
 	return `${what} ma już odbiorca zapisany w bazie`;
 }
 
-export function recipientTypeLabel(type: RecipientType): string {
-	return type === 'parent' ? 'rodzic' : 'uczeń';
-}
+export { recipientTypeLabel } from '$lib/format/recipients';
 
 const notionErrorTexts: Record<NotionImportError['code'], string> = {
 	notion_not_configured:

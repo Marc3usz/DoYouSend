@@ -28,9 +28,32 @@ const actionEvent = (fetch: typeof globalThis.fetch) =>
 	({ params: { id }, fetch }) as unknown as ActionEvent;
 
 describe('odbiorcy/[id] load', () => {
-	it('returns the recipient', async () => {
-		const recipient = { id, firstName: 'Anna', lastName: 'Testowa' };
-		await expect(load(loadEvent(answer(200, recipient)))).resolves.toEqual({ recipient });
+	it('returns the recipient with the names of their groups', async () => {
+		const recipient = {
+			id,
+			firstName: 'Anna',
+			lastName: 'Testowa',
+			type: 'parent',
+			classes: [],
+			groupIds: ['g1']
+		};
+		const groups = [
+			{ id: 'g1', name: 'Rada rodziców', kind: 'custom', className: null, audience: null },
+			{ id: 'g2', name: 'Chór', kind: 'custom', className: null, audience: null }
+		];
+		const fetch: typeof globalThis.fetch = async (input) =>
+			String(input) === '/api/groups' ? answer(200, groups)(input) : answer(200, recipient)(input);
+		await expect(load(loadEvent(fetch))).resolves.toEqual({
+			recipient,
+			groups: [{ id: 'g1', name: 'Rada rodziców', kind: 'custom' }]
+		});
+	});
+
+	it('still shows the recipient when the group names cannot be loaded', async () => {
+		const recipient = { id, firstName: 'Anna', lastName: 'Testowa', type: 'parent', classes: [] };
+		const fetch: typeof globalThis.fetch = async (input) =>
+			String(input) === '/api/groups' ? answer(500)(input) : answer(200, recipient)(input);
+		await expect(load(loadEvent(fetch))).resolves.toEqual({ recipient, groups: null });
 	});
 
 	it('answers not_found from the API with a 404 page', async () => {

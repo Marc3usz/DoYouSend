@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { PageProps } from './$types';
-	import { actionText, actorText, dateTimeText, detailsText } from '../format';
+	import { actionText, actorText, dateTimeText, detailsText, entityHref } from '../format';
 
 	let { data }: PageProps = $props();
 
@@ -24,13 +24,26 @@
 	<p>Brak zdarzeń.</p>
 {:else if data.audit}
 	<table>
-		<thead><tr><th>Kiedy</th><th>Kto</th><th>Zdarzenie</th><th>Szczegóły</th></tr></thead>
+		<thead>
+			<tr>
+				<th scope="col">Kiedy</th>
+				<th scope="col">Kto</th>
+				<th scope="col">Zdarzenie</th>
+				<th scope="col">Szczegóły</th>
+			</tr>
+		</thead>
 		<tbody>
 			{#each data.audit.items as entry (entry.id)}
 				<tr>
 					<td>{dateTimeText(entry.createdAt)}</td>
 					<td>{actorText(entry)}</td>
-					<td>{actionText(entry.action)}</td>
+					<td>
+						{#if entityHref(entry)}
+							<a href={entityHref(entry)}>{actionText(entry.action)}</a>
+						{:else}
+							{actionText(entry.action)}
+						{/if}
+					</td>
 					<td>{detailsText(entry)}</td>
 				</tr>
 			{/each}
@@ -47,10 +60,6 @@
 {/if}
 
 <style>
-	.lead {
-		color: var(--color-text-muted);
-		max-width: 42rem;
-	}
 	.pager {
 		display: flex;
 		gap: 1rem;

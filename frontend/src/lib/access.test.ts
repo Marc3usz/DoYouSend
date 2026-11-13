@@ -49,8 +49,17 @@ describe('navLinks', () => {
 	it('shows a sender only the composer', () => {
 		expect(navLinks(user('sender')).map((l) => l.href)).toEqual(['/wiadomosci', '/historia']);
 	});
-	it('shows an admin the panel', () => {
-		expect(navLinks(user('admin')).map((l) => l.href)).toContain('/admin');
+	it('shows an admin the panel and the sender addresses', () => {
+		const hrefs = navLinks(user('admin')).map((l) => l.href);
+		expect(hrefs).toContain('/admin');
+		expect(hrefs).toContain('/admin/nadawcy');
+	});
+	it('lets every signed-in user open their account page', () => {
+		expect(canOpen(user('sender'), '/konto')).toBe('ok');
+		expect(canOpen(null, '/konto')).toBe('login');
+	});
+	it('keeps the sender addresses page for admins', () => {
+		expect(canOpen(user('sender'), '/admin/nadawcy')).toBe('forbidden');
 	});
 	it('is empty before logging in', () => {
 		expect(navLinks(null)).toEqual([]);

@@ -136,7 +136,7 @@ export function sendingConfig(fetch?: typeof globalThis.fetch): Promise<SendingC
 export type SettingItem = {
 	key: string;
 	group: 'general' | 'email' | 'sms' | 'notion';
-	kind: 'text' | 'bool' | 'enum' | 'secret' | 'price' | 'port' | 'address';
+	kind: 'text' | 'bool' | 'enum' | 'secret' | 'price' | 'port' | 'address' | 'int';
 	options?: string[];
 	/** null for secrets: only `set` says whether one is stored. */
 	value: string | null;
@@ -169,6 +169,19 @@ export function updateSettings(
 		body: { values, confirmLiveSending },
 		fetch
 	});
+}
+
+export type TestMessageResult = { dryRun: boolean; providerMessageId: string };
+
+/**
+ * POST /admin/settings/test: one test message through the current setup. An
+ * e-mail goes to the admin's own address unless `to` is given; SMS needs `to`.
+ */
+export function sendTestMessage(
+	input: { channel: 'email' | 'sms'; to?: string },
+	fetch?: typeof globalThis.fetch
+): Promise<TestMessageResult> {
+	return api<TestMessageResult>('/admin/settings/test', { method: 'POST', body: input, fetch });
 }
 
 export type SmsProfile = {
