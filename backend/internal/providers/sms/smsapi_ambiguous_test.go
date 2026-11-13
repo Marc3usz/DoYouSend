@@ -39,7 +39,7 @@ func TestAPI_AmbiguousOutcomesAreNotTransient(t *testing.T) {
 
 	t.Run("timeout after the request was sent is unclassified", func(t *testing.T) {
 		t.Parallel()
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 			time.Sleep(300 * time.Millisecond)
 		}))
 		defer srv.Close()
@@ -57,7 +57,7 @@ func TestAPI_AmbiguousOutcomesAreNotTransient(t *testing.T) {
 
 	t.Run("unreadable success is unclassified", func(t *testing.T) {
 		t.Parallel()
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			_, _ = w.Write([]byte("not json"))
 		}))
 		defer srv.Close()
