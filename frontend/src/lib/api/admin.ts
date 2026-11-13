@@ -224,6 +224,9 @@ export type SmsUsage = {
 	failedParts: number;
 	inFlightMessages: number;
 	inFlightParts: number;
+	/** "Sent" under DRY_RUN, by the fake gateway or in SMSAPI test mode: never billed. */
+	simulatedMessages?: number;
+	simulatedParts?: number;
 };
 
 /** GET /stats/sms for batches sent from `from` to `to` (YYYY-MM-DD, both inclusive). */

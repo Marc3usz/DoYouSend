@@ -157,7 +157,8 @@
 		<dt>Wiadomości ponawiane</dt>
 		<dd>
 			{retriedCount}
-			{plural(retriedCount, 'wiadomość', 'wiadomości', 'wiadomości')} wysłano więcej niż raz
+			{plural(retriedCount, 'wiadomość wymagała', 'wiadomości wymagały', 'wiadomości wymagało')} więcej
+			niż jednej próby
 		</dd>
 	{/if}
 </dl>

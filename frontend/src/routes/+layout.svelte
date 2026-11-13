@@ -126,6 +126,12 @@
 	.account small {
 		color: var(--color-text-muted);
 	}
+	/* Keep the admin header on one line on common laptop widths. */
+	@media (max-width: 90rem) {
+		.account small {
+			display: none;
+		}
+	}
 	.me {
 		color: var(--color-text);
 		text-decoration: none;

@@ -17,8 +17,22 @@ export function partsText(min: number, max: number): string {
 
 const placeholderList = (names: string[]) => names.map((n) => `{{${n}}}`).join(', ');
 
-/** Problems the sender should see before confirming, most serious first. */
-export function estimateWarnings(est: SendEstimate): string[] {
+/** What an unreachable recipient lacks for the chosen channels. */
+function missingForChannels(channels: readonly ('email' | 'sms')[]): string {
+	if (channels.length === 1) {
+		return channels[0] === 'email' ? 'działającego e-maila' : 'działającego numeru telefonu';
+	}
+	return 'ani e-maila, ani telefonu';
+}
+
+/**
+ * Problems the sender should see before confirming, most serious first.
+ * channels are the ones chosen in the composer (both by default).
+ */
+export function estimateWarnings(
+	est: SendEstimate,
+	channels: readonly ('email' | 'sms')[] = ['email', 'sms']
+): string[] {
 	const warnings: string[] = [];
 	if (est.unknownPlaceholders.length > 0) {
 		const label = est.unknownPlaceholders.length === 1 ? 'Nieznane pole' : 'Nieznane pola';
@@ -35,7 +49,7 @@ export function estimateWarnings(est: SendEstimate): string[] {
 	if (est.unreachableCount > 0) {
 		const n = est.unreachableCount;
 		warnings.push(
-			`${recipientsText(n)} ${lacks(n)} ani e-maila, ani telefonu — nie ${gets(n)} wiadomości.`
+			`${recipientsText(n)} ${lacks(n)} ${missingForChannels(channels)} — nie ${gets(n)} wiadomości.`
 		);
 	}
 	if (est.partialCount > 0) {

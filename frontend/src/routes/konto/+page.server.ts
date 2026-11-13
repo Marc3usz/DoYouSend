@@ -1,5 +1,6 @@
 import { fail } from '@sveltejs/kit';
-import { changePassword } from '$lib/api/auth';
+import { dev } from '$app/environment';
+import { changePassword, SESSION_COOKIE } from '$lib/api/auth';
 import { mySenders } from '$lib/api/senders';
 import type { Actions, PageServerLoad } from './$types';
 import { checkPasswordForm, passwordFailureOf } from './account';
@@ -16,7 +17,7 @@ const text = (data: FormData, name: string) => {
 };
 
 export const actions: Actions = {
-	password: async ({ request, fetch }) => {
+	password: async ({ request, fetch, cookies }) => {
 		const data = await request.formData();
 		const input = {
 			currentPassword: text(data, 'currentPassword'),
@@ -28,7 +29,15 @@ export const actions: Actions = {
 			return fail(400, { fields, failure: null });
 		}
 		try {
-			await changePassword(input.currentPassword, input.newPassword, fetch);
+			const session = await changePassword(input.currentPassword, input.newPassword, fetch);
+			// Every old session just ended: keep this browser signed in with the new one.
+			cookies.set(SESSION_COOKIE, session.token, {
+				path: '/',
+				httpOnly: true,
+				sameSite: 'lax',
+				secure: !dev,
+				...(session.expires ? { expires: session.expires } : {})
+			});
 			return {
 				done: 'Hasło zostało zmienione. Na innych urządzeniach trzeba będzie zalogować się ponownie.'
 			};

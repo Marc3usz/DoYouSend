@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PageProps } from './$types';
+	import { plural } from '$lib/format/text';
 	import {
 		actionText,
 		actorText,
@@ -42,6 +43,13 @@
 		{#if data.usage}
 			<p class="big">{plnText(data.usage.billedCostMilli)}</p>
 			<p class="sub">koszt wysłanych SMS-ów (naliczany przez operatora)</p>
+			{#if (data.usage.simulatedMessages ?? 0) > 0}
+				<p class="sub">
+					W tym {data.usage.simulatedMessages}
+					{plural(data.usage.simulatedMessages ?? 0, 'SMS', 'SMS-y', 'SMS-ów')} w trybie testowym — nic
+					nie wyszło do operatora, więc nie ma kosztu.
+				</p>
+			{/if}
 			<dl>
 				<dt>Wiadomości SMS</dt>
 				<dd>{data.usage.totalMessages}</dd>

@@ -98,6 +98,15 @@ describe('estimateWarnings', () => {
 			'5 odbiorców dostanie wiadomość tylko jednym kanałem (brak e-maila albo telefonu).'
 		]);
 	});
+
+	it('names only the chosen channel for a single-channel send', () => {
+		expect(estimateWarnings({ ...empty, unreachableCount: 1 }, ['sms'])).toEqual([
+			'1 odbiorca nie ma działającego numeru telefonu — nie dostanie wiadomości.'
+		]);
+		expect(estimateWarnings({ ...empty, unreachableCount: 2 }, ['email'])).toEqual([
+			'2 odbiorcy nie mają działającego e-maila — nie dostaną wiadomości.'
+		]);
+	});
 });
 
 describe('previewFailureText', () => {

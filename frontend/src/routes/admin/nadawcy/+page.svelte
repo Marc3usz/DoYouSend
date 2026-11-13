@@ -449,10 +449,16 @@
 	.add button {
 		align-self: flex-start;
 	}
+	/* Fieldsets default to their content's width; long e-mails must wrap on phones. */
+	fieldset {
+		min-width: 0;
+	}
 	.check {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: baseline;
 		gap: 0.5rem;
+		overflow-wrap: anywhere;
 		font-weight: normal;
 		padding: 0.15rem 0;
 	}

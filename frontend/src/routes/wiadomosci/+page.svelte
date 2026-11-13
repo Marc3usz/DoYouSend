@@ -246,7 +246,7 @@
 		}
 	}
 
-	const warnings = $derived(estimate ? estimateWarnings(estimate) : []);
+	const warnings = $derived(estimate ? estimateWarnings(estimate, targetChannels) : []);
 	const hasRecipients = $derived((estimate?.recipientCount ?? 0) > 0);
 	const hasSelection = $derived(selectedGroupIds.length > 0 || selectedRecipients.length > 0);
 	// Counts and cost are only meaningful once the body renders for the recipients.
@@ -814,7 +814,8 @@
 	}
 	@media (max-width: 48rem) {
 		.composer {
-			grid-template-columns: 1fr;
+			/* minmax(0, …): a long sender address must not widen the page on phones. */
+			grid-template-columns: minmax(0, 1fr);
 		}
 		.summary {
 			position: static;
@@ -1208,8 +1209,12 @@
 	}
 	.channel-mode-group {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+		grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
 		gap: 0.75rem;
+	}
+	.draft select {
+		max-width: 100%;
+		min-width: 0;
 	}
 	.channel-radio-label {
 		display: flex;
