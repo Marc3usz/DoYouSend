@@ -28,6 +28,9 @@ type Config struct {
 	ReplyTo providers.Address
 	// PreferOwn makes the user's own address the default whenever it is usable.
 	PreferOwn bool
+	// SharedOnly: real mail goes through an SMTP relay, which accepts only its
+	// own account as From; every other address is offered but not usable.
+	SharedOnly bool
 }
 
 // Options configure a Service.
@@ -118,8 +121,27 @@ func (s *Service) ResolveSender(ctx context.Context, u User, senderID string) (f
 	return opts[i].Address, providers.Address{}, nil
 }
 
+// MaySendFrom reports, with ErrNotAllowed, whether u may still send from email
+// right now: it is one of u's options and usable. A retry of an old batch asks
+// this before sending from the address the batch recorded, so a delegation
+// that was taken away cannot be used through an old batch.
+func (s *Service) MaySendFrom(ctx context.Context, u User, email string) error {
+	opts, _, err := s.Options(ctx, u)
+	if err != nil {
+		return err
+	}
+	email = strings.ToLower(strings.TrimSpace(email))
+	if slices.ContainsFunc(opts, func(o Option) bool { return o.Usable && o.Address.Email == email }) {
+		return nil
+	}
+	return fmt.Errorf("sender %s: %w", email, ErrNotAllowed)
+}
+
 // usable reports whether the operator accepts email as From right now.
 func (s *Service) usable(ctx context.Context, cfg Config, email string) (bool, Reason, error) {
+	if cfg.SharedOnly && !strings.EqualFold(email, cfg.Shared.Email) {
+		return false, ReasonSharedOnly, nil
+	}
 	if !cfg.Live {
 		return true, ReasonNone, nil
 	}

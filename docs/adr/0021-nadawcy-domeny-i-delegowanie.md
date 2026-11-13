@@ -31,7 +31,9 @@
 2. **Kiedy adres jest użyteczny.** Gdy operator sam sprawdza nadawców (SendGrid przy wyłączonym
    DRY_RUN), adres jest użyteczny, jeśli jego domena ma status `valid` albo jest zweryfikowanym
    pojedynczym nadawcą (ADR-0016). W innych trybach (DRY_RUN, Mailpit/SMTP) każdy przydzielony
-   adres jest użyteczny.
+   adres jest użyteczny. Wyjątek: zewnętrzny serwer SMTP (operator `mailpit` z hostem innym niż
+   lokalny, przy wyłączonym DRY_RUN) zwykle przyjmuje tylko własne konto jako nadawcę, więc wtedy
+   użyteczny jest tylko adres wspólny (powód `shared_only`).
 3. **Uwierzytelnianie domeny z panelu** (Panel administratora → Nadawcy): administrator dodaje
    domenę, backend zakłada ją w SendGrid z `automatic_security` i pokazuje trzy rekordy CNAME do
    dodania w DNS szkoły, a „Sprawdź DNS” prosi SendGrid o walidację. Przy DRY_RUN albo bez

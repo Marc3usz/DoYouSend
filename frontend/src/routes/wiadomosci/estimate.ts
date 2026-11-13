@@ -17,6 +17,12 @@ export function partsText(min: number, max: number): string {
 
 const placeholderList = (names: string[]) => names.map((n) => `{{${n}}}`).join(', ');
 
+/** Whether some recipient's SMS is longer than the operator's part limit. */
+export function overSMSLimit(est: SendEstimate): boolean {
+	const limit = est.smsPartLimit ?? 0;
+	return limit > 0 && est.smsCount > 0 && est.maxPartsPerRecipient > limit;
+}
+
 /** What an unreachable recipient lacks for the chosen channels. */
 function missingForChannels(channels: readonly ('email' | 'sms')[]): string {
 	if (channels.length === 1) {
@@ -38,6 +44,14 @@ export function estimateWarnings(
 		const label = est.unknownPlaceholders.length === 1 ? 'Nieznane pole' : 'Nieznane pola';
 		warnings.push(
 			`${label} ${placeholderList(est.unknownPlaceholders)} — dostępne są tylko {{imie}} i {{nazwisko}}. Z takimi polami wiadomość nie zostanie wysłana.`
+		);
+	}
+	if (channels.includes('sms') && overSMSLimit(est)) {
+		const tail = channels.includes('email')
+			? 'Te SMS-y nie zostaną wysłane (e-maile tak) — skróć treść albo zmień limit w ustawieniach.'
+			: 'Nic nie zostanie wysłane — skróć treść albo zmień limit w ustawieniach.';
+		warnings.push(
+			`SMS ma do ${est.maxPartsPerRecipient} części, a limit to ${est.smsPartLimit}. ${tail}`
 		);
 	}
 	const failed = est.renderFailedIds.length;

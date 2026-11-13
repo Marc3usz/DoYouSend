@@ -175,7 +175,8 @@ func (d *Dispatcher) sendWithPause(ctx context.Context, msg providers.Message, d
 	recipientID := msg.RecipientID
 	sender, ok := d.senders[del.Channel]
 	if !ok {
-		return failed(del, fmt.Errorf("%w: %s", errNoSender, del.Channel)), 0
+		// Certainly not sent: nothing could send it.
+		return failed(del, providers.PermanentError(fmt.Errorf("%w: %s", errNoSender, del.Channel))), 0
 	}
 
 	// Attempts is cumulative over retries, for the history; the retry policy counts
@@ -291,13 +292,14 @@ const (
 // Failure reasons that do not come from a provider.
 const (
 	reasonRender      = "render body"
+	reasonTooLong     = "sms over the part limit"
 	reasonInterrupted = "unclassified: interrupted while sending (API restart)"
 )
 
 // RetryClassOf classifies a failed delivery by its stored reason (see describe).
 func RetryClassOf(reason string) RetryClass {
 	switch {
-	case strings.HasPrefix(reason, reasonRender):
+	case strings.HasPrefix(reason, reasonRender), strings.HasPrefix(reason, reasonTooLong):
 		return RetryNever
 	case strings.HasPrefix(reason, "unclassified"):
 		return RetryUncertain

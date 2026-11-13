@@ -6,7 +6,7 @@ type Fetch = typeof globalThis.fetch;
 
 export type SenderKind = 'shared' | 'own' | 'delegated';
 
-export type SenderUnusableReason = 'domain_not_authenticated' | 'not_verified';
+export type SenderUnusableReason = 'domain_not_authenticated' | 'not_verified' | 'shared_only';
 
 /** One address a user may pick as the e-mail From. */
 export type SenderOption = {

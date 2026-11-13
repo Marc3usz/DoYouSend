@@ -257,6 +257,8 @@ func (h *Handler) retry(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, http.StatusConflict, httpx.ErrorBody{Code: "batch_running", Message: "batch is currently running"})
 		case errors.Is(err, ErrNoFailedDeliveries):
 			httpx.Error(w, http.StatusConflict, httpx.ErrorBody{Code: "no_failed_deliveries", Message: "batch has no failed deliveries to retry"})
+		case errors.Is(err, ErrSenderNotAllowed):
+			httpx.Error(w, http.StatusConflict, httpx.ErrorBody{Code: "sender_not_allowed", Message: "the batch author may no longer send from this batch's address"})
 		case errors.Is(err, ErrShuttingDown):
 			httpx.Error(w, http.StatusServiceUnavailable, httpx.ErrorBody{Code: "internal", Message: ErrShuttingDown.Error()})
 		case errors.Is(err, ErrBatchNotFound):

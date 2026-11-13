@@ -164,7 +164,14 @@ func (m *Mailpit) Send(ctx context.Context, msg providers.Message) (providers.Re
 		return providers.Result{}, classifySMTPError(msg.RecipientID, err)
 	}
 	if err := w.Close(); err != nil {
-		return providers.Result{}, classifySMTPError(msg.RecipientID, err)
+		// A reply code is a clear answer. Without one (timeout, dropped connection)
+		// the server has the whole message and may have queued it: unclassified,
+		// so it is not retried automatically and nobody gets it twice.
+		var reply *textproto.Error
+		if errors.As(err, &reply) {
+			return providers.Result{}, classifySMTPError(msg.RecipientID, err)
+		}
+		return providers.Result{}, fmt.Errorf("send email to recipient %s: no answer after the message was sent: %w", msg.RecipientID, err)
 	}
 
 	_ = client.Quit()

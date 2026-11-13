@@ -24,6 +24,7 @@ export const errorCodes = [
 	'self_lockout',
 	'batch_running',
 	'no_failed_deliveries',
+	'sender_not_allowed',
 	'provider_error',
 	'confirmation_required',
 	'dry_run_locked',

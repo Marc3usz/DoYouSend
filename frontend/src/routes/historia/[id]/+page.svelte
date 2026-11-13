@@ -73,6 +73,9 @@
 				retryError = 'Brak nieudanych wiadomości do ponowienia.';
 			} else if (body?.code === 'batch_running') {
 				retryError = 'Wysyłka jest w trakcie — poczekaj, aż się zakończy.';
+			} else if (body?.code === 'sender_not_allowed') {
+				retryError =
+					'Autor tej wysyłki nie może już wysyłać z jej adresu nadawcy (np. administrator cofnął dostęp do skrzynki). Użyj jej jako podstawy nowej wiadomości i wybierz innego nadawcę.';
 			} else {
 				retryError = 'Nie udało się uruchomić ponowienia. Spróbuj ponownie.';
 			}

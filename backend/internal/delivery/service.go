@@ -106,6 +106,9 @@ type EmailSender struct {
 // ErrSenderNotAllowed (ADR-0021). main adapts the senders package to it.
 type SenderResolver interface {
 	ResolveSender(ctx context.Context, userID, senderID string) (EmailSender, error)
+	// CheckSender fails with an error matching ErrSenderNotAllowed when the
+	// batch author may no longer send from the address the batch recorded.
+	CheckSender(ctx context.Context, authorID string, from providers.Address) error
 }
 
 // ErrSenderNotAllowed means the user may not send from the chosen address.
@@ -126,6 +129,7 @@ type Service struct {
 	dispatcher        PlanDispatcher
 	store             Store
 	pricePerPartMilli atomic.Int64 // changed from the settings panel (ADR-0018)
+	smsMaxParts       atomic.Int64 // 0: no limit
 	logger            *slog.Logger
 	auditor           BatchAuditor
 	senders           SenderResolver
@@ -157,6 +161,10 @@ func NewService(resolver Resolver, lookup GroupLookup, dispatcher PlanDispatcher
 // SetSMSPrice changes the price of one SMS part for batches recorded from now
 // on; recorded batches keep the cost they were saved with.
 func (s *Service) SetSMSPrice(pricePerPartMilli int64) { s.pricePerPartMilli.Store(pricePerPartMilli) }
+
+// SetSMSMaxParts sets the operator's limit of parts per SMS for new batches
+// (0: none); a longer SMS fails at planning instead of at the gateway.
+func (s *Service) SetSMSMaxParts(n int) { s.smsMaxParts.Store(int64(n)) }
 
 // SetAuditor makes every newly recorded batch reach a. A repeated idempotency key
 // records nothing: the confirmation was logged the first time.
@@ -280,6 +288,7 @@ func (s *Service) record(ctx context.Context, d Draft) (Batch, bool, error) {
 
 	plan := NewPlan(d.Subject, d.Body, res.Recipients, targets...)
 	plan.From, plan.ReplyTo = sender.From, sender.ReplyTo
+	plan.limitSMSParts(int(s.smsMaxParts.Load()))
 	parts := plan.smsParts()
 	batch, err := s.store.CreateBatch(ctx, Batch{
 		Subject:              d.Subject,
@@ -393,6 +402,9 @@ func (s *Service) dispatch(ctx context.Context, batch Batch) (Batch, error) {
 // paid twice (CLAUDE.md rule 5); uncertain ones only with includeUncertain. It fails
 // while the batch is running or when there is nothing to send again.
 func (s *Service) RetryBatch(ctx context.Context, batchID string, includeUncertain bool) (Batch, error) {
+	if err := s.checkRetrySender(ctx, batchID, includeUncertain); err != nil {
+		return Batch{}, fmt.Errorf("retry batch: %w", err)
+	}
 	batch, err := s.store.ResetFailedDeliveries(ctx, batchID, includeUncertain)
 	if err != nil {
 		return Batch{}, fmt.Errorf("retry batch: %w", err)
@@ -406,6 +418,9 @@ func (s *Service) RetryBatch(ctx context.Context, batchID string, includeUncerta
 // StartRetry does what RetryBatch does but returns as soon as the deliveries are reset
 // (POST /batches/{id}/retry answers 202); the dispatch goes on in the background.
 func (s *Service) StartRetry(ctx context.Context, batchID string, includeUncertain bool) (Batch, error) {
+	if err := s.checkRetrySender(ctx, batchID, includeUncertain); err != nil {
+		return Batch{}, fmt.Errorf("retry batch: %w", err)
+	}
 	if !s.enter() {
 		return Batch{}, fmt.Errorf("retry batch: %w", ErrShuttingDown)
 	}
@@ -427,6 +442,34 @@ func (s *Service) StartRetry(ctx context.Context, batchID string, includeUncerta
 		}
 	}(batch)
 	return batch, nil
+}
+
+// checkRetrySender refuses a retry that would send e-mail from an address the
+// batch author may no longer use (ADR-0021). Batches without a recorded sender
+// and retries that send no e-mail pass.
+func (s *Service) checkRetrySender(ctx context.Context, batchID string, includeUncertain bool) error {
+	if s.senders == nil {
+		return nil
+	}
+	b, err := s.store.Batch(ctx, batchID)
+	if err != nil {
+		return err
+	}
+	if b.Plan.From.IsZero() {
+		return nil
+	}
+	sendsEmail := false
+	for _, r := range b.Plan.Recipients {
+		for _, d := range r.Deliveries {
+			if d.Channel == providers.ChannelEmail && d.Status == StatusFailed && retries(d.Error, includeUncertain) {
+				sendsEmail = true
+			}
+		}
+	}
+	if !sendsEmail {
+		return nil
+	}
+	return s.senders.CheckSender(ctx, b.CreatedBy, b.Plan.From)
 }
 
 // Recover finishes the batches a stopped process left running. It must run once at

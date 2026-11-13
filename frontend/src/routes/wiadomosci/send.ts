@@ -2,7 +2,7 @@
 import { ApiError } from '$lib/api/client';
 import { errorBody } from '$lib/api/errors';
 import type { SendEstimate } from '$lib/api/messages';
-import { plural, smsText } from './estimate';
+import { overSMSLimit, plural, smsText } from './estimate';
 
 /**
  * A new UUID v4 for the Idempotency-Key. crypto.randomUUID exists only in secure
@@ -80,7 +80,9 @@ export function canConfirm(
 		est !== null &&
 		est.recipientCount > 0 &&
 		est.template.parts > 0 &&
-		est.unknownPlaceholders.length === 0
+		est.unknownPlaceholders.length === 0 &&
+		// SMS only and over the part limit: nothing would go out.
+		!(channels?.length === 1 && channels[0] === 'sms' && overSMSLimit(est))
 	);
 }
 

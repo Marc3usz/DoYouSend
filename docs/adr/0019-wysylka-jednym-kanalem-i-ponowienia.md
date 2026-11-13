@@ -34,12 +34,23 @@
    - błąd renderowania treści nie jest ponawiany nigdy.
    Ponowienie bierze aktualny adres i numer odbiorcy. `attempts` się sumuje, ostatni błąd zostaje
    do udanej wysyłki, a `retry_count` i `last_retry_at` zapisują każde ponowienie.
+   Ponowienie czyści `provider_message_id` (spóźniony raport o starej próbie nie nadpisze nowej),
+   a części SMS rozliczone za starą próbę zostają w `billed_parts_before_retry` (migracja 0013).
+   Raporty SMSAPI `NOT_FOUND` i `UNKNOWN` są niepewne (SMS mógł dotrzeć), tak samo brak
+   odpowiedzi serwera SMTP po wysłaniu całej wiadomości.
+   Ponowienie z e-mailami sprawdza, czy autor wsadu nadal może wysyłać z zapisanego adresu
+   nadawcy (ADR-0021); jeśli nie, odpowiedź to 409 `sender_not_allowed`.
 3. **Start API kończy przerwane wsady** (`delivery.Service.Recover`). Dostawy w `sending`
    stają się `failed` z niepewnym powodem „interrupted while sending”, bo nie wiadomo, czy
    wyszły. Dostawy w `pending` są wysyłane od razu, a status wsadu jest wyliczany od nowa.
-   Zakładamy jedną instancję API.
+   Odzyskiwanie robi tylko proces, który otworzył port API i trzyma blokadę doradczą Postgresa
+   (`pg_try_advisory_lock`) przez cały czas działania. Drugi `make dev-api` na tej samej bazie
+   kończy się na zajętym porcie, a drugi proces na innym porcie nie przejmuje cudzych wsadów.
 4. **SMSAPI:** przejściowy jest tylko błąd nawiązania połączenia (DNS, odmowa połączenia).
    Wszystko po wysłaniu żądania jest niesklasyfikowane, więc nie jest ponawiane automatycznie.
+5. **Limit części SMS** (`sms_max_parts`): SMS dłuższy od limitu jest oznaczany jako nieudany
+   przy planowaniu wsadu (bez kosztu, bez ponawiania), e-mail idzie normalnie, a kreator
+   ostrzega przed zatwierdzeniem. Treść nigdy nie jest skracana.
 
 ## Rozważane alternatywy
 
@@ -54,5 +65,5 @@
 
 - Historia pokazuje kanały, nadawcę, liczbę ponowień i ostatni błąd każdej dostawy.
 - Ponowienie z `includeUncertain` może dać komuś wiadomość dwa razy. Panel o tym ostrzega.
-- Przy kilku instancjach API odzyskiwanie przy starcie trzeba będzie przenieść do osobnego
-  procesu albo zabezpieczyć blokadą.
+- Przy kilku instancjach API odzyskiwaniem zajmuje się tylko ta, która trzyma blokadę; gdy
+  padnie, wsady dokończy następny start procesu z blokadą.

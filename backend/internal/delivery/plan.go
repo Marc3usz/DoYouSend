@@ -123,6 +123,24 @@ func planRecipient(body string, r groups.Resolved, targets []providers.Channel) 
 	return pr
 }
 
+// limitSMSParts fails, before anything is sent, every SMS longer than maxParts
+// parts (0: no limit): the operator would refuse it anyway (SMSAPI max_parts),
+// and the body is never shortened (CLAUDE.md rule 4). The e-mail still goes.
+func (p *Plan) limitSMSParts(maxParts int) {
+	if maxParts <= 0 {
+		return
+	}
+	for i := range p.Recipients {
+		for j := range p.Recipients[i].Deliveries {
+			d := &p.Recipients[i].Deliveries[j]
+			if d.Channel == providers.ChannelSMS && d.Status == StatusPending && d.Parts > maxParts {
+				d.Status = StatusFailed
+				d.Error = fmt.Sprintf("%s: %d parts, at most %d allowed", reasonTooLong, d.Parts, maxParts)
+			}
+		}
+	}
+}
+
 // Status summarises the batch: running while any delivery is pending or sending (its
 // outcome unknown), then done, or done_with_errors when a delivery failed or someone
 // was unreachable.

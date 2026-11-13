@@ -59,7 +59,9 @@ klucz główny na parze.
 `phone_snapshot`, `is_partial`, `position` (0005, kolejność w historii).
 
 **`deliveries`** — `id`, `batch_recipient_id`, `channel`, `status`, `parts`,
-`provider_message_id`, `error`, `attempts`, `updated_at`.
+`provider_message_id`, `error`, `attempts` (sumowane przez ponowienia), `updated_at`,
+`billed_parts_before_retry` (0013: części SMS rozliczone przez operatora za próby sprzed
+ponowienia; ponowienie czyści `provider_message_id`, żeby spóźniony raport nie nadpisał nowej próby).
 
 **`unmatched_delivery_reports`** (0007) — `provider_message_id`, `channel`, `status`, `error`,
 `created_at`, `updated_at`.

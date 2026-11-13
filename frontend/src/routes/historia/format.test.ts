@@ -4,6 +4,7 @@ import {
 	attemptsText,
 	deliveryOf,
 	deliveryText,
+	failureReasonText,
 	excludedText,
 	fromText,
 	isBatchStatus,
@@ -43,14 +44,14 @@ describe('deliveryText', () => {
 		[sms({ status: 'delivered', parts: 3 }), 'Doręczono (3 części)'],
 		[
 			sms({ status: 'failed', error: 'permanent: invalid recipient' }),
-			'Błąd: permanent: invalid recipient'
+			'Błąd: nieprawidłowy adres lub numer'
 		],
 		[sms({ channel: 'email', status: 'pending', parts: 1, attempts: 0 }), 'Czeka'],
 		[sms({ status: 'sent', attempts: 2 }), 'Wysłano (2 próby)'],
 		[sms({ status: 'delivered', parts: 3, attempts: 2 }), 'Doręczono (3 części, 2 próby)'],
 		[
 			sms({ status: 'failed', error: 'transient: rate limit exceeded', attempts: 3 }),
-			'Błąd (3 próby): transient: rate limit exceeded'
+			'Błąd (3 próby): operator chwilowo ograniczył wysyłkę'
 		],
 		[sms({ channel: 'email', status: 'delivered', attempts: 4 }), 'Doręczono (4 próby)']
 	])('%#', (d, want) => {
@@ -147,5 +148,31 @@ describe('excludedText', () => {
 		[25, '25 wykluczonych osób']
 	])('%d -> %s', (n, want) => {
 		expect(excludedText(n)).toBe(want);
+	});
+});
+
+describe('failureReasonText', () => {
+	it.each([
+		['permanent: invalid recipient', 'nieprawidłowy adres lub numer'],
+		['transient: gateway timeout', 'operator nie odpowiedział na czas'],
+		['transient: rate limit exceeded', 'operator chwilowo ograniczył wysyłkę'],
+		['unclassified provider error', 'nieznany wynik — wiadomość mogła dotrzeć'],
+		[
+			'unclassified: interrupted while sending (API restart)',
+			'wysyłkę przerwał restart serwera — wynik nieznany'
+		],
+		[
+			'unclassified: no delivery report available from carrier',
+			'operator nie ma raportu doręczenia — wynik nieznany'
+		],
+		[
+			'sms over the part limit: 2 parts, at most 1 allowed',
+			'SMS dłuższy niż limit części z ustawień'
+		],
+		['render body: missing value', 'brak danych do pola w treści (np. imienia)'],
+		['message rejected by carrier or invalid recipient number', 'nieprawidłowy adres lub numer'],
+		['bounced: mailbox full', 'operator: bounced: mailbox full']
+	])('%s', (raw, want) => {
+		expect(failureReasonText(raw)).toBe(want);
 	});
 });

@@ -33,7 +33,7 @@ func TestHandlePreview(t *testing.T) {
 			wantJSON: `{"template":{"encoding":"GSM7","units":18,"parts":1},"placeholders":["imie"],
 				"unknownPlaceholders":[],"recipientCount":2,"emailCount":2,"smsCount":1,"partialCount":1,
 				"unreachableCount":0,"ucs2Count":0,"minPartsPerRecipient":1,"maxPartsPerRecipient":1,
-				"totalSmsParts":1,"costMilli":80,"renderFailedIds":[],"sampleRecipientName":"Anna Nowak","sampleBody":"Witaj Anna"}`,
+				"totalSmsParts":1,"costMilli":80,"renderFailedIds":[],"sampleRecipientName":"Anna Nowak","sampleBody":"Witaj Anna","smsPartLimit":3}`,
 		},
 		{
 			name:       "no selection still measures the body",
@@ -43,7 +43,7 @@ func TestHandlePreview(t *testing.T) {
 			wantJSON: `{"template":{"encoding":"UCS2","units":6,"parts":1},"placeholders":[],
 				"unknownPlaceholders":[],"recipientCount":0,"emailCount":0,"smsCount":0,"partialCount":0,
 				"unreachableCount":0,"ucs2Count":0,"minPartsPerRecipient":0,"maxPartsPerRecipient":0,
-				"totalSmsParts":0,"costMilli":0,"renderFailedIds":[],"sampleRecipientName":"Jan Kowalski (dane przykładowe)","sampleBody":"Zażółć"}`,
+				"totalSmsParts":0,"costMilli":0,"renderFailedIds":[],"sampleRecipientName":"Jan Kowalski (dane przykładowe)","sampleBody":"Zażółć","smsPartLimit":3}`,
 		},
 		{
 			name:       "malformed json",
@@ -70,7 +70,7 @@ func TestHandlePreview(t *testing.T) {
 			wantJSON: `{"template":{"encoding":"GSM7","units":18,"parts":1},"placeholders":["imie"],
 				"unknownPlaceholders":[],"recipientCount":2,"emailCount":2,"smsCount":0,"partialCount":0,
 				"unreachableCount":0,"ucs2Count":0,"minPartsPerRecipient":0,"maxPartsPerRecipient":0,
-				"totalSmsParts":0,"costMilli":0,"renderFailedIds":[],"sampleRecipientName":"Anna Nowak","sampleBody":"Witaj Anna"}`,
+				"totalSmsParts":0,"costMilli":0,"renderFailedIds":[],"sampleRecipientName":"Anna Nowak","sampleBody":"Witaj Anna","smsPartLimit":3}`,
 		},
 		{
 			name:       "invalid channel rejected",
@@ -90,7 +90,7 @@ func TestHandlePreview(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := HandlePreview(NewPreviewer(tt.resolver, 80), slog.New(slog.NewTextHandler(io.Discard, nil)))
+			h := HandlePreview(NewPreviewer(tt.resolver, 80).WithSMSPartLimit(3), slog.New(slog.NewTextHandler(io.Discard, nil)))
 			rec := httptest.NewRecorder()
 			h(rec, httptest.NewRequest(http.MethodPost, "/api/messages/preview", strings.NewReader(tt.request)))
 

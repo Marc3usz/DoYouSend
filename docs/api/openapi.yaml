@@ -758,7 +758,10 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409":
-          description: Konflikt stanu wsadu (batch_running lub no_failed_deliveries)
+          description: |
+            batch_running, no_failed_deliveries albo sender_not_allowed - autor wsadu nie moze juz
+            wysylac z adresu nadawcy zapisanego we wsadzie (np. cofnieto mu delegacje), a ponowienie
+            obejmowaloby e-maile (ADR-0021)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorBody" }
@@ -2009,6 +2012,11 @@ components:
         sampleRecipientName:
           type: string
           description: Imie i nazwisko odbiorcy, dla ktorego wyrenderowano sampleBody
+        smsPartLimit:
+          type: integer
+          description: |
+            Limit czesci jednego SMS-a z ustawien (sms_max_parts); 0 = bez limitu. SMS dluzszy od limitu
+            nie jest wysylany - wsad oznacza go jako nieudany przed wysylka (bez kosztu), e-mail idzie.
 
     BatchStatus:
       type: string
@@ -2074,8 +2082,10 @@ components:
         reason:
           type: string
           nullable: true
-          enum: [domain_not_authenticated, not_verified, null]
-          description: Dlaczego adres nie jest usable
+          enum: [domain_not_authenticated, not_verified, shared_only, null]
+          description: |
+            Dlaczego adres nie jest usable. shared_only - wysylka idzie przez zewnetrzny serwer SMTP,
+            ktory zwykle przyjmuje tylko wlasne konto jako nadawce, wiec dostepny jest tylko adres wspolny.
 
     SenderOptions:
       type: object
@@ -2129,7 +2139,7 @@ components:
           type: array
           items: { $ref: "#/components/schemas/UserRef" }
         usable: { type: boolean }
-        reason: { type: string, nullable: true, enum: [domain_not_authenticated, not_verified, null] }
+        reason: { type: string, nullable: true, enum: [domain_not_authenticated, not_verified, shared_only, null] }
         createdAt: { type: string, format: date-time }
 
     SenderAddressList:

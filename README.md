@@ -164,3 +164,8 @@ make down              # stop the containers
 
 CI runs `make check`'s steps plus `go build`, `go test -race`, the integration tests on a Postgres
 service, `npm run build`, golangci-lint on changed lines and a scan for secrets and contact data.
+
+**Running the production frontend build** (`node frontend/build`): the browser's `/api/*` calls go
+through the SvelteKit server, whose request body limit is 512 KB by default. Recipient imports
+accept files up to 5 MB, so start it with `BODY_SIZE_LIMIT=6M` (and `PUBLIC_API_URL` pointing at
+the API), e.g. `BODY_SIZE_LIMIT=6M PUBLIC_API_URL=http://localhost:8080 node frontend/build`.

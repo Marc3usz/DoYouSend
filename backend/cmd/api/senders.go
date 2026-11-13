@@ -34,6 +34,10 @@ func senderConfig(settingsSvc *settings.Service, live *setup.Live) senders.Confi
 		Shared:    senders.ParseAddress(live.Config().EmailFrom),
 		ReplyTo:   senders.ParseAddress(snap.ReplyTo()),
 		PreferOwn: snap.Value(settings.KeyEmailSenderDefault) != "shared",
+		// A real SMTP relay (not the local Mailpit) normally refuses other From
+		// addresses than its own account.
+		SharedOnly: !snap.DryRun() && snap.Value(settings.KeyEmailProvider) == "mailpit" &&
+			!settings.IsLocalHost(snap.Value(settings.KeySMTPHost)),
 	}
 }
 
@@ -47,8 +51,26 @@ func sendersUser(ctx context.Context) (senders.User, bool) {
 }
 
 // senderResolver lets delivery pick a batch's From through senders. The batch
-// is confirmed in the author's own request, so the session user is the author.
-type senderResolver struct{ svc *senders.Service }
+// is confirmed in the author's own request, so the session user is the author;
+// a retry may come from an administrator, so the author is looked up by ID.
+type senderResolver struct {
+	svc   *senders.Service
+	users interface {
+		GetUser(ctx context.Context, id string) (iam.User, error)
+	}
+}
+
+func (r senderResolver) CheckSender(ctx context.Context, authorID string, from providers.Address) error {
+	u, err := r.users.GetUser(ctx, authorID)
+	if err != nil {
+		return fmt.Errorf("check sender: author %s: %w", authorID, err)
+	}
+	err = r.svc.MaySendFrom(ctx, senders.User{ID: u.ID, Email: u.Email, FullName: u.FullName}, from.Email)
+	if errors.Is(err, senders.ErrNotAllowed) {
+		return fmt.Errorf("%w: %w", delivery.ErrSenderNotAllowed, err)
+	}
+	return err
+}
 
 func (r senderResolver) ResolveSender(ctx context.Context, userID, senderID string) (delivery.EmailSender, error) {
 	u, ok := sendersUser(ctx)
@@ -163,7 +185,8 @@ func handleTestMessage(live *setup.Live, auditor *iam.Service, logger *slog.Logg
 			RecipientID: "test-" + actor.ID, To: to, Subject: testSubject, Body: testBody,
 		})
 		if err != nil {
-			logger.Warn("test message failed", "channel", channel, "user_id", actor.ID, "err", err)
+			// Not err itself: an SMTP or SendGrid reply may quote the address.
+			logger.Warn("test message failed", "channel", channel, "user_id", actor.ID, "reason", providerErrorText(err))
 			httpx.Error(w, http.StatusBadGateway, httpx.ErrorBody{Code: "provider_error", Message: providerErrorText(err)})
 			return
 		}

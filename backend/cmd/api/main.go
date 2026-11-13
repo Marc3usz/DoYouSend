@@ -104,7 +104,8 @@ func main() {
 		currentPrice := func() int64 { return settingsSvc.Current().SMSPriceMilli() }
 
 		mux.Handle("POST /api/messages/preview", perRequest(func() http.Handler {
-			return messaging.HandlePreview(messaging.NewPreviewer(resolver, currentPrice()), logger)
+			return messaging.HandlePreview(messaging.NewPreviewer(resolver, currentPrice()).
+				WithSMSPartLimit(settingsSvc.Current().SMSMaxParts()), logger)
 		}))
 		importer := recipients.NewImporter(recipientStore)
 		mux.Handle("POST /api/recipients/import/check", recipients.HandleImportFile(importer.Check, logger))
@@ -151,6 +152,7 @@ func main() {
 		delivery.NewHandler(batchService, batchStore, currentCaller, logger).Register(mux)
 		waitBatches = batchService.Wait
 		batchService.SetAuditor(batchAudit{log: iamSvc})
+		batchService.SetSMSMaxParts(settingsSvc.Current().SMSMaxParts())
 
 		// Sender addresses (ADR-0021): who may send from which address, and SendGrid
 		// domain authentication. Settings and providers are read on every call.
@@ -163,7 +165,7 @@ func main() {
 			Auditor: iamSvc,
 		})
 		senders.NewHandler(senderSvc, sendersUser, logger).Register(mux)
-		batchService.SetSenderResolver(senderResolver{svc: senderSvc})
+		batchService.SetSenderResolver(senderResolver{svc: senderSvc, users: iam.NewPGStore(pool)})
 		mux.Handle("POST /api/admin/settings/test", handleTestMessage(live, iamSvc, logger))
 
 		// Batches a stopped process left running are finished once this process owns
@@ -200,6 +202,7 @@ func main() {
 		settingsSvc.SetBusy(batchService.Dispatching)
 		settingsSvc.OnChange(func(snap settings.Snapshot) {
 			batchService.SetSMSPrice(snap.SMSPriceMilli())
+			batchService.SetSMSMaxParts(snap.SMSMaxParts())
 			senders.SetOptions(senderOptions(live))
 		})
 		settings.NewHandler(settingsSvc, func(ctx context.Context) string {

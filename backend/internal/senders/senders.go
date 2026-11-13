@@ -49,6 +49,9 @@ const (
 	ReasonNone                   Reason = ""
 	ReasonDomainNotAuthenticated Reason = "domain_not_authenticated"
 	ReasonNotVerified            Reason = "not_verified" // a single sender exists but is not confirmed yet
+	// ReasonSharedOnly: the operator is an SMTP relay, which normally accepts only
+	// its own account as sender, so only the shared address is offered.
+	ReasonSharedOnly Reason = "shared_only"
 )
 
 // Option is one address a user may pick as the e-mail sender.

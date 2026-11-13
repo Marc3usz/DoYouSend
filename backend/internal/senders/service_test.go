@@ -384,6 +384,40 @@ func TestDelegatedAddresses(t *testing.T) {
 	}
 }
 
+func TestRemoteSMTPOffersOnlyTheSharedSender(t *testing.T) {
+	cfg := liveConfig()
+	cfg.Live, cfg.Provider, cfg.SharedOnly = false, "fake", true
+	svc, _, _, _ := newService(cfg)
+	opts, def, err := svc.Options(context.Background(), anna)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if def != IDShared || !opts[0].Usable || opts[1].Usable || opts[1].Reason != ReasonSharedOnly {
+		t.Errorf("options = %+v, default %q; want only shared usable, own refused as shared_only", opts, def)
+	}
+}
+
+func TestMaySendFrom(t *testing.T) {
+	cfg := liveConfig()
+	svc, _, _, _ := newService(cfg)
+	ctx := context.Background()
+	a, _ := svc.CreateAddress(ctx, admin, "sekretariat@szkola.example.test", "Sekretariat", []string{userA})
+	d, _ := svc.AddDomain(ctx, admin, "szkola.example.test")
+	_, _ = svc.CheckDomain(ctx, d.ID)
+
+	if err := svc.MaySendFrom(ctx, anna, "SEKRETARIAT@szkola.example.test"); err != nil {
+		t.Errorf("delegated address: %v", err)
+	}
+	if err := svc.MaySendFrom(ctx, anna, cfg.Shared.Email); err != nil {
+		t.Errorf("shared address: %v", err)
+	}
+	ids := []string{}
+	_, _ = svc.UpdateAddress(ctx, admin, a.ID, nil, &ids)
+	if err := svc.MaySendFrom(ctx, anna, "sekretariat@szkola.example.test"); !errors.Is(err, ErrNotAllowed) {
+		t.Errorf("after the delegation was taken away: err = %v, want ErrNotAllowed", err)
+	}
+}
+
 func TestInputValidation(t *testing.T) {
 	svc, _, api, _ := newService(liveConfig())
 	ctx := context.Background()

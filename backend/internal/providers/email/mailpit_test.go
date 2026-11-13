@@ -529,3 +529,54 @@ func TestMailpit_SendFromChosenSender(t *testing.T) {
 		t.Errorf("Reply-To header = %q, want %q", s.replyToHeader, want)
 	}
 }
+
+// TestMailpit_NoAnswerAfterDataIsNotRetried: once the whole message reached the
+// server, a missing answer may mean it is already queued, so the error must not
+// be transient (the dispatcher would send it again).
+func TestMailpit_NoAnswerAfterDataIsNotRetried(t *testing.T) {
+	t.Parallel()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = l.Close() })
+	go func() {
+		conn, err := l.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		r := bufio.NewReader(conn)
+		_, _ = fmt.Fprint(conn, "220 ok\r\n")
+		for {
+			line, err := r.ReadString('\n')
+			if err != nil {
+				return
+			}
+			switch up := strings.ToUpper(strings.TrimSpace(line)); {
+			case strings.HasPrefix(up, "EHLO"), strings.HasPrefix(up, "HELO"):
+				_, _ = fmt.Fprint(conn, "250 ok\r\n")
+			case strings.HasPrefix(up, "MAIL"), strings.HasPrefix(up, "RCPT"):
+				_, _ = fmt.Fprint(conn, "250 ok\r\n")
+			case up == "DATA":
+				_, _ = fmt.Fprint(conn, "354 go\r\n")
+				for {
+					l, err := r.ReadString('\n')
+					if err != nil || l == ".\r\n" {
+						break
+					}
+				}
+				time.Sleep(2 * time.Second) // never answers the end of data in time
+				return
+			}
+		}
+	}()
+	host, port, _ := net.SplitHostPort(l.Addr().String())
+	m := NewMailpit(MailpitConfig{Host: host, Port: port, From: "no-reply@example.test"}, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	_, err = m.Send(ctx, providers.Message{RecipientID: "r-1", To: "parent@example.test", Subject: "S", Body: "B"})
+	if err == nil || providers.IsTransient(err) || providers.IsPermanent(err) {
+		t.Errorf("err = %v, want an unclassified error", err)
+	}
+}

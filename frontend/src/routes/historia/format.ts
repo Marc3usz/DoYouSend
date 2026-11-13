@@ -59,8 +59,40 @@ export function deliveryText(d: Delivery | undefined, used = true): string {
 		details.push(attemptsText(d.attempts));
 	}
 	const meta = details.length > 0 ? ` (${details.join(', ')})` : '';
-	const reason = d.status === 'failed' && d.error ? `: ${d.error}` : '';
+	const reason = d.status === 'failed' && d.error ? `: ${failureReasonText(d.error)}` : '';
 	return `${label}${meta}${reason}`;
+}
+
+/**
+ * The Polish text of a stored failure reason. The backend stores short English
+ * reasons (delivery.describe, delivery reports); the known ones read as Polish,
+ * anything else is shown as the operator's own words.
+ */
+export function failureReasonText(reason: string): string {
+	const r = reason.toLowerCase();
+	const known: [boolean, string][] = [
+		[r.startsWith('render body'), 'brak danych do pola w treści (np. imienia)'],
+		[r.startsWith('sms over the part limit'), 'SMS dłuższy niż limit części z ustawień'],
+		[r.includes('interrupted while sending'), 'wysyłkę przerwał restart serwera — wynik nieznany'],
+		[
+			r.includes('report expired') || r.includes('no delivery report'),
+			'operator nie ma raportu doręczenia — wynik nieznany'
+		],
+		[r.startsWith('unclassified'), 'nieznany wynik — wiadomość mogła dotrzeć'],
+		[r.includes('invalid recipient'), 'nieprawidłowy adres lub numer'],
+		[r.includes('rate limit'), 'operator chwilowo ograniczył wysyłkę'],
+		[r.includes('no sender configured'), 'brak skonfigurowanego operatora'],
+		[
+			r.includes('timeout') || r.includes('timed out') || r.includes('deadline'),
+			'operator nie odpowiedział na czas'
+		],
+		[r.includes('unavailable'), 'operator był niedostępny'],
+		[r.startsWith('transient'), 'chwilowy błąd operatora'],
+		[r.startsWith('permanent'), 'operator odrzucił wiadomość'],
+		[r === 'delivery failed', 'nie doręczono']
+	];
+	const hit = known.find(([match]) => match);
+	return hit ? hit[1] : `operator: ${reason}`;
 }
 
 /** Whether a history page should keep refreshing: something is still being sent. */

@@ -17,6 +17,8 @@ export function senderReasonText(reason: string | null | undefined): string | nu
 			return 'domena nie jest uwierzytelniona';
 		case 'not_verified':
 			return 'adres nie jest zweryfikowany';
+		case 'shared_only':
+			return 'serwer SMTP wysyła tylko ze wspólnego adresu';
 		default:
 			return 'adres jest niedostępny';
 	}
