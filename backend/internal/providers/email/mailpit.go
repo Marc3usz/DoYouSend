@@ -95,7 +95,16 @@ func (m *Mailpit) Send(ctx context.Context, msg providers.Message) (providers.Re
 	}
 
 	envelopeFrom, headerFrom := senderAddress(m.cfg.From)
-	body := buildRFC822(headerFrom, msg.To, msg.Subject, msg.Body, msgID)
+	if !msg.From.IsZero() {
+		// A sender chosen for the batch (ADR-0021) replaces the configured one.
+		chosen := netmail.Address{Name: msg.From.Name, Address: msg.From.Email}
+		envelopeFrom, headerFrom = chosen.Address, chosen.String()
+	}
+	replyTo := ""
+	if !msg.ReplyTo.IsZero() {
+		replyTo = (&netmail.Address{Name: msg.ReplyTo.Name, Address: msg.ReplyTo.Email}).String()
+	}
+	body := buildRFC822(headerFrom, replyTo, msg.To, msg.Subject, msg.Body, msgID)
 
 	addr := net.JoinHostPort(m.cfg.Host, m.cfg.Port)
 
@@ -187,12 +196,15 @@ func senderAddress(from string) (envelope, header string) {
 }
 
 // buildRFC822 constructs an RFC 822/5322 compliant message with Q-encoded subject
-// and a dedicated Message-ID header.
-func buildRFC822(from, to, subject, body, msgID string) string {
+// and a dedicated Message-ID header. An empty replyTo leaves out Reply-To.
+func buildRFC822(from, replyTo, to, subject, body, msgID string) string {
 	encodedSubject := mime.QEncoding.Encode("utf-8", subject)
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "From: %s\r\n", from)
+	if replyTo != "" {
+		fmt.Fprintf(&b, "Reply-To: %s\r\n", replyTo)
+	}
 	fmt.Fprintf(&b, "To: %s\r\n", to)
 	fmt.Fprintf(&b, "Subject: %s\r\n", encodedSubject)
 	fmt.Fprintf(&b, "Message-ID: %s\r\n", msgID)

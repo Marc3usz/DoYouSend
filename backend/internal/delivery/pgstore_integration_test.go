@@ -48,12 +48,15 @@ func newPGStore(t *testing.T) (*PGStore, *pgxpool.Pool) {
 }
 
 func testPlan() Plan {
-	return NewPlan("Zebranie", "Czesc {{imie}}", []groups.Resolved{
+	p := NewPlan("Zebranie", "Czesc {{imie}}", []groups.Resolved{
 		resolved(pgBoth, "Anna", "anna@example.test", "+48500100101"),
 		resolved(pgEmail, "Jan", "jan@example.test", ""),
 		resolved(pgSMS, "", "", "+48500100103"), // no first name: deliveries fail at planning
 		resolved(pgNone, "Ewa", "", ""),
 	})
+	p.From = providers.Address{Email: "dyrektor@example.test", Name: "Dyrektor Szkoły"}
+	p.ReplyTo = providers.Address{Email: "sekretariat@example.test"}
+	return p
 }
 
 func testBatch() Batch {
@@ -67,6 +70,7 @@ func testBatch() Batch {
 		Groups:        []GroupRef{{ID: groupID, Name: "Rodzice uczniów klasy 3A"}},
 		RecipientIDs:  []string{pgEmail},
 		Status:        BatchRunning,
+		Channels:      []providers.Channel{providers.ChannelEmail, providers.ChannelSMS},
 		SMSParts:      parts,
 		CostMilli:     int64(parts) * 65, // 0.065 zł a part: needs the third decimal
 		Plan:          plan,
@@ -686,7 +690,7 @@ func TestPGStoreListBatches(t *testing.T) {
 }
 
 func TestPGStoreResetFailedDeliveries(t *testing.T) {
-	store, _ := newPGStore(t)
+	store, pool := newPGStore(t)
 	ctx := context.Background()
 
 	plan := NewPlan("Zebranie", "Czesc {{imie}}", []groups.Resolved{
@@ -763,9 +767,10 @@ func TestPGStoreResetFailedDeliveries(t *testing.T) {
 	for _, r := range resetBatch.Plan.Recipients {
 		for _, d := range r.Deliveries {
 			if r.RecipientID == pgBoth && d.Channel == providers.ChannelSMS {
-				// Transient error reset to pending with attempts reset to 0
-				if d.Status != StatusPending || d.Error != "" || d.Attempts != 0 {
-					t.Errorf("SMS delivery = %s, error %q, attempts %d; want pending with empty error and 0 attempts", d.Status, d.Error, d.Attempts)
+				// Transient error back to pending; the last error and the attempts
+				// stay for the history until the delivery succeeds.
+				if d.Status != StatusPending || d.Error != "transient: gateway timeout" || d.Attempts != 3 {
+					t.Errorf("SMS delivery = %s, error %q, attempts %d; want pending keeping its error and 3 attempts", d.Status, d.Error, d.Attempts)
 				}
 			} else if r.RecipientID == pgBoth && d.Channel == providers.ChannelEmail {
 				// Unclassified error must remain failed
@@ -810,9 +815,34 @@ func TestPGStoreResetFailedDeliveries(t *testing.T) {
 		t.Errorf("final batch status = %s; want %s", finalBatch.Status, BatchDoneWithErrors)
 	}
 
+	if finalBatch.RetryCount != 1 || finalBatch.LastRetryAt.IsZero() {
+		t.Errorf("RetryCount = %d, LastRetryAt = %v; want 1 and set", finalBatch.RetryCount, finalBatch.LastRetryAt)
+	}
+
 	// When no retryable failed deliveries exist (only unclassified remains), ResetFailedDeliveries returns ErrNoFailedDeliveries.
 	if _, err := store.ResetFailedDeliveries(ctx, created.ID, false); !errors.Is(err, ErrNoFailedDeliveries) {
 		t.Errorf("ResetFailedDeliveries() when no retryable deliveries exist error = %v; want ErrNoFailedDeliveries", err)
+	}
+
+	// With includeUncertain the unclassified one is sent again, to the recipient's
+	// current address.
+	if _, err := pool.Exec(ctx, `UPDATE recipients SET email = 'anna.nowa@example.test' WHERE id = $1`, pgBoth); err != nil {
+		t.Fatal(err)
+	}
+	uncertain, err := store.ResetFailedDeliveries(ctx, created.ID, true)
+	if err != nil {
+		t.Fatalf("ResetFailedDeliveries(includeUncertain) error = %v", err)
+	}
+	for _, r := range uncertain.Plan.Recipients {
+		for _, d := range r.Deliveries {
+			if r.RecipientID == pgBoth && d.Channel == providers.ChannelEmail &&
+				(d.Status != StatusPending || d.To != "anna.nowa@example.test") {
+				t.Errorf("uncertain e-mail delivery = %s to %q; want pending to the corrected address", d.Status, d.To)
+			}
+		}
+	}
+	if uncertain.RetryCount != 2 {
+		t.Errorf("RetryCount = %d, want 2", uncertain.RetryCount)
 	}
 
 	// Unknown or invalid batch ID returns ErrBatchNotFound.

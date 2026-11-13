@@ -61,7 +61,7 @@ func (s *PGStore) CreateBatch(ctx context.Context, b Batch) (Batch, error) {
 	}
 	b.Plan = b.Plan.clone()
 	b.Counts = b.Plan.Counts()
-	b.Channels = append([]providers.Channel(nil), b.Channels...)
+	b.Channels = toChannels(channelNames(b.Channels)) // as stored: none means both
 	b.Groups = append([]GroupRef(nil), b.Groups...)
 	b.RecipientIDs = append([]string(nil), b.RecipientIDs...)
 	b.ExcludedRecipientIDs = append([]string(nil), b.ExcludedRecipientIDs...)
