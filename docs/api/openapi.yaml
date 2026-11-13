@@ -1,6 +1,6 @@
 # Kontrakt miedzy backendem (Go) a frontendem (SvelteKit).
-# PLIK WSPOLNY: zmiana kontraktu idzie osobnym, malym PR-em i jest ogloszona zespolowi.
-# Szkielet z M1 - endpointy dochodza wraz z implementacja domen.
+# PLIK WSPOLNY: zmiana kontraktu idzie osobnym, malym PR-em, przed implementacja.
+# Opisuje wszystkie trasy rejestrowane w backend/cmd/api/main.go i internal/*/http*.go.
 openapi: 3.0.3
 info:
   title: DoYouSend API
@@ -12,12 +12,16 @@ servers:
   - url: http://localhost:8080/api
 
 tags:
-  - name: recipients   # DEV A
-  - name: groups       # DEV A
-  - name: messages     # domain B (MichalK252)
-  - name: batches      # domain B (MichalK252)
-  - name: admin        # domain D (Marc3usz)
-  - name: auth         # domain D (Marc3usz)
+  - name: recipients   # domena A
+  - name: groups       # domena A
+  - name: messages     # domena B
+  - name: batches      # domena B
+  - name: admin        # domena D
+  - name: auth         # domena D
+  - name: webhooks     # domena C
+    description: |
+      Raporty doreczen od operatorow. Poza prefiksem /api, bez cookie sesji: SMSAPI uwierzytelnia
+      tokenem, SendGrid podpisem ECDSA. Bez skonfigurowanego tokenu albo klucza trasa odpowiada 404.
 
 # Kazdy endpoint wymaga zalogowania (cookie sesji), o ile nie ma "security: []".
 # Ktora rola moze co: backend/internal/iam/policy.go (ADR-0010). Brak sesji -> 401
@@ -27,11 +31,139 @@ security:
 
 paths:
   /healthz:
+    # Poza prefiksem /api.
+    servers:
+      - url: http://localhost:8080
     get:
       summary: Stan uslugi
       security: []
       responses:
         "200": { description: OK }
+
+  /providers/sms/dlr:
+    servers:
+      - url: http://localhost:8080
+    get:
+      tags: [webhooks]
+      summary: Raport doreczenia SMSAPI (callback DLR)
+      description: |
+        Parametry SMSAPI w query; kilka raportow w jednym zadaniu to wartosci rozdzielone
+        przecinkami. Token z ustawienia SMSAPI_DLR_TOKEN (panel albo .env) w ?token=,
+        porownywany w czasie stalym. Statusy: DELIVERED -> delivered; UNDELIVERED, EXPIRED,
+        REJECTED, FAILED -> failed; SENT, ACCEPTED -> sent.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/DlrToken"
+        - $ref: "#/components/parameters/DlrMsgId"
+        - $ref: "#/components/parameters/DlrStatus"
+        - $ref: "#/components/parameters/DlrStatusName"
+        - $ref: "#/components/parameters/DlrDoneDate"
+      responses:
+        "200": { $ref: "#/components/responses/DlrAck" }
+        "400": { description: Brak wymaganych pol albo nieznany status }
+        "401": { description: Brak tokenu albo zly token }
+        "404": { description: Token DLR nie jest skonfigurowany }
+        "500": { description: Nie udalo sie zapisac raportow; SMSAPI ponowi callback }
+    post:
+      tags: [webhooks]
+      summary: Raport doreczenia SMSAPI (callback DLR, formularz)
+      description: |
+        Te same pola co w wariancie GET, jako application/x-www-form-urlencoded. Token moze byc
+        w ?token= albo w polu formularza token. Tresc do 1 MiB.
+      security: []
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/SmsapiDlrForm" }
+      responses:
+        "200": { $ref: "#/components/responses/DlrAck" }
+        "400": { description: Brak wymaganych pol albo nieznany status }
+        "401": { description: Brak tokenu albo zly token }
+        "404": { description: Token DLR nie jest skonfigurowany }
+        "413": { description: Tresc wieksza niz 1 MiB }
+        "500": { description: Nie udalo sie zapisac raportow; SMSAPI ponowi callback }
+
+  /providers/sms/dlr/{token}:
+    servers:
+      - url: http://localhost:8080
+    parameters:
+      - in: path
+        name: token
+        required: true
+        description: Token DLR w sciezce zamiast w ?token=
+        schema: { type: string }
+    get:
+      tags: [webhooks]
+      summary: Raport doreczenia SMSAPI (token w sciezce)
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/DlrMsgId"
+        - $ref: "#/components/parameters/DlrStatus"
+        - $ref: "#/components/parameters/DlrStatusName"
+        - $ref: "#/components/parameters/DlrDoneDate"
+      responses:
+        "200": { $ref: "#/components/responses/DlrAck" }
+        "400": { description: Brak wymaganych pol albo nieznany status }
+        "401": { description: Zly token }
+        "404": { description: Token DLR nie jest skonfigurowany }
+        "500": { description: Nie udalo sie zapisac raportow; SMSAPI ponowi callback }
+    post:
+      tags: [webhooks]
+      summary: Raport doreczenia SMSAPI (token w sciezce, formularz)
+      security: []
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/SmsapiDlrForm" }
+      responses:
+        "200": { $ref: "#/components/responses/DlrAck" }
+        "400": { description: Brak wymaganych pol albo nieznany status }
+        "401": { description: Zly token }
+        "404": { description: Token DLR nie jest skonfigurowany }
+        "413": { description: Tresc wieksza niz 1 MiB }
+        "500": { description: Nie udalo sie zapisac raportow; SMSAPI ponowi callback }
+
+  /providers/email/events:
+    servers:
+      - url: http://localhost:8080
+    post:
+      tags: [webhooks]
+      summary: Zdarzenia SendGrid (Signed Event Webhook)
+      description: |
+        Tablica zdarzen SendGrid (delivered, bounce, dropped...). Podpis ECDSA SHA-256 sprawdzany
+        kluczem publicznym z ustawienia SENDGRID_WEBHOOK_PUBLIC_KEY; zdarzenia starsze niz
+        5 minut sa odrzucane. Tresc do 2 MiB.
+      security: []
+      parameters:
+        - in: header
+          name: X-Twilio-Email-Event-Webhook-Signature
+          required: true
+          schema: { type: string }
+        - in: header
+          name: X-Twilio-Email-Event-Webhook-Timestamp
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items: { type: object, additionalProperties: true }
+      responses:
+        "200":
+          description: Zdarzenia zapisane
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [ok] }
+        "400": { description: Tresc nie jest poprawna paczka zdarzen SendGrid }
+        "401": { description: Brak albo zly podpis }
+        "404": { description: Klucz weryfikacji webhooka nie jest skonfigurowany }
+        "413": { description: Tresc wieksza niz 2 MiB }
+        "500": { description: Nie udalo sie zapisac raportow; SendGrid ponowi wysylke }
 
   /recipients:
     get:
@@ -1013,7 +1145,46 @@ components:
       name: dys_session
       description: Token sesji z POST /auth/login (ADR-0010)
 
+  parameters:
+    DlrToken:
+      in: query
+      name: token
+      description: Token DLR (wymagany, gdy nie ma go w sciezce)
+      schema: { type: string }
+    DlrMsgId:
+      in: query
+      name: MsgId
+      required: true
+      description: ID wiadomosci u SMSAPI; kilka rozdzielonych przecinkami
+      schema: { type: string }
+    DlrStatus:
+      in: query
+      name: status
+      description: Status SMSAPI (kod albo nazwa); tyle wartosci co MsgId. Wymagany status albo status_name.
+      schema: { type: string }
+    DlrStatusName:
+      in: query
+      name: status_name
+      description: Nazwa statusu SMSAPI (np. DELIVERED)
+      schema: { type: string }
+    DlrDoneDate:
+      in: query
+      name: donedate
+      description: Czas zmiany statusu (Unix); tyle wartosci co MsgId
+      schema: { type: string }
+
   schemas:
+    SmsapiDlrForm:
+      type: object
+      required: [MsgId]
+      description: Wymagany status albo status_name.
+      properties:
+        token: { type: string }
+        MsgId: { type: string }
+        status: { type: string }
+        status_name: { type: string }
+        donedate: { type: string }
+
     Role:
       type: string
       enum: [admin, sender]
@@ -1954,6 +2125,11 @@ components:
           description: Liczba wiadomosci e-mail w trakcie przetwarzania (pending, sending)
 
   responses:
+    DlrAck:
+      description: Raporty zapisane; SMSAPI wymaga dokladnie tej odpowiedzi
+      content:
+        text/plain:
+          schema: { type: string, enum: [OK] }
     Error:
       description: Blad z kodem z ErrorBody.code
       content:

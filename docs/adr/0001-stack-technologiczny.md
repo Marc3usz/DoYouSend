@@ -15,8 +15,14 @@ statusami i ponawianiem.
 - Backend: **Go 1.24** (`net/http`, `pgx`), worker wysyłki w tym samym module.
 - Frontend: **SvelteKit 2 + Svelte 5 + TypeScript strict**.
 - Baza: **PostgreSQL 16**, migracje jako numerowane pliki SQL bez zewnętrznego narzędzia.
-- Kolejka: **Redis** jako broker zadań wysyłki.
+- Kolejka: **Redis** jako broker zadań wysyłki. *(Nie wprowadzone — zob. uwagę poniżej.)*
 - Lokalne środowisko: Docker Compose (Postgres, Redis, Mailpit).
+
+> **Uwaga (2026-11-13):** Redis nigdy nie został użyty. Stan wysyłki żyje w PostgreSQL: każda
+> dostawa (odbiorca × kanał) to wiersz `deliveries`, a worker wysyłki działa w procesie API
+> (`backend/internal/delivery`). Zadania wsadu przerwanego restartem API są wznawiane przy
+> starcie. Usługa `redis`, `REDIS_URL` i `Config.RedisURL` zostały usunięte; Docker Compose
+> uruchamia tylko Postgres i Mailpit.
 
 ## Rozważane alternatywy
 
