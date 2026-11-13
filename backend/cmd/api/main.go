@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -72,6 +73,9 @@ func main() {
 	var handler http.Handler = mux
 	// waitBatches blocks until batches still being dispatched in the background are done.
 	waitBatches := func() {}
+	// recoverBatches resumes batches a stopped process left running; releaseLock
+	// gives back the dispatch lock it takes.
+	recoverBatches, releaseLock := func() {}, func() {}
 	pool, err := database.Open(ctx, cfg.DatabaseURL)
 	switch {
 	case errors.Is(err, database.ErrNoURL):
@@ -162,11 +166,25 @@ func main() {
 		batchService.SetSenderResolver(senderResolver{svc: senderSvc})
 		mux.Handle("POST /api/admin/settings/test", handleTestMessage(live, iamSvc, logger))
 
-		// Batches a stopped process left running are finished before anything new is sent.
-		if n, err := batchService.Recover(ctx); err != nil {
-			logger.Error("recover batches left running", "err", err)
-		} else if n > 0 {
-			logger.Warn("resumed batches left running by a stopped process", "batches", n)
+		// Batches a stopped process left running are finished once this process owns
+		// the port (a second `make dev-api` exits before touching anything) and holds
+		// the dispatch lock (no other process on this database is sending them).
+		recoverBatches = func() {
+			release, ok, err := batchStore.AcquireDispatchLock(ctx)
+			switch {
+			case err != nil:
+				logger.Error("recover batches left running: no dispatch lock", "err", err)
+				return
+			case !ok:
+				logger.Warn("another API process holds the dispatch lock; batches left running are not resumed here")
+				return
+			}
+			releaseLock = release
+			if n, err := batchService.Recover(ctx); err != nil {
+				logger.Error("recover batches left running", "err", err)
+			} else if n > 0 {
+				logger.Warn("resumed batches left running by a stopped process", "batches", n)
+			}
 		}
 
 		iam.NewHandler(iamSvc, iam.CookieOptions{Secure: cfg.SessionCookieSecure}, iam.SendingConfig{}, logger).
@@ -215,9 +233,19 @@ func main() {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
+	// Listen before recovering: a second API on the same port fails here, before
+	// it could mistake the first one's batches for abandoned ones.
+	ln, err := net.Listen("tcp", srv.Addr)
+	if err != nil {
+		logger.Error("listen", "addr", srv.Addr, "err", err)
+		os.Exit(1)
+	}
+	recoverBatches()
+	defer releaseLock()
+
 	go func() {
 		logger.Info("api listening", "addr", srv.Addr, "env", cfg.AppEnv, "dryRun", dryRunNow())
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("server stopped", "err", err)
 			stop()
 		}

@@ -852,3 +852,76 @@ func TestPGStoreResetFailedDeliveries(t *testing.T) {
 		}
 	}
 }
+
+// TestPGStoreDispatchLock: only one process may resume abandoned batches; a
+// second API on the same database must not take over the first one's work.
+func TestPGStoreDispatchLock(t *testing.T) {
+	store, _ := newPGStore(t)
+	ctx := context.Background()
+
+	release, ok, err := store.AcquireDispatchLock(ctx)
+	if err != nil || !ok {
+		t.Fatalf("first AcquireDispatchLock() = %v, %v; want ok", ok, err)
+	}
+	_, ok2, err := store.AcquireDispatchLock(ctx)
+	if err != nil || ok2 {
+		t.Fatalf("second AcquireDispatchLock() while held = %v, %v; want not ok", ok2, err)
+	}
+	release()
+	release3, ok3, err := store.AcquireDispatchLock(ctx)
+	if err != nil || !ok3 {
+		t.Fatalf("AcquireDispatchLock() after release = %v, %v; want ok", ok3, err)
+	}
+	release3()
+}
+
+// TestPGStoreResetRefreshesBothChannels: a person whose e-mail and SMS both
+// failed gets both corrected contacts, the old message IDs are dropped (a late
+// report must not hit the new try) and billed SMS parts are kept for the costs.
+func TestPGStoreResetRefreshesBothChannels(t *testing.T) {
+	store, pool := newPGStore(t)
+	ctx := context.Background()
+
+	plan := NewPlan("Zebranie", "Czesc {{imie}}", []groups.Resolved{
+		resolved(pgBoth, "Anna", "anna@example.test", "+48500100101"),
+	})
+	b, err := store.CreateBatch(ctx, Batch{
+		Subject: "Zebranie", Body: "Czesc {{imie}}", CreatedBy: userID, Status: BatchRunning,
+		SMSParts: plan.smsParts(), Plan: plan,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failedPlan := plan.clone()
+	for j := range failedPlan.Recipients[0].Deliveries {
+		d := &failedPlan.Recipients[0].Deliveries[j]
+		d.Status, d.Attempts, d.Error = StatusFailed, 1, "permanent: invalid recipient"
+		d.ProviderMessageID = "op-" + string(d.Channel)
+	}
+	if err := store.SaveOutcome(ctx, b.ID, failedPlan); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE recipients SET email = 'anna.nowa@example.test', phone = '+48500100199' WHERE id = $1`, pgBoth); err != nil {
+		t.Fatal(err)
+	}
+
+	reset, err := store.ResetFailedDeliveries(ctx, b.ID, false)
+	if err != nil {
+		t.Fatalf("ResetFailedDeliveries() error = %v", err)
+	}
+	for _, d := range reset.Plan.Recipients[0].Deliveries {
+		want := map[providers.Channel]string{providers.ChannelEmail: "anna.nowa@example.test", providers.ChannelSMS: "+48500100199"}[d.Channel]
+		if d.Status != StatusPending || d.To != want || d.ProviderMessageID != "" {
+			t.Errorf("%s delivery = %s to %q, message ID %q; want pending to %q without the old ID", d.Channel, d.Status, d.To, d.ProviderMessageID, want)
+		}
+	}
+	var billed int
+	if err := pool.QueryRow(ctx, `
+		SELECT d.billed_parts_before_retry FROM deliveries d JOIN batch_recipients br ON br.id = d.batch_recipient_id
+		WHERE br.batch_id = $1 AND d.channel = 'sms'`, b.ID).Scan(&billed); err != nil {
+		t.Fatal(err)
+	}
+	if want := plan.Recipients[0].Deliveries[1].Parts; billed != want {
+		t.Errorf("billed_parts_before_retry = %d, want %d", billed, want)
+	}
+}

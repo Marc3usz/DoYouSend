@@ -114,6 +114,10 @@ func TestPGUsageStore_CostsUseBatchPriceAndSkipSimulated(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE deliveries SET provider_message_id = 'dryrun-sms-x-1' WHERE provider_message_id = 'sms-2'`); err != nil {
 		t.Fatal(err)
 	}
+	// The delivered 2-part SMS of batch 2 was retried once after a billed failure.
+	if _, err := pool.Exec(ctx, `UPDATE deliveries SET billed_parts_before_retry = 2 WHERE provider_message_id = 'sms-6'`); err != nil {
+		t.Fatal(err)
+	}
 
 	counts, err := NewPGUsageStore(pool).GetUsage(ctx, UsageFilter{})
 	if err != nil {
@@ -125,9 +129,10 @@ func TestPGUsageStore_CostsUseBatchPriceAndSkipSimulated(t *testing.T) {
 	if counts.SimulatedMessages != 1 || counts.SimulatedParts != 3 {
 		t.Errorf("Simulated = (%d, %d), want (1, 3)", counts.SimulatedMessages, counts.SimulatedParts)
 	}
-	// Billed: batch 1 delivered 2 + failed-with-id 1 = 3 parts at 80; batch 2 delivered 2 parts at 100.
-	if counts.BilledParts != 5 || counts.BilledCostMilli != 3*80+2*100 {
-		t.Errorf("Billed = (%d parts, %d), want (5, %d)", counts.BilledParts, counts.BilledCostMilli, 3*80+2*100)
+	// Billed: batch 1 delivered 2 + failed-with-id 1 = 3 parts at 80; batch 2 delivered 2 parts
+	// plus 2 parts of the try before its retry, at 100.
+	if want := int64(3*80 + 4*100); counts.BilledParts != 7 || counts.BilledCostMilli != want {
+		t.Errorf("Billed = (%d parts, %d), want (7, %d)", counts.BilledParts, counts.BilledCostMilli, want)
 	}
 	// Planned: 7 parts at 80 + 3 parts at 100.
 	if counts.PlannedCostMilli != 7*80+3*100 {

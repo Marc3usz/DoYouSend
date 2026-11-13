@@ -479,10 +479,19 @@ func (s *PGStore) ResetFailedDeliveries(ctx context.Context, batchID string, inc
 			return ErrBatchRunning
 		}
 
-		// Error and attempts stay for the history; a success clears the error.
+		// Error and attempts stay for the history; a success clears the error. The
+		// old provider message ID goes, so a late report about the previous try
+		// cannot overwrite the new one; parts the operator already billed for that
+		// try are kept for the SMS cost statistics (migration 0013).
 		rows, err := tx.Query(ctx, `
 			UPDATE deliveries d
-			SET status = 'pending', updated_at = now()
+			SET status = 'pending', updated_at = now(), provider_message_id = NULL,
+				billed_parts_before_retry = d.billed_parts_before_retry +
+					CASE WHEN d.provider_message_id IS NOT NULL
+						AND d.provider_message_id NOT LIKE 'dryrun-%'
+						AND d.provider_message_id NOT LIKE 'fake-%'
+						AND d.provider_message_id NOT LIKE 'smsapi-test-%'
+					THEN d.parts ELSE 0 END
 			FROM batch_recipients br
 			WHERE br.batch_id = $1
 				AND d.batch_recipient_id = br.id
@@ -511,11 +520,17 @@ func (s *PGStore) ResetFailedDeliveries(ctx context.Context, batchID string, inc
 
 		// Send to the contact as it is now: a corrected address is the usual reason
 		// for a retry. A contact removed since keeps the one the batch had.
+		// One row per person: UPDATE ... FROM with two matching rows (e-mail and SMS
+		// both reset) would apply only one of them.
 		_, err = tx.Exec(ctx, `
 			UPDATE batch_recipients br
-			SET email_snapshot = CASE WHEN t.channel = 'email' THEN coalesce(r.email, br.email_snapshot) ELSE br.email_snapshot END,
-				phone_snapshot = CASE WHEN t.channel = 'sms' THEN coalesce(r.phone, br.phone_snapshot) ELSE br.phone_snapshot END
-			FROM unnest($1::uuid[], $2::text[]) AS t(row_id, channel), recipients r
+			SET email_snapshot = CASE WHEN t.email THEN coalesce(r.email, br.email_snapshot) ELSE br.email_snapshot END,
+				phone_snapshot = CASE WHEN t.sms THEN coalesce(r.phone, br.phone_snapshot) ELSE br.phone_snapshot END
+			FROM (
+				SELECT row_id, bool_or(channel = 'email') AS email, bool_or(channel = 'sms') AS sms
+				FROM unnest($1::uuid[], $2::text[]) AS u(row_id, channel)
+				GROUP BY row_id
+			) t, recipients r
 			WHERE br.id = t.row_id AND r.id = br.recipient_id`, rowIDs, channels)
 		if err != nil {
 			return fmt.Errorf("refresh contacts: %w", err)
@@ -535,6 +550,34 @@ func (s *PGStore) ResetFailedDeliveries(ctx context.Context, batchID string, inc
 		return Batch{}, fmt.Errorf("reset failed deliveries for batch %s: %w", batchID, err)
 	}
 	return b, nil
+}
+
+// dispatchLockKey identifies the advisory lock of the process that owns
+// sending ("DoYouSen" in ASCII).
+const dispatchLockKey int64 = 0x446f596f7553656e
+
+// AcquireDispatchLock takes a session-level Postgres advisory lock that marks
+// this process as the one sending batches, for as long as the process lives.
+// ok is false when another process holds it: that process may be sending right
+// now, so this one must not treat running batches as abandoned (Recover).
+// release gives the lock back; it is safe to call when ok is false.
+func (s *PGStore) AcquireDispatchLock(ctx context.Context) (release func(), ok bool, err error) {
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return func() {}, false, fmt.Errorf("acquire dispatch lock: %w", err)
+	}
+	if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock($1)`, dispatchLockKey).Scan(&ok); err != nil {
+		conn.Release()
+		return func() {}, false, fmt.Errorf("acquire dispatch lock: %w", err)
+	}
+	if !ok {
+		conn.Release()
+		return func() {}, false, nil
+	}
+	return func() {
+		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, dispatchLockKey)
+		conn.Release()
+	}, true, nil
 }
 
 // RunningBatchIDs implements Store.

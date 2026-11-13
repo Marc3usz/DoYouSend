@@ -134,7 +134,7 @@ func (s *PGUsageStore) GetUsage(ctx context.Context, filter UsageFilter) (RawUsa
 		SELECT
 			COUNT(*)::int AS total_messages,
 			COALESCE(SUM(d.parts), 0)::int AS total_parts,
-			COALESCE(SUM(d.parts) FILTER (WHERE u.billed), 0)::int AS billed_parts,
+			(COALESCE(SUM(d.parts) FILTER (WHERE u.billed), 0) + COALESCE(SUM(d.billed_parts_before_retry), 0))::int AS billed_parts,
 			COUNT(*) FILTER (WHERE d.status = 'delivered')::int AS delivered_messages,
 			COALESCE(SUM(d.parts) FILTER (WHERE d.status = 'delivered'), 0)::int AS delivered_parts,
 			COUNT(*) FILTER (WHERE d.status = 'sent')::int AS sent_messages,
@@ -146,7 +146,8 @@ func (s *PGUsageStore) GetUsage(ctx context.Context, filter UsageFilter) (RawUsa
 			COUNT(*) FILTER (WHERE u.simulated)::int AS simulated_messages,
 			COALESCE(SUM(d.parts) FILTER (WHERE u.simulated), 0)::int AS simulated_parts,
 			round(COALESCE(SUM(d.parts * u.price), 0))::bigint AS planned_cost,
-			round(COALESCE(SUM(d.parts * u.price) FILTER (WHERE u.billed), 0))::bigint AS billed_cost,
+			round(COALESCE(SUM(d.parts * u.price) FILTER (WHERE u.billed), 0)
+				+ COALESCE(SUM(d.billed_parts_before_retry * u.price), 0))::bigint AS billed_cost,
 			round(COALESCE(SUM(d.parts * u.price) FILTER (WHERE d.status = 'delivered' AND NOT u.simulated), 0))::bigint AS delivered_cost
 		FROM deliveries d
 		JOIN batch_recipients br ON br.id = d.batch_recipient_id

@@ -170,7 +170,9 @@ func (p Plan) RetryPlan(includeUncertain bool) (Plan, int) {
 		for j := range out.Recipients[i].Deliveries {
 			d := &out.Recipients[i].Deliveries[j]
 			if d.Status == StatusFailed && retries(d.Error, includeUncertain) {
-				d.Status = StatusPending
+				// The old message ID goes: a late report about the previous try
+				// must not overwrite the new one.
+				d.Status, d.ProviderMessageID = StatusPending, ""
 				retried++
 			}
 		}
