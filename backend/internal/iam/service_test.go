@@ -412,6 +412,43 @@ func TestResetPassword(t *testing.T) {
 	}
 }
 
+func TestChangeOwnPassword(t *testing.T) {
+	svc, store, _, _, sender := testService(t)
+	ctx := context.Background()
+	elsewhere, _ := svc.Login(ctx, "dyrektor@example.test", senderPassword)
+
+	if _, err := svc.ChangeOwnPassword(ctx, sender, "zle-haslo-calkiem", "nowe-haslo-dyrektora"); !errors.Is(err, ErrWrongPassword) {
+		t.Errorf("wrong current password: err = %v, want ErrWrongPassword", err)
+	}
+	if _, err := svc.ChangeOwnPassword(ctx, sender, senderPassword, "krotkie"); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("weak new password: err = %v, want ErrInvalidInput", err)
+	}
+	session, err := svc.ChangeOwnPassword(ctx, sender, senderPassword, "nowe-haslo-dyrektora")
+	if err != nil {
+		t.Fatalf("ChangeOwnPassword() error = %v", err)
+	}
+	if got, err := svc.Authenticate(ctx, session.Token); err != nil || got.ID != sender.ID {
+		t.Errorf("the new session does not work: %+v, %v", got, err)
+	}
+	if _, err := svc.Authenticate(ctx, elsewhere.Token); !errors.Is(err, ErrUnauthenticated) {
+		t.Error("a session elsewhere survives the password change")
+	}
+	if _, err := svc.Login(ctx, "dyrektor@example.test", "nowe-haslo-dyrektora"); err != nil {
+		t.Errorf("Login(new password) error = %v", err)
+	}
+	if !slices.Contains(store.actions(), ActionPasswordChange) {
+		t.Errorf("audit = %v, want password_changed", store.actions())
+	}
+
+	// Guessing the current password is throttled like logins.
+	for range MaxFailedLogins {
+		_, _ = svc.ChangeOwnPassword(ctx, sender, "zgadywane-haslo-x", "inne-nowe-haslo-1")
+	}
+	if _, err := svc.ChangeOwnPassword(ctx, sender, "nowe-haslo-dyrektora", "inne-nowe-haslo-1"); !errors.Is(err, ErrTooManyAttempts) {
+		t.Errorf("after %d wrong guesses: err = %v, want ErrTooManyAttempts", MaxFailedLogins, err)
+	}
+}
+
 func TestListAuditPaging(t *testing.T) {
 	svc, store, _, admin, _ := testService(t)
 	ctx := context.Background()

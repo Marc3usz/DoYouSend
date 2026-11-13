@@ -1,7 +1,7 @@
-// Command api is the HTTP entrypoint of DoYouSend.
-//
-// The skeleton intentionally uses only the standard library; routing and storage
-// are wired in by the owning domain packages as they land (see backend/CLAUDE.md).
+// Command api is the HTTP entrypoint of DoYouSend: it loads the configuration,
+// wires the domain packages to Postgres and the providers, and serves the API
+// on the standard library mux. Business logic lives in internal/ (see
+// backend/CLAUDE.md); this package only adapts packages to each other.
 package main
 
 import (
@@ -29,6 +29,7 @@ import (
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers/setup"
 	"github.com/Marc3usz/DoYouSend/backend/internal/providers/sms"
 	"github.com/Marc3usz/DoYouSend/backend/internal/recipients"
+	"github.com/Marc3usz/DoYouSend/backend/internal/senders"
 	"github.com/Marc3usz/DoYouSend/backend/internal/settings"
 )
 
@@ -147,6 +148,27 @@ func main() {
 		waitBatches = batchService.Wait
 		batchService.SetAuditor(batchAudit{log: iamSvc})
 
+		// Sender addresses (ADR-0021): who may send from which address, and SendGrid
+		// domain authentication. Settings and providers are read on every call.
+		senderSvc := senders.NewService(senders.NewPGStore(pool), senders.Options{
+			API: func() senders.DomainAPI {
+				d, _ := live.DomainAuthenticator()
+				return domainAPI{api: d}
+			},
+			Config:  func() senders.Config { return senderConfig(settingsSvc, live) },
+			Auditor: iamSvc,
+		})
+		senders.NewHandler(senderSvc, sendersUser, logger).Register(mux)
+		batchService.SetSenderResolver(senderResolver{svc: senderSvc})
+		mux.Handle("POST /api/admin/settings/test", handleTestMessage(live, iamSvc, logger))
+
+		// Batches a stopped process left running are finished before anything new is sent.
+		if n, err := batchService.Recover(ctx); err != nil {
+			logger.Error("recover batches left running", "err", err)
+		} else if n > 0 {
+			logger.Warn("resumed batches left running by a stopped process", "batches", n)
+		}
+
 		iam.NewHandler(iamSvc, iam.CookieOptions{Secure: cfg.SessionCookieSecure}, iam.SendingConfig{}, logger).
 			WithConfigSource(func() iam.SendingConfig { return sendingConfig(settingsSvc.Current()) }).
 			Register(mux)
@@ -213,8 +235,6 @@ func main() {
 	waitBatches()
 }
 
-// batchAudit writes a confirmed batch to the iam audit log: who launched it and
-// how big it was. Counts only, no names, addresses or the message body.
 // contactAudit records a recipient contact fixed by the signed-in user
 // (ADR-0013): channel names only, never the values.
 type contactAudit struct{ log *iam.Service }
@@ -251,6 +271,8 @@ func (a importAudit) NotionImported(ctx context.Context, rep recipients.ImportRe
 	})
 }
 
+// batchAudit writes a confirmed or retried batch to the iam audit log: who
+// launched it and how big it was. Counts only, no names, addresses or the body.
 type batchAudit struct{ log *iam.Service }
 
 func (a batchAudit) BatchConfirmed(ctx context.Context, b delivery.Batch) {

@@ -61,6 +61,7 @@ const (
 	KeyEmailProvider         = "email_provider"
 	KeyEmailFrom             = "email_from"
 	KeyEmailReplyTo          = "email_reply_to"
+	KeyEmailSenderDefault    = "email_sender_default"
 	KeySMSMaxParts           = "sms_max_parts"
 	KeySMTPHost              = "smtp_host"
 	KeySMTPPort              = "smtp_port"
@@ -96,6 +97,9 @@ var defs = []Def{
 	// Where replies to e-mails sent from the shared EMAIL_FROM go (ADR-0021);
 	// empty: to EMAIL_FROM itself.
 	{Key: KeyEmailReplyTo, Env: "EMAIL_REPLY_TO", Group: GroupEmail, Kind: KindEmail},
+	// Which sender the composer preselects (ADR-0021): the user's own address
+	// when the operator accepts it, or always the shared EMAIL_FROM.
+	{Key: KeyEmailSenderDefault, Env: "EMAIL_SENDER_DEFAULT", Group: GroupEmail, Kind: KindEnum, Default: "own", Options: []string{"own", "shared"}},
 	{Key: KeySMTPHost, Env: "SMTP_HOST", Group: GroupEmail, Kind: KindText, Default: "localhost"},
 	{Key: KeySMTPPort, Env: "SMTP_PORT", Group: GroupEmail, Kind: KindPort, Default: "1025"},
 	{Key: KeySMTPUsername, Env: "SMTP_USERNAME", Group: GroupEmail, Kind: KindText},

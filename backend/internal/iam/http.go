@@ -56,6 +56,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/auth/login", h.login)
 	mux.HandleFunc("POST /api/auth/logout", h.logout)
 	mux.HandleFunc("GET /api/auth/me", h.me)
+	mux.HandleFunc("PUT /api/auth/password", h.changeOwnPassword)
 	mux.HandleFunc("GET /api/users", h.listUsers)
 	mux.HandleFunc("POST /api/users", h.createUser)
 	mux.HandleFunc("PATCH /api/users/{id}", h.updateUser)
@@ -89,6 +90,26 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, h.cookies.cleared())
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// changeOwnPassword serves PUT /api/auth/password for any signed-in user.
+func (h *Handler) changeOwnPassword(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		CurrentPassword string `json:"currentPassword"`
+		NewPassword     string `json:"newPassword"`
+	}
+	if err := httpx.DecodeJSON(w, r, &body); err != nil {
+		httpx.Error(w, http.StatusBadRequest, httpx.ErrorBody{Code: "invalid_request", Message: "expected a JSON PasswordChange"})
+		return
+	}
+	actor, _ := UserFrom(r.Context())
+	session, err := h.svc.ChangeOwnPassword(r.Context(), actor, body.CurrentPassword, body.NewPassword)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	http.SetCookie(w, h.cookies.session(session.Token, session.ExpiresAt, h.svc.now()))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -216,6 +237,8 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) 
 		httpx.Error(w, http.StatusBadRequest, httpx.ErrorBody{Code: "invalid_input", Message: "invalid input", Fields: fields})
 	case errors.Is(err, ErrInvalidCredentials):
 		httpx.Error(w, http.StatusUnauthorized, httpx.ErrorBody{Code: "invalid_credentials", Message: ErrInvalidCredentials.Error()})
+	case errors.Is(err, ErrWrongPassword):
+		httpx.Error(w, http.StatusForbidden, httpx.ErrorBody{Code: "wrong_password", Message: ErrWrongPassword.Error()})
 	case errors.Is(err, ErrTooManyAttempts):
 		w.Header().Set("Retry-After", strconv.Itoa(int(FailedLoginWindow.Seconds())))
 		httpx.Error(w, http.StatusTooManyRequests, httpx.ErrorBody{Code: "too_many_attempts", Message: ErrTooManyAttempts.Error()})
