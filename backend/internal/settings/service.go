@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	netmail "net/mail"
 	"slices"
 	"strconv"
@@ -66,10 +67,44 @@ func (s Snapshot) flag(key string) bool { return s.Value(key) == "true" }
 func (s Snapshot) DryRun() bool { return s.DryRunLocked || s.flag(KeyDryRun) }
 
 // SendsExternally reports whether messages leave the machine: DRY_RUN is off
-// and at least one channel uses a real operator.
+// and at least one channel uses a real operator. The SMTP ("mailpit") provider
+// counts as one unless it points at a local server, since any SMTP relay can
+// deliver real mail.
 func (s Snapshot) SendsExternally() bool {
-	return !s.DryRun() && (s.Value(KeyEmailProvider) == "sendgrid" || s.Value(KeySMSProvider) == "smsapi")
+	if s.DryRun() {
+		return false
+	}
+	switch s.Value(KeyEmailProvider) {
+	case "sendgrid":
+		return true
+	case "mailpit":
+		if !IsLocalHost(s.Value(KeySMTPHost)) {
+			return true
+		}
+	}
+	return s.Value(KeySMSProvider) == "smsapi"
 }
+
+// IsLocalHost reports whether host is this machine or the Mailpit container of
+// docker-compose.yml, i.e. mail sent there cannot reach anybody.
+func IsLocalHost(host string) bool {
+	h := strings.ToLower(strings.TrimSpace(host))
+	if h == "localhost" || h == "mailpit" || strings.HasSuffix(h, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(strings.Trim(h, "[]"))
+	return ip != nil && ip.IsLoopback()
+}
+
+// SMSMaxParts is the limit of SMS parts per message, 0 for none.
+func (s Snapshot) SMSMaxParts() int {
+	n, _ := strconv.Atoi(s.Value(KeySMSMaxParts))
+	return n
+}
+
+// ReplyTo is the reply address of e-mails sent from the shared address, empty
+// when replies go to the sender itself.
+func (s Snapshot) ReplyTo() string { return s.Value(KeyEmailReplyTo) }
 
 // SMSPriceMilli is the SMS part price in thousandths of a złoty. Values are
 // validated before they are stored, so a parse error falls back to 0.
@@ -99,6 +134,7 @@ func (s Snapshot) ProviderConfig() setup.Config {
 		SMSAPIKey:                s.Value(KeySMSAPIKey),
 		SMSSenderName:            s.Value(KeySMSSenderName),
 		SMSAPITestMode:           s.flag(KeySMSTestMode),
+		SMSMaxParts:              s.SMSMaxParts(),
 		DryRun:                   s.DryRun(),
 	}
 }
@@ -457,6 +493,10 @@ func normalize(d Def, raw string) (string, string) {
 	case KindPort:
 		if n, err := strconv.Atoi(v); err != nil || n < 1 || n > 65535 {
 			return "", "must be a port number between 1 and 65535"
+		}
+	case KindInt:
+		if n, err := strconv.Atoi(v); err != nil || n < 0 || n > 1000 {
+			return "", "must be a whole number between 0 and 1000"
 		}
 	case KindEmail:
 		if _, err := netmail.ParseAddress(v); err != nil {

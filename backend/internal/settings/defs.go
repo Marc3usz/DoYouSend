@@ -28,6 +28,7 @@ const (
 	KindSecret Kind = "secret"
 	KindPrice  Kind = "price" // PLN with up to 3 decimals, e.g. "0.08"
 	KindPort   Kind = "port"
+	KindInt    Kind = "int"     // whole number 0..1000
 	KindEmail  Kind = "address" // RFC 5322 address, e.g. "Szkola <a@example.test>"
 )
 
@@ -59,6 +60,8 @@ const (
 	KeyDryRun                = "dry_run"
 	KeyEmailProvider         = "email_provider"
 	KeyEmailFrom             = "email_from"
+	KeyEmailReplyTo          = "email_reply_to"
+	KeySMSMaxParts           = "sms_max_parts"
 	KeySMTPHost              = "smtp_host"
 	KeySMTPPort              = "smtp_port"
 	KeySMTPUsername          = "smtp_username"
@@ -90,6 +93,9 @@ var defs = []Def{
 
 	{Key: KeyEmailProvider, Env: "EMAIL_PROVIDER", Group: GroupEmail, Kind: KindEnum, Default: "mailpit", Options: []string{"mailpit", "sendgrid"}},
 	{Key: KeyEmailFrom, Env: "EMAIL_FROM", Group: GroupEmail, Kind: KindEmail, Default: "DoYouSend <no-reply@example.test>"},
+	// Where replies to e-mails sent from the shared EMAIL_FROM go (ADR-0021);
+	// empty: to EMAIL_FROM itself.
+	{Key: KeyEmailReplyTo, Env: "EMAIL_REPLY_TO", Group: GroupEmail, Kind: KindEmail},
 	{Key: KeySMTPHost, Env: "SMTP_HOST", Group: GroupEmail, Kind: KindText, Default: "localhost"},
 	{Key: KeySMTPPort, Env: "SMTP_PORT", Group: GroupEmail, Kind: KindPort, Default: "1025"},
 	{Key: KeySMTPUsername, Env: "SMTP_USERNAME", Group: GroupEmail, Kind: KindText},
@@ -108,6 +114,9 @@ var defs = []Def{
 	{Key: KeySMSSenderName, Env: "SMS_SENDER_NAME", Group: GroupSMS, Kind: KindText, Default: "SZKOLA-TEST"},
 	{Key: KeySMSTestMode, Env: "SMS_TEST_MODE", Group: GroupSMS, Kind: KindBool, Default: "false"},
 	{Key: KeySMSPricePerPart, Env: "SMS_PRICE_PER_PART_PLN", Group: GroupSMS, Kind: KindPrice, Default: "0.08"},
+	// SMSAPI's max_parts: a longer message fails instead of costing more. 0 keeps
+	// the account default.
+	{Key: KeySMSMaxParts, Env: "SMS_MAX_PARTS", Group: GroupSMS, Kind: KindInt, Default: "0"},
 	{Key: KeySMSAPIDeliveryReports, Env: "SMSAPI_DLR_TOKEN", Group: GroupSMS, Kind: KindSecret},
 
 	{Key: KeyNotionToken, Env: "NOTION_TOKEN", Group: GroupNotion, Kind: KindSecret},

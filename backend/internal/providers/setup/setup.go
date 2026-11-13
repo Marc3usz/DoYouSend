@@ -61,6 +61,9 @@ type Config struct {
 	SMSAPIKey      string
 	SMSSenderName  string
 	SMSAPITestMode bool
+	// SMSMaxParts limits the parts of one SMS (SMSAPI max_parts); 0 keeps the
+	// account default.
+	SMSMaxParts int
 
 	// DryRun prevents any real outbound delivery when true.
 	// Enforced by wrapping every provider with providers.WrapDryRun.
@@ -269,6 +272,7 @@ func newSMSProvider(cfg Config, logger *slog.Logger) (providers.Provider, error)
 			APIKey:     cfg.SMSAPIKey,
 			SenderName: cfg.SMSSenderName,
 			TestMode:   cfg.SMSAPITestMode,
+			MaxParts:   cfg.SMSMaxParts,
 		}, logger)
 
 	default:
