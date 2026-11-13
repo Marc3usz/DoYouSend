@@ -1,12 +1,15 @@
-# Integracje — E-mail i SMS
+# Integracje — e-mail i SMS
 
-Niniejszy dokument opisuje architekturę, konfigurację oraz sposób działania integracji z dostawcami poczty elektronicznej (e-mail) oraz bramek SMS w systemie **DoYouSend** (domena **DEV C**).
+Ten dokument opisuje architekturę, konfigurację i działanie integracji z operatorami poczty
+elektronicznej i bramkami SMS w systemie **DoYouSend** (domena C, `backend/internal/providers`;
+zob. `docs/podzial-pracy.md`).
 
 ---
 
 ## 1. Architektura integracji
 
-Zgodnie z wymaganiami projektowymi (`description.md` oraz ADR-0003 i ADR-0008), integracje realizowane są za wspólnym interfejsem `providers.Provider`:
+Zgodnie z `description.md`, ADR-0003 i ADR-0008 integracje działają za wspólnym interfejsem
+`providers.Provider`:
 
 ```go
 type Provider interface {
@@ -23,9 +26,9 @@ type Provider interface {
             ┌───────────────────────┴───────────────────────┐
             ▼                                               ▼
 ┌────────────────────────┐                     ┌────────────────────────┐
-│  p.Email (Provider)   │                     │   p.SMS (Provider)     │
+│  e-mail (Provider)     │                     │   SMS (Provider)       │
 ├────────────────────────┤                     ├────────────────────────┤
-│ • Mailpit (SMTP:1025)  │                     │ • Fake SMS (in-memory) │
+│ • SMTP / Mailpit       │                     │ • Fake SMS (in-memory) │
 │ • SendGrid (REST API)  │                     │ • SMSAPI (REST API)    │
 └───────────┬────────────┘                     └───────────┬────────────┘
             │                                               │
@@ -51,177 +54,197 @@ type Provider interface {
                      └─────────────────────────────┘
 ```
 
-> **Odporność na wyścigi DLR (ADR-0011):** Gdy raport doręczenia przychodzi w trakcie wysyłki wsadu (zanim wiersz w `deliveries` otrzyma `provider_message_id`), konsument buforuje go w tabeli `unmatched_delivery_reports`. W momencie zapisu identyfikatora przez dyspozytora wyzwalacz bazodanowy natychmiast uzgadnia statusy (z zachowaniem reguły *forward-only*), dzięki czemu raporty nie giną.
+> **Odporność na wyścigi DLR (ADR-0011):** gdy raport doręczenia przychodzi w trakcie wysyłki
+> wsadu (zanim wiersz w `deliveries` dostanie `provider_message_id`), konsument buforuje go
+> w tabeli `unmatched_delivery_reports`. Gdy dyspozytor zapisze identyfikator, wyzwalacz
+> w bazie uzgadnia status (tylko „do przodu”), więc raporty nie giną.
 
-Fabryka providerów znajduje się w pakiecie `backend/internal/providers/setup` i jest inicjalizowana automatycznie na podstawie konfiguracji ze zmiennych środowiskowych (`setup.ConfigFromEnv()`).
+**Skąd API bierze konfigurację.** Przy starcie `backend/cmd/api` wczytuje ustawienia przez
+`settings.Service` (kolejność: wartość z panelu, zmienna środowiskowa, wartość domyślna z
+`backend/internal/settings/defs.go`) i buduje providerów przez `setup.NewLive`. Zapis w panelu
+podmienia providerów od razu, bez restartu. Gdy zapisane ustawienia nie dają się uruchomić,
+API startuje z samych zmiennych środowiskowych z wymuszonym `DRY_RUN`. Funkcja
+`setup.ConfigFromEnv()` służy już tylko testom.
 
 ---
 
 ## 2. Bezpiecznik `DRY_RUN`
 
-Wszystkie providery są domyślnie zabezpieczone dekoratorem `providers.WrapDryRun`:
-* Gdy `DRY_RUN=true` (wartość domyślna w `.env.example`), żadne żądanie sieciowe nie wychodzi poza aplikację.
-* Zwracany jest syntetyczny identyfikator `ProviderMessageID` (np. `dryrun-email-...`), co pozwala na pełne przetestowanie przepływu wysyłki, kolejki oraz zapisu w bazie danych bez ponoszenia kosztów i bez ryzyka wysłania wiadomości do prawdziwych odbiorców.
-* Wyłączenie trybu Dry Run (`DRY_RUN=false`) wymaga zgody opiekuna projektu.
+Wszyscy providerzy są opakowani dekoratorem `providers.WrapDryRun`:
+
+- Gdy `DRY_RUN=true` (domyślnie), żadne żądanie nie wychodzi poza aplikację. Provider zwraca
+  syntetyczny identyfikator (`dryrun-email-…`, `dryrun-sms-…`), więc cały przepływ — wsad,
+  statusy, historia — działa bez kosztów i bez ryzyka wysłania czegokolwiek prawdziwym osobom.
+- Wyłączenie `DRY_RUN` z operatorem, który wysyła poza komputer (SendGrid, SMSAPI albo SMTP na
+  host inny niż `localhost`, adres pętli zwrotnej czy `mailpit`), wymaga w panelu wpisania
+  `WYSYŁAJ` oraz zgody opiekuna projektu. `DRY_RUN_LOCK=true` w `.env` całkowicie blokuje
+  wyłączenie trybu testowego.
+- Gdy jakiś wsad jest właśnie wysyłany, panel nie pozwala wyłączyć `DRY_RUN` ani zmienić
+  operatora (ADR-0018), żeby jeden wsad nie poszedł częściowo na niby, a częściowo naprawdę.
 
 ---
 
-## 3. Dostawcy E-mail
+## 3. Operatorzy e-mail
+
+Operatora, nadawcę i klucze ustawia się w **Panelu administratora → Ustawienia wysyłki**
+(rozdział 7). Nazwy zmiennych poniżej działają jako wartości zapasowe w `.env` — są
+zakomentowane na końcu `.env.example`.
 
 ### 3.1. Lokalnie: Mailpit (`EMAIL_PROVIDER=mailpit`)
-Domyślny adapter dla środowiska deweloperskiego i testowego, uruchamiany przez `docker compose up`:
-* **Port SMTP:** `1025` (nasłuch serwera SMTP)
-* **Web UI:** `http://localhost:8025` (interfejs do podglądu odebranych maili)
-* **Zmienne w `.env`:**
-  ```env
-  EMAIL_PROVIDER=mailpit
-  SMTP_HOST=localhost
-  SMTP_PORT=1025
-  EMAIL_FROM="DoYouSend <no-reply@example.test>"
-  ```
-* **Cechy implementacji:**
-  * Ochrona przed wstrzykiwaniem nagłówków (odrzucanie znaków CRLF w polach `To` i `Subject`).
-  * Kodowanie Q-encoding (RFC 2047) dla polskich znaków diakrytycznych w temacie.
-  * Generowanie unikalnego nagłówka RFC 5322 `Message-ID`.
 
-### 3.2. Produkcyjnie: SendGrid (`EMAIL_PROVIDER=sendgrid`, ADR-0008)
-Adapter wysyłający wiadomości przez REST API SendGrid v3 (`/v3/mail/send`). Żądanie buduje oficjalne SDK `sendgrid-go`, ale wysyła nasz własny `http.Client` z timeoutem (ADR-0014):
-* **Zmienne w `.env`:**
+Domyślny adapter, uruchamiany przez `make up`:
+
+- **SMTP:** `localhost:1025`, **podgląd poczty:** <http://localhost:8025>.
+- Zmienne zapasowe: `EMAIL_PROVIDER=mailpit`, `SMTP_HOST=localhost`, `SMTP_PORT=1025`,
+  `EMAIL_FROM="DoYouSend <no-reply@example.test>"`.
+- Adapter jest zwykłym klientem SMTP (z opcjonalnym `SMTP_USERNAME`/`SMTP_PASSWORD`). Dlatego
+  SMTP na host spoza komputera traktujemy jak prawdziwą wysyłkę (rozdział 2).
+- Cechy implementacji: odrzucanie znaków CRLF w polach `To` i `Subject` (ochrona przed
+  wstrzykiwaniem nagłówków), kodowanie RFC 2047 polskich znaków w temacie, unikalny
+  nagłówek `Message-ID`, a koperta SMTP dostaje sam adres nadawcy, bez nazwy wyświetlanej.
+- Mailpit nie wysyła raportów doręczeń: e-maile kończą na statusie `sent`.
+
+### 3.2. Produkcyjnie: SendGrid (`EMAIL_PROVIDER=sendgrid`, ADR-0008, ADR-0014)
+
+Wysyłka przez REST API SendGrid v3 (`/v3/mail/send`). Żądanie buduje oficjalne SDK
+`sendgrid-go`, a wysyła nasz `http.Client` z limitem czasu (ADR-0014). Treść idzie jako
+`text/plain` z wyłączonym śledzeniem kliknięć, więc nie zmienia się po drodze.
+
+- Zmienne zapasowe:
   ```env
   EMAIL_PROVIDER=sendgrid
-  SENDGRID_API_KEY=SG.twoj-klucz-api
+  SENDGRID_API_KEY=<klucz API z konsoli SendGrid>
   SENDGRID_SANDBOX=false
   SENDGRID_REGION=global
-  EMAIL_FROM="DoYouSend <zweryfikowany-nadawca@twojadomena.pl>"
+  EMAIL_FROM="DoYouSend <nadawca@example.test>"
   ```
-* **Region danych (ADR-0014):** `SENDGRID_REGION=global` (domyślnie, `api.sendgrid.com`) albo `eu` (`api.eu.sendgrid.com`). Inna wartość kończy się błędem przy starcie. Prawdopodobnie klucz API musi pochodzić z konta w tym samym regionie (do potwierdzenia w SendGrid, zob. ADR-0014). Przed produkcją ustawiamy `eu`.
-* **Tryb Sandbox:** Ustawienie `SENDGRID_SANDBOX=true` waliduje żądanie po stronie API SendGrid bez wysyłania e-maila.
-* **Webhook zdarzeń (Event Webhook):**
-  * Ścieżka: `POST /providers/email/events`
-  * Weryfikacja kryptograficzna ECDSA: nagłówki `X-Twilio-Email-Event-Webhook-Signature` oraz `X-Twilio-Email-Event-Webhook-Timestamp`.
-  * Klucz publiczny weryfikacji: `SENDGRID_WEBHOOK_PUBLIC_KEY`.
+- **Region danych:** `global` (domyślnie, `api.sendgrid.com`) albo `eu` (`api.eu.sendgrid.com`).
+  Inna wartość jest odrzucana. Klucz API powinien pochodzić z konta w tym samym regionie
+  (ADR-0014). Przed produkcją ustawiamy `eu`.
+- **Sandbox:** `SENDGRID_SANDBOX=true` — SendGrid sprawdza żądanie, ale niczego nie wysyła.
+- **Adres nadawcy:** SendGrid wysyła tylko z adresu zweryfikowanego albo z uwierzytelnionej
+  domeny. Weryfikację pojedynczych nadawców zleca administrator z panelu (ADR-0016), a wybór
+  adresu nadawcy dla wsadu i uwierzytelnianie domeny szkoły opisuje ADR-0021.
+- **Webhook zdarzeń (Event Webhook):** `POST /providers/email/events`, podpis ECDSA
+  w nagłówkach `X-Twilio-Email-Event-Webhook-Signature` i `X-Twilio-Email-Event-Webhook-Timestamp`
+  (starsze niż 5 minut są odrzucane), klucz publiczny w ustawieniu „klucz webhooka SendGrid”
+  (`SENDGRID_WEBHOOK_PUBLIC_KEY`). Bez klucza endpoint odpowiada 503.
 
 ---
 
 ## 4. Bramki SMS
 
 ### 4.1. Lokalnie: Fake SMS (`SMS_PROVIDER=fake`)
-Domyślny adapter dla środowiska deweloperskiego:
-* **Zmienne w `.env`:**
-  ```env
-  SMS_PROVIDER=fake
-  SMS_SENDER_NAME=SZKOLA-TEST
-  ```
-* **Działanie:** Rejestruje wysłane SMS-y w pamięci w buforze pierścieniowym (ring buffer 1000 wpisów), logując treść na poziomie `DEBUG`. Zwraca deterministyczne identyfikatory `fake-sms-...`.
+
+Domyślny adapter. Zapamiętuje ostatnie 1000 SMS-ów w pamięci procesu i zwraca identyfikatory
+`fake-sms-N`. Do logu (poziom `INFO`) trafia tylko ID odbiorcy i ID wiadomości — nigdy numer
+ani treść. Status wysyłki i treść widać w historii, bo zapisuje je baza.
 
 ### 4.2. Produkcyjnie: SMSAPI (`SMS_PROVIDER=smsapi`, ADR-0003)
-Adapter integrujący się z bramką SMSAPI przez REST API v2 (`https://api.smsapi.pl/sms.do`):
-* **Zmienne w `.env`:**
+
+Wysyłka przez REST API SMSAPI (`https://api.smsapi.pl/sms.do`):
+
+- Zmienne zapasowe:
   ```env
   SMS_PROVIDER=smsapi
-  SMS_API_KEY=twoj-token-oauth-smsapi
+  SMS_API_KEY=<token OAuth z panelu SMSAPI>
   SMS_SENDER_NAME=SZKOLA-TEST
   SMS_TEST_MODE=false
-  SMSAPI_DLR_TOKEN=twoj-tajny-token-dlr
+  SMSAPI_DLR_TOKEN=<losowy tajny ciąg>
   ```
-* **Tryb testowy:** `SMS_TEST_MODE=true` dodaje parametr `test=1` do żądania SMSAPI — wiadomość jest sprawdzana i walidowana przez bramkę bez obciążania konta i wysyłki do sieci GSM.
-* **Raporty doręczeń (DLR callback):**
-  * Ścieżki: `GET /providers/sms/dlr`, `POST /providers/sms/dlr` oraz warianty z tokenem w ścieżce `/providers/sms/dlr/{token}`.
-  * Zabezpieczenie: porównanie tokenu z `SMSAPI_DLR_TOKEN` w czasie stałym (`subtle.ConstantTimeCompare`) zapobiega atakom timingowym.
-  * Mapowanie statusów DLR:
-    * `DELIVERED` → `delivered`
-    * `UNDELIVERED`, `EXPIRED`, `REJECTED`, `FAILED` → `failed`
-    * `SENT`, `ACCEPTED` → `sent`
+- **Tryb testowy:** `SMS_TEST_MODE=true` dodaje `test=1` — bramka sprawdza wiadomość, ale jej
+  nie wysyła i nie pobiera opłaty.
+- **Raporty doręczeń (DLR):** `GET` i `POST` na `/providers/sms/dlr` (token w `?token=`) albo
+  `/providers/sms/dlr/{token}`. Token jest porównywany z ustawieniem `SMSAPI_DLR_TOKEN` w czasie
+  stałym; bez tokenu endpoint odpowiada 503. Mapowanie statusów:
+  `DELIVERED` → `delivered`; `UNDELIVERED`, `EXPIRED`, `REJECTED`, `FAILED` → `failed`;
+  `SENT`, `ACCEPTED` → `sent`.
 
 ---
 
-## 5. Statystyki wykorzystania kanałów i rozliczanie kosztów
+## 5. Statystyki wykorzystania i koszty
 
-Dla panelu administratora (`/admin`, domena D) system udostępnia dedykowane endpointy agregujące metryki bezpośrednio z tabel `deliveries`, `batch_recipients` oraz `message_batches`. Oba endpointy podlegają kontroli dostępu IAM i wymagają uprawnień administratora (`AccessAdmin`).
+Panel administratora (`/admin`) korzysta z dwóch endpointów; oba wymagają roli administratora.
 
-### 5.1. Statystyki i koszty SMS (`GET /api/stats/sms`)
-* **Cena jednostkowa:** pobierana z `SMS_PRICE_PER_PART_PLN` (np. `0.08` zł / część = `80` milli-PLN).
-* **`plannedCostMilli`:** koszt wszystkich zaplanowanych części SMS w danym okresie.
-* **`billedCostMilli`:** koszt faktycznie rozliczonych SMS-ów przez bramkę:
-  * Obejmuje statusy `sent`, `delivered` oraz wiadomości `failed`, które zostały przyjęte do wysyłki przez operatora (`provider_message_id IS NOT NULL`).
-  * Wiadomości odrzucone przed przyjęciem do sieci (błędy walidacji, brak środków, `provider_message_id IS NULL`) nie generują kosztu.
-* **Części i wiadomości:** zwraca rozbicie na `totalMessages`, `totalParts`, `deliveredMessages`, `deliveredParts`, `sentMessages`, `sentParts`, `failedMessages`, `failedParts`, `inFlightMessages` oraz `inFlightParts`.
+### 5.1. SMS (`GET /api/stats/sms`)
 
-### 5.2. Statystyki wiadomości E-mail (`GET /api/stats/email`)
-* **Struktura odpowiedzi:** zwraca agregację `totalMessages`, `deliveredMessages`, `sentMessages`, `failedMessages` oraz `inFlightMessages` dla kanału `email`.
-* **Aktualizacja statusów:** statusy doręczeń `delivered` i `failed` aktualizowane są w czasie rzeczywistym przez konsumenta raportów (`PGDeliveryReportConsumer`) na podstawie webhooków SendGrid Event Webhook lub Mailpit.
+- Koszt liczony jest z ceny zapisanej przy każdym wsadzie w chwili wysyłki
+  (`message_batches.estimated_cost`), więc późniejsza zmiana ceny w panelu nie przelicza
+  historii.
+- Wysyłki symulowane (`DRY_RUN`, provider `fake`) nie są liczone jako zużycie ani koszt.
+- `plannedCostMilli` — koszt zaplanowanych części SMS w okresie; `billedCostMilli` — koszt
+  części przyjętych przez operatora (`sent`, `delivered` oraz `failed` z `provider_message_id`).
+  Wiadomości odrzucone przed przyjęciem nic nie kosztują.
+- Rozbicie: `totalMessages`, `totalParts`, `deliveredMessages`, `deliveredParts`, `sentMessages`,
+  `sentParts`, `failedMessages`, `failedParts`, `inFlightMessages`, `inFlightParts`.
 
-### 5.3. Filtry czasowe i zakresy
-Oba endpointy statystyk obsługują identyczny zestaw parametrów zapytania:
-* `batch_id`: opcjonalny filtr po identyfikatorze UUID wsadu.
-* `from`: początek zakresu czasu utworzenia/potwierdzenia wsadu (RFC3339 lub format daty `YYYY-MM-DD`).
-* `to`: koniec zakresu czasu. W przypadku formatu `YYYY-MM-DD` data interpretowana jest w strefie czasowej `Europe/Warsaw` z domknięciem do końca doby (następna północ, przedział lewostronnie domknięty, prawostronnie otwarty).
+### 5.2. E-mail (`GET /api/stats/email`)
 
----
+Agregacja `totalMessages`, `deliveredMessages`, `sentMessages`, `failedMessages` i
+`inFlightMessages`. Statusy `delivered` i `failed` przychodzą tylko z webhooka SendGrid; przy
+Mailpicie e-maile zostają na `sent`.
 
-## 6. Szybki start (uruchomienie lokalne)
+### 5.3. Parametry
 
-1. Skopiuj plik środowiskowy:
-   ```bash
-   cp .env.example .env
-   ```
-2. Uruchom usługi pomocnicze (PostgreSQL, Redis, Mailpit):
-   ```bash
-   make up
-   ```
-3. Zastosuj migracje bazy danych:
-   ```bash
-   make migrate
-   ```
-4. Utwórz konto administratora:
-   ```bash
-   make create-admin EMAIL=admin@example.test NAME="Administrator"
-   ```
-5. Uruchom serwer API:
-   ```bash
-   make dev-api
-   ```
-6. Przeglądaj maile w Mailpicie pod adresem: [http://localhost:8025](http://localhost:8025).
+Oba endpointy przyjmują `batch_id` (UUID wsadu), `from` i `to` (RFC 3339 albo `YYYY-MM-DD`).
+Data bez godziny jest liczona w strefie `Europe/Warsaw`, a `to` obejmuje cały dzień
+(przedział lewostronnie domknięty).
 
 ---
 
-## 7. Weryfikacja i testy integracyjne E2E (M3)
+## 6. Uruchomienie lokalne
 
-Kompletny przepływ integracji wysyłki end-to-end (dyspozytor $\rightarrow$ baza PostgreSQL $\rightarrow$ raporty doręczeń $\rightarrow$ agregacja kosztów) jest objęty testem integracyjnym w `backend/internal/providers/setup/delivery_integration_test.go`:
+Pełna instrukcja jest w [README](../README.md) (sekcje *Getting started* i *Sending a test
+message*). W skrócie: `make up`, `make migrate`, `make seed`, `make create-admin`, `make dev-api`,
+`make dev-web`. Przy domyślnym `DRY_RUN=true` nic nie trafia do Mailpita; aby zobaczyć e-maile
+pod <http://localhost:8025>, wyłącz tryb testowy w panelu, zostawiając Mailpit na `localhost`
+i SMS `fake`.
+
+---
+
+## 7. Ustawienia wysyłki w panelu (ADR-0018)
+
+Operatorów, nadawców, klucze API, cenę SMS, tryb testowy i import z Notion ustawia się
+w **Panelu administratora → Ustawienia wysyłki** (`/admin/ustawienia`). Zmiany działają od
+razu, bez restartu.
+
+- Kolejność: wartość z panelu, potem zmienna z `.env`, potem domyślna. „Przywróć” usuwa wartość
+  z panelu. W `.env` zostają tylko wartości startowe (baza, porty, `APP_ENV`,
+  `SESSION_COOKIE_SECURE`, `DRY_RUN`, `DRY_RUN_LOCK`, klucz szyfrujący); zmienne operatorów są
+  w `.env.example` zakomentowane jako wartości zapasowe.
+- Klucze API są w bazie zaszyfrowane (AES-256-GCM) kluczem z `SETTINGS_ENCRYPTION_KEY` albo
+  z pliku `SETTINGS_KEY_FILE` (domyślnie `backend/settings.key`, tworzony przy pierwszym starcie).
+  **Zrób kopię tego klucza osobno od bazy.** Bez niego klucze API trzeba wpisać ponownie.
+- Wyłączenie trybu testowego z operatorem wysyłającym poza komputer wymaga wpisania `WYSYŁAJ`
+  i zgody opiekuna (rozdział 2).
+
+---
+
+## 8. Testy integracyjne
+
+Przepływ dyspozytor → PostgreSQL → raporty doręczeń → statystyki obejmuje test
+`backend/internal/providers/setup/delivery_integration_test.go`:
 
 ```bash
-# Uruchomienie testów integracyjnych na bazie PostgreSQL:
-make test-integration
-# Lub bezpośrednio dla pakietu providerów:
-cd backend && TEST_DATABASE_URL="postgres://postgres:postgres@localhost:5432/doyousend_test?sslmode=disable" go test -tags integration -v ./internal/providers/...
+make up
+make test-integration     # TEST_DATABASE_URL z .env (zob. .env.example)
+# albo tylko pakiety providerów:
+cd backend && TEST_DATABASE_URL="postgres://doyousend:doyousend@localhost:5432/doyousend?sslmode=disable" \
+  go test -tags integration -count=1 -v ./internal/providers/...
 ```
 
-Test automatycznie:
-1. Inicjalizuje providerów przez fabrykę `setup.New` z włączonym bezpiecznikiem `DRY_RUN`.
-2. Buduje plan wysyłki i dyspaczuje wiadomości e-mail oraz SMS przez `delivery.Dispatcher`.
-3. Zapisuje wyniki i identyfikatory wiadomości w bazie danych.
-4. Symuluje napływ raportów doręczeń przez `PGDeliveryReportConsumer` (zmiana statusów na `delivered`).
-5. Weryfikuje prawidłową agregację statusów, części i kosztów przez `sms.PGUsageStore` oraz `email.PGUsageStore`.
+Każdy test tworzy i usuwa własny schemat, więc może używać tej samej bazy co `make dev-api`.
+Test:
 
-## Ustawienia wysyłki w panelu (ADR-0018)
-
-Operatorów, nadawców, klucze API, cenę SMS i tryb testowy ustawia się w **Panelu administratora
-→ Ustawienia wysyłki** (`/admin/ustawienia`). Zmiany działają od razu, bez restartu.
-
-- Kolejność: wartość z panelu, potem zmienna z `.env`, potem domyślna. Opcja „Przywróć” usuwa
-  wartość z panelu. Dotychczasowe `.env` działają bez zmian.
-- Klucze API są w bazie zaszyfrowane kluczem z `SETTINGS_ENCRYPTION_KEY` albo z pliku
-  `SETTINGS_KEY_FILE` (tworzony przy pierwszym starcie). **Zrób kopię tego klucza osobno od
-  bazy.** Bez niego klucze API trzeba wpisać ponownie.
-- Wyłączenie trybu testowego z prawdziwym operatorem wymaga wpisania `WYSYŁAJ` i zgody
-  opiekuna. Na serwerach demo i testowych ustaw `DRY_RUN_LOCK=true`: panel nie wyłączy wtedy
-  trybu testowego.
-- W `.env` zostaje tylko infrastruktura: `DATABASE_URL`, porty, `APP_ENV`,
-  `SESSION_COOKIE_SECURE`, klucz szyfrujący i `DRY_RUN_LOCK`.
+1. buduje providerów przez `setup.New` z włączonym `DRY_RUN`,
+2. planuje wsad i wysyła e-maile oraz SMS-y przez `delivery.Dispatcher`,
+3. zapisuje wyniki i identyfikatory wiadomości w bazie,
+4. symuluje raporty doręczeń przez `PGDeliveryReportConsumer` (statusy `delivered`),
+5. sprawdza statusy, części i koszty w `sms.PGUsageStore` i `email.PGUsageStore`.
 
 ---
 
-## 8. Import odbiorców z Notion (ADR-0017)
+## 9. Import odbiorców z Notion (ADR-0017)
 
 Odbiorców można wczytać z bazy danych w Notion zamiast z pliku CSV/XLSX. Wiersze przechodzą
 **tę samą walidację i wykrywanie duplikatów** co plik (`recipients.Importer.CheckTable` /
@@ -230,12 +253,12 @@ Odbiorców można wczytać z bazy danych w Notion zamiast z pliku CSV/XLSX. Wier
 ### Konfiguracja (jednorazowo)
 
 Wszystko ustawia się w **Panelu administratora → Ustawienia → Import odbiorców z Notion**
-(`/admin/ustawienia`). Zmienne `NOTION_*` w `.env` działają dalej jako wartości zapasowe
-(i dla komendy CLI), ale panel ma pierwszeństwo.
+(`/admin/ustawienia`). Zmienne `NOTION_*` w `.env` działają jako wartości zapasowe i są
+jedynym źródłem konfiguracji dla komendy `make import-notion`.
 
 1. W Notion: **Settings → Connections → Develop or manage integrations → New integration**,
    typ **Internal**, uprawnienie tylko **Read content**. Skopiuj *Internal Integration Secret*
-   (`ntn_...`) do pola **Token integracji Notion** (zapisywany zaszyfrowany, nigdy do repozytorium).
+   do pola **Token integracji Notion** (zapisywany zaszyfrowany, nigdy do repozytorium).
 2. Otwórz bazę z odbiorcami → menu **⋯ → Connections → Add connections** → wybierz integrację.
    Bez tego API odpowiada `object_not_found`.
 3. Skopiuj link do bazy (**⋯ → Copy link**) i wklej go w pole **Baza Notion z odbiorcami** —

@@ -4,6 +4,7 @@ import type { SendEstimate } from '$lib/api/messages';
 import {
 	costText,
 	estimateWarnings,
+	overSMSLimit,
 	partsText,
 	plural,
 	previewFailureText,
@@ -37,7 +38,7 @@ describe('costText', () => {
 		[80, '0,08 zł'],
 		[65, '0,065 zł'],
 		[123450, '123,45 zł'],
-		[1234500, '1234,50 zł']
+		[1234500, '1 234,50 zł']
 	])('formats %d thousandths as %s', (milli, want) => {
 		expect(spaces(costText(milli))).toBe(want);
 	});
@@ -98,6 +99,15 @@ describe('estimateWarnings', () => {
 			'5 odbiorców dostanie wiadomość tylko jednym kanałem (brak e-maila albo telefonu).'
 		]);
 	});
+
+	it('names only the chosen channel for a single-channel send', () => {
+		expect(estimateWarnings({ ...empty, unreachableCount: 1 }, ['sms'])).toEqual([
+			'1 odbiorca nie ma działającego numeru telefonu — nie dostanie wiadomości.'
+		]);
+		expect(estimateWarnings({ ...empty, unreachableCount: 2 }, ['email'])).toEqual([
+			'2 odbiorcy nie mają działającego e-maila — nie dostaną wiadomości.'
+		]);
+	});
 });
 
 describe('previewFailureText', () => {
@@ -109,5 +119,21 @@ describe('previewFailureText', () => {
 		expect(previewFailureText(new Error('network'))).toBe(
 			'Nie udało się policzyć podsumowania. Spróbuj ponownie za chwilę.'
 		);
+	});
+});
+
+describe('SMS part limit', () => {
+	const long = { ...empty, smsCount: 2, maxPartsPerRecipient: 3, smsPartLimit: 2 };
+	it('warns when an SMS is over the limit, e-mails still going', () => {
+		expect(estimateWarnings(long)).toEqual([
+			'SMS ma do 3 części, a limit to 2. Te SMS-y nie zostaną wysłane (e-maile tak) — skróć treść albo zmień limit w ustawieniach.'
+		]);
+	});
+	it('says nothing goes out for an SMS-only send, and ignores the limit for e-mail only', () => {
+		expect(estimateWarnings(long, ['sms'])[0]).toContain('Nic nie zostanie wysłane');
+		expect(estimateWarnings(long, ['email'])).toEqual([]);
+	});
+	it('has no limit at 0', () => {
+		expect(overSMSLimit({ ...long, smsPartLimit: 0 })).toBe(false);
 	});
 });

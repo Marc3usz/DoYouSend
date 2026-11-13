@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import type { RecipientLookup } from '$lib/api/recipients';
 	import RecipientPicker from '$lib/components/RecipientPicker.svelte';
 	import type { PageProps } from './$types';
 	import GroupForm from '../GroupForm.svelte';
 	import { kindLabel, peopleCount } from '../messages';
-	import { issueHint, issueText, recipientTypeLabel } from '../../odbiorcy/messages';
+	import { issueHint, issueText, recipientTypeLabel } from '$lib/format/recipients';
 
 	let { data, form }: PageProps = $props();
 
@@ -32,6 +33,23 @@
 		return confirm(
 			`Usunąć grupę „${g.name}”? Jej członkowie (${peopleCount(g.memberCount)}) zostaną w bazie odbiorców.`
 		);
+	}
+
+	// The form being sent; its buttons wait, so nothing goes twice.
+	let pending = $state<string | null>(null);
+
+	function guarded(key: string, ask?: () => boolean): SubmitFunction {
+		return ({ cancel }) => {
+			if (ask && !ask()) {
+				cancel();
+				return;
+			}
+			pending = key;
+			return async ({ update }) => {
+				await update();
+				pending = null;
+			};
+		};
 	}
 </script>
 
@@ -85,14 +103,21 @@
 					<td>{recipientTypeLabel(r.type)}</td>
 					<td>
 						{#each r.issues as issue (issue.channel)}
-							<span class="issue" title={issueHint(issue)}>{issueText(issue)}</span>
+							<span class="badge warning issue" title={issueHint(issue)}>{issueText(issue)}</span>
 						{/each}
 					</td>
 					{#if custom}
 						<td>
-							<form method="POST" action="?/remove" use:enhance>
+							<form method="POST" action="?/remove" use:enhance={guarded(`remove:${r.id}`)}>
 								<input type="hidden" name="recipientId" value={r.id} />
-								<button type="submit" class="link">Usuń z grupy</button>
+								<button
+									type="submit"
+									class="link danger-link"
+									disabled={pending !== null}
+									aria-label="Usuń z grupy: {r.firstName} {r.lastName}"
+								>
+									{pending === `remove:${r.id}` ? 'Usuwam…' : 'Usuń z grupy'}
+								</button>
 							</form>
 						</td>
 					{/if}
@@ -116,18 +141,23 @@
 	<form
 		method="POST"
 		action="?/add"
-		use:enhance={() =>
-			async ({ result, update }) => {
+		use:enhance={() => {
+			pending = 'add';
+			return async ({ result, update }) => {
 				await update();
+				pending = null;
 				if (result.type === 'success') picked = [];
-			}}
+			};
+		}}
 		class="add"
 	>
 		{#each picked as r (r.id)}
 			<input type="hidden" name="recipientId" value={r.id} />
 		{/each}
-		<button type="submit" class="primary" disabled={picked.length === 0}>
-			Dodaj zaznaczonych{picked.length > 0 ? ` (${picked.length})` : ''}
+		<button type="submit" class="primary" disabled={picked.length === 0 || pending !== null}>
+			{pending === 'add'
+				? 'Dodaję…'
+				: `Dodaj zaznaczonych${picked.length > 0 ? ` (${picked.length})` : ''}`}
 		</button>
 		{#if picked.length > 0}
 			<button type="button" class="link" onclick={() => (picked = [])}>Odznacz wszystkich</button>
@@ -147,14 +177,10 @@
 	{#if form?.deleteFailure}
 		<div class="error" role="alert"><p>{form.deleteFailure}</p></div>
 	{/if}
-	<form
-		method="POST"
-		action="?/delete"
-		use:enhance={({ cancel }) => {
-			if (!confirmDelete()) cancel();
-		}}
-	>
-		<button type="submit" class="danger">Usuń grupę</button>
+	<form method="POST" action="?/delete" use:enhance={guarded('delete', confirmDelete)}>
+		<button type="submit" class="danger" disabled={pending !== null}>
+			{pending === 'delete' ? 'Usuwam…' : 'Usuń grupę'}
+		</button>
 	</form>
 {/if}
 
@@ -164,25 +190,14 @@
 		color: var(--color-text-muted);
 	}
 	.issue {
-		display: inline-block;
 		margin-right: 0.35rem;
-		padding: 0 0.4rem;
-		border-radius: 0.25rem;
-		background: var(--color-warning-soft);
-		color: var(--color-warning);
-		font-size: 0.85rem;
 	}
 	.add {
 		display: flex;
 		gap: 1rem;
 		align-items: center;
 	}
-	.link {
-		background: none;
-		border: none;
-		padding: 0;
+	.danger-link {
 		color: var(--color-danger);
-		text-decoration: underline;
-		cursor: pointer;
 	}
 </style>

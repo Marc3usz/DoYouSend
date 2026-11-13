@@ -87,6 +87,7 @@ type (
 		RenderFailedIDs      []string      `json:"renderFailedIds"`
 		SampleBody           string        `json:"sampleBody"`
 		SampleRecipientName  string        `json:"sampleRecipientName,omitempty"`
+		SMSPartLimit         int           `json:"smsPartLimit"`
 	}
 )
 
@@ -125,6 +126,7 @@ func toEstimateJSON(est Estimate) estimateJSON {
 		RenderFailedIDs:      nonNil(est.RenderFailedIDs),
 		SampleBody:           est.SampleBody,
 		SampleRecipientName:  est.SampleRecipientName,
+		SMSPartLimit:         est.SMSPartLimit,
 	}
 }
 

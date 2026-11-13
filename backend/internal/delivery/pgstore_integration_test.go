@@ -48,12 +48,15 @@ func newPGStore(t *testing.T) (*PGStore, *pgxpool.Pool) {
 }
 
 func testPlan() Plan {
-	return NewPlan("Zebranie", "Czesc {{imie}}", []groups.Resolved{
+	p := NewPlan("Zebranie", "Czesc {{imie}}", []groups.Resolved{
 		resolved(pgBoth, "Anna", "anna@example.test", "+48500100101"),
 		resolved(pgEmail, "Jan", "jan@example.test", ""),
 		resolved(pgSMS, "", "", "+48500100103"), // no first name: deliveries fail at planning
 		resolved(pgNone, "Ewa", "", ""),
 	})
+	p.From = providers.Address{Email: "dyrektor@example.test", Name: "Dyrektor Szkoły"}
+	p.ReplyTo = providers.Address{Email: "sekretariat@example.test"}
+	return p
 }
 
 func testBatch() Batch {
@@ -67,6 +70,7 @@ func testBatch() Batch {
 		Groups:        []GroupRef{{ID: groupID, Name: "Rodzice uczniów klasy 3A"}},
 		RecipientIDs:  []string{pgEmail},
 		Status:        BatchRunning,
+		Channels:      []providers.Channel{providers.ChannelEmail, providers.ChannelSMS},
 		SMSParts:      parts,
 		CostMilli:     int64(parts) * 65, // 0.065 zł a part: needs the third decimal
 		Plan:          plan,
@@ -686,7 +690,7 @@ func TestPGStoreListBatches(t *testing.T) {
 }
 
 func TestPGStoreResetFailedDeliveries(t *testing.T) {
-	store, _ := newPGStore(t)
+	store, pool := newPGStore(t)
 	ctx := context.Background()
 
 	plan := NewPlan("Zebranie", "Czesc {{imie}}", []groups.Resolved{
@@ -712,7 +716,7 @@ func TestPGStoreResetFailedDeliveries(t *testing.T) {
 	}
 
 	// While batch is running, ResetFailedDeliveries returns ErrBatchRunning.
-	if _, err := store.ResetFailedDeliveries(ctx, created.ID); !errors.Is(err, ErrBatchRunning) {
+	if _, err := store.ResetFailedDeliveries(ctx, created.ID, false); !errors.Is(err, ErrBatchRunning) {
 		t.Fatalf("ResetFailedDeliveries() on running batch = %v; want ErrBatchRunning", err)
 	}
 
@@ -752,7 +756,7 @@ func TestPGStoreResetFailedDeliveries(t *testing.T) {
 	}
 
 	// Reset failed deliveries: only the transient failure should be reset to pending.
-	resetBatch, err := store.ResetFailedDeliveries(ctx, created.ID)
+	resetBatch, err := store.ResetFailedDeliveries(ctx, created.ID, false)
 	if err != nil {
 		t.Fatalf("ResetFailedDeliveries() error = %v", err)
 	}
@@ -763,9 +767,10 @@ func TestPGStoreResetFailedDeliveries(t *testing.T) {
 	for _, r := range resetBatch.Plan.Recipients {
 		for _, d := range r.Deliveries {
 			if r.RecipientID == pgBoth && d.Channel == providers.ChannelSMS {
-				// Transient error reset to pending with attempts reset to 0
-				if d.Status != StatusPending || d.Error != "" || d.Attempts != 0 {
-					t.Errorf("SMS delivery = %s, error %q, attempts %d; want pending with empty error and 0 attempts", d.Status, d.Error, d.Attempts)
+				// Transient error back to pending; the last error and the attempts
+				// stay for the history until the delivery succeeds.
+				if d.Status != StatusPending || d.Error != "transient: gateway timeout" || d.Attempts != 3 {
+					t.Errorf("SMS delivery = %s, error %q, attempts %d; want pending keeping its error and 3 attempts", d.Status, d.Error, d.Attempts)
 				}
 			} else if r.RecipientID == pgBoth && d.Channel == providers.ChannelEmail {
 				// Unclassified error must remain failed
@@ -781,7 +786,7 @@ func TestPGStoreResetFailedDeliveries(t *testing.T) {
 	}
 
 	// Calling again while running returns ErrBatchRunning.
-	if _, err := store.ResetFailedDeliveries(ctx, created.ID); !errors.Is(err, ErrBatchRunning) {
+	if _, err := store.ResetFailedDeliveries(ctx, created.ID, false); !errors.Is(err, ErrBatchRunning) {
 		t.Errorf("second ResetFailedDeliveries() error = %v; want ErrBatchRunning", err)
 	}
 
@@ -810,15 +815,113 @@ func TestPGStoreResetFailedDeliveries(t *testing.T) {
 		t.Errorf("final batch status = %s; want %s", finalBatch.Status, BatchDoneWithErrors)
 	}
 
+	if finalBatch.RetryCount != 1 || finalBatch.LastRetryAt.IsZero() {
+		t.Errorf("RetryCount = %d, LastRetryAt = %v; want 1 and set", finalBatch.RetryCount, finalBatch.LastRetryAt)
+	}
+
 	// When no retryable failed deliveries exist (only unclassified remains), ResetFailedDeliveries returns ErrNoFailedDeliveries.
-	if _, err := store.ResetFailedDeliveries(ctx, created.ID); !errors.Is(err, ErrNoFailedDeliveries) {
+	if _, err := store.ResetFailedDeliveries(ctx, created.ID, false); !errors.Is(err, ErrNoFailedDeliveries) {
 		t.Errorf("ResetFailedDeliveries() when no retryable deliveries exist error = %v; want ErrNoFailedDeliveries", err)
+	}
+
+	// With includeUncertain the unclassified one is sent again, to the recipient's
+	// current address.
+	if _, err := pool.Exec(ctx, `UPDATE recipients SET email = 'anna.nowa@example.test' WHERE id = $1`, pgBoth); err != nil {
+		t.Fatal(err)
+	}
+	uncertain, err := store.ResetFailedDeliveries(ctx, created.ID, true)
+	if err != nil {
+		t.Fatalf("ResetFailedDeliveries(includeUncertain) error = %v", err)
+	}
+	for _, r := range uncertain.Plan.Recipients {
+		for _, d := range r.Deliveries {
+			if r.RecipientID == pgBoth && d.Channel == providers.ChannelEmail &&
+				(d.Status != StatusPending || d.To != "anna.nowa@example.test") {
+				t.Errorf("uncertain e-mail delivery = %s to %q; want pending to the corrected address", d.Status, d.To)
+			}
+		}
+	}
+	if uncertain.RetryCount != 2 {
+		t.Errorf("RetryCount = %d, want 2", uncertain.RetryCount)
 	}
 
 	// Unknown or invalid batch ID returns ErrBatchNotFound.
 	for _, id := range []string{"00000000-0000-4000-8000-0000000000ee", "not-a-uuid"} {
-		if _, err := store.ResetFailedDeliveries(ctx, id); !errors.Is(err, ErrBatchNotFound) {
+		if _, err := store.ResetFailedDeliveries(ctx, id, false); !errors.Is(err, ErrBatchNotFound) {
 			t.Errorf("ResetFailedDeliveries(%q) error = %v; want ErrBatchNotFound", id, err)
 		}
+	}
+}
+
+// TestPGStoreDispatchLock: only one process may resume abandoned batches; a
+// second API on the same database must not take over the first one's work.
+func TestPGStoreDispatchLock(t *testing.T) {
+	store, _ := newPGStore(t)
+	ctx := context.Background()
+
+	release, ok, err := store.AcquireDispatchLock(ctx)
+	if err != nil || !ok {
+		t.Fatalf("first AcquireDispatchLock() = %v, %v; want ok", ok, err)
+	}
+	_, ok2, err := store.AcquireDispatchLock(ctx)
+	if err != nil || ok2 {
+		t.Fatalf("second AcquireDispatchLock() while held = %v, %v; want not ok", ok2, err)
+	}
+	release()
+	release3, ok3, err := store.AcquireDispatchLock(ctx)
+	if err != nil || !ok3 {
+		t.Fatalf("AcquireDispatchLock() after release = %v, %v; want ok", ok3, err)
+	}
+	release3()
+}
+
+// TestPGStoreResetRefreshesBothChannels: a person whose e-mail and SMS both
+// failed gets both corrected contacts, the old message IDs are dropped (a late
+// report must not hit the new try) and billed SMS parts are kept for the costs.
+func TestPGStoreResetRefreshesBothChannels(t *testing.T) {
+	store, pool := newPGStore(t)
+	ctx := context.Background()
+
+	plan := NewPlan("Zebranie", "Czesc {{imie}}", []groups.Resolved{
+		resolved(pgBoth, "Anna", "anna@example.test", "+48500100101"),
+	})
+	b, err := store.CreateBatch(ctx, Batch{
+		Subject: "Zebranie", Body: "Czesc {{imie}}", CreatedBy: userID, Status: BatchRunning,
+		SMSParts: plan.smsParts(), Plan: plan,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failedPlan := plan.clone()
+	for j := range failedPlan.Recipients[0].Deliveries {
+		d := &failedPlan.Recipients[0].Deliveries[j]
+		d.Status, d.Attempts, d.Error = StatusFailed, 1, "permanent: invalid recipient"
+		d.ProviderMessageID = "op-" + string(d.Channel)
+	}
+	if err := store.SaveOutcome(ctx, b.ID, failedPlan); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE recipients SET email = 'anna.nowa@example.test', phone = '+48500100199' WHERE id = $1`, pgBoth); err != nil {
+		t.Fatal(err)
+	}
+
+	reset, err := store.ResetFailedDeliveries(ctx, b.ID, false)
+	if err != nil {
+		t.Fatalf("ResetFailedDeliveries() error = %v", err)
+	}
+	for _, d := range reset.Plan.Recipients[0].Deliveries {
+		want := map[providers.Channel]string{providers.ChannelEmail: "anna.nowa@example.test", providers.ChannelSMS: "+48500100199"}[d.Channel]
+		if d.Status != StatusPending || d.To != want || d.ProviderMessageID != "" {
+			t.Errorf("%s delivery = %s to %q, message ID %q; want pending to %q without the old ID", d.Channel, d.Status, d.To, d.ProviderMessageID, want)
+		}
+	}
+	var billed int
+	if err := pool.QueryRow(ctx, `
+		SELECT d.billed_parts_before_retry FROM deliveries d JOIN batch_recipients br ON br.id = d.batch_recipient_id
+		WHERE br.batch_id = $1 AND d.channel = 'sms'`, b.ID).Scan(&billed); err != nil {
+		t.Fatal(err)
+	}
+	if want := plan.Recipients[0].Deliveries[1].Parts; billed != want {
+		t.Errorf("billed_parts_before_retry = %d, want %d", billed, want)
 	}
 }

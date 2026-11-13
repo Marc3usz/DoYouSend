@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -226,17 +227,21 @@ func (s *API) Send(ctx context.Context, msg providers.Message) (providers.Result
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return providers.Result{}, providers.TransientError(
-			fmt.Errorf("send sms to recipient %s: %w", msg.RecipientID, err),
-		)
+		err = fmt.Errorf("send sms to recipient %s: %w", msg.RecipientID, err)
+		// Only a failed connection proves SMSAPI never saw the request. After that
+		// (a timeout while waiting for the answer) it may have sent the SMS, so the
+		// error stays unclassified: a retry could reach the person twice.
+		if isDialError(err) {
+			return providers.Result{}, providers.TransientError(err)
+		}
+		return providers.Result{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 8192))
 	if err != nil {
-		return providers.Result{}, providers.TransientError(
-			fmt.Errorf("send sms to recipient %s: read response: %w", msg.RecipientID, err),
-		)
+		// SMSAPI answered, so it may have accepted the message: unclassified.
+		return providers.Result{}, fmt.Errorf("send sms to recipient %s: read response: %w", msg.RecipientID, err)
 	}
 
 	var apiResp smsapiResponse
@@ -277,9 +282,19 @@ func (s *API) Send(ctx context.Context, msg providers.Message) (providers.Result
 		return providers.Result{ProviderMessageID: msgID}, nil
 	}
 
-	return providers.Result{}, providers.TransientError(
-		fmt.Errorf("send sms to recipient %s: empty or unexpected response from smsapi (HTTP %d)", msg.RecipientID, resp.StatusCode),
-	)
+	// A 2xx we cannot read may still mean the SMS went out: unclassified, not retried.
+	return providers.Result{}, fmt.Errorf("send sms to recipient %s: empty or unexpected response from smsapi (HTTP %d)", msg.RecipientID, resp.StatusCode)
+}
+
+// isDialError reports whether err happened while connecting (DNS lookup,
+// connection refused), before any byte of the request reached the gateway.
+func isDialError(err error) bool {
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && opErr.Op == "dial" {
+		return true
+	}
+	var dnsErr *net.DNSError
+	return errors.As(err, &dnsErr)
 }
 
 // classifySMSAPIError maps numerical SMSAPI error codes to permanent or transient errors.

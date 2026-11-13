@@ -155,16 +155,15 @@ func TestDeliveryPipeline_EndToEnd_Integration(t *testing.T) {
 	if counts.DeliveredMessages != 1 {
 		t.Errorf("DeliveredMessages = %d, want 1", counts.DeliveredMessages)
 	}
-	if counts.BilledParts != 1 {
-		t.Errorf("BilledParts = %d, want 1", counts.BilledParts)
+	// The fake SMS provider sends nothing, so the operator bills nothing for it.
+	if counts.SimulatedMessages != 1 || counts.BilledParts != 0 {
+		t.Errorf("SimulatedMessages = %d, BilledParts = %d; want 1, 0", counts.SimulatedMessages, counts.BilledParts)
 	}
 
 	stats := sms.CalculateUsageStats(counts, 80)
-	if stats.BilledCostMilli != 80 {
-		t.Errorf("BilledCostMilli = %d, want 80", stats.BilledCostMilli)
-	}
-	if stats.DeliveredCostMilli != 80 {
-		t.Errorf("DeliveredCostMilli = %d, want 80", stats.DeliveredCostMilli)
+	if stats.BilledCostMilli != 0 || stats.DeliveredCostMilli != 0 {
+		t.Errorf("BilledCostMilli = %d, DeliveredCostMilli = %d; want 0 for a simulated send",
+			stats.BilledCostMilli, stats.DeliveredCostMilli)
 	}
 }
 

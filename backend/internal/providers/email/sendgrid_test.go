@@ -165,6 +165,45 @@ func TestSendGrid_SandboxMode(t *testing.T) {
 	}
 }
 
+// TestSendGrid_ChosenSender: a sender chosen for the batch (ADR-0021) replaces
+// the configured From, and Reply-To is set; the body stays as it is.
+func TestSendGrid_ChosenSender(t *testing.T) {
+	t.Parallel()
+
+	var receivedReq sgMailSend
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &receivedReq)
+		w.Header().Set("X-Message-Id", "msg-1")
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+
+	sg, err := NewSendGrid(SendGridConfig{
+		APIKey: "test-key", From: "Szkola <no-reply@example.test>", BaseURL: srv.URL, HTTPClient: srv.Client(),
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewSendGrid: %v", err)
+	}
+	_, err = sg.Send(context.Background(), providers.Message{
+		RecipientID: "rec-003", To: "parent@example.test", Subject: "Test", Body: "Tresc",
+		From:    providers.Address{Email: "anna.nowak@example.test", Name: "Anna Nowak"},
+		ReplyTo: providers.Address{Email: "sekretariat@example.test"},
+	})
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if got := receivedReq.From; got.Email != "anna.nowak@example.test" || got.Name != "Anna Nowak" {
+		t.Errorf("from = %+v, want the chosen sender", got)
+	}
+	if receivedReq.ReplyTo == nil || receivedReq.ReplyTo.Email != "sekretariat@example.test" {
+		t.Errorf("reply_to = %+v, want sekretariat@example.test", receivedReq.ReplyTo)
+	}
+	if len(receivedReq.Content) != 1 || receivedReq.Content[0].Value != "Tresc" {
+		t.Errorf("content = %+v, want the body unchanged", receivedReq.Content)
+	}
+}
+
 func TestSendGrid_NewSendGrid_InvalidFrom(t *testing.T) {
 	t.Parallel()
 

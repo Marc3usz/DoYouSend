@@ -1,22 +1,26 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { sendBatch } from '$lib/api/batches';
 	import { resolveSelection, type ResolvedRecipient } from '$lib/api/groups';
 	import { previewMessage, type SendEstimate } from '$lib/api/messages';
 	import { fixRecipientContact, type RecipientLookup } from '$lib/api/recipients';
 	import RecipientPicker from '$lib/components/RecipientPicker.svelte';
+	import { channelModeLabels, type ChannelMode } from '$lib/format/batches';
+	import { addressText, initialSenderId, senderOptionText } from '$lib/format/senders';
+	import { costText, partsText, recipientsText, smsText } from './estimate';
+	import { estimateWarnings, previewFailureText } from './estimate';
 	import { contactFixErrorText, missingChannels, validateContactFixInput } from './fix';
 	import type { PageProps } from './$types';
+	import type { PickedPerson } from './+page.server';
 	import {
-		costText,
-		estimateWarnings,
-		partsText,
-		previewFailureText,
-		recipientsText,
-		smsText
-	} from './estimate';
-	import { canConfirm, confirmText, newIdempotencyKey, sendFailureText } from './send';
+		canConfirm,
+		confirmText,
+		idempotencyFor,
+		sendFailureText,
+		type DraftSnapshot,
+		type IdempotencyState
+	} from './send';
 
 	// Wait for a pause in typing before asking the backend again.
 	const PREVIEW_DELAY_MS = 300;
@@ -29,7 +33,7 @@
 	// Sent exactly as typed: the composer never trims or reformats the body.
 	let body = $state(untrack(() => data.initialDraft?.body ?? ''));
 	let selectedGroupIds = $state<string[]>(untrack(() => data.initialDraft?.groupIds ?? []));
-	let selectedRecipients = $state<RecipientLookup[]>(
+	let selectedRecipients = $state<PickedPerson[]>(
 		untrack(() => data.initialDraft?.recipients ?? [])
 	);
 	const selectedRecipientIds = $derived(selectedRecipients.map((r) => r.id));
@@ -38,8 +42,11 @@
 	let excludedRecipientIds = $state<string[]>(
 		untrack(() => data.initialDraft?.excludedRecipientIds ?? [])
 	);
-	let excludedPeople = $state<{ id: string; name: string }[]>([]);
+	let excludedPeople = $state<{ id: string; name: string }[]>(
+		untrack(() => data.initialDraft?.excludedPeople ?? [])
+	);
 	let resolvedRecipients = $state<ResolvedRecipient[]>([]);
+	let resolveFailed = $state(false);
 	let latestResolve = 0;
 
 	function excludeRecipient(r: ResolvedRecipient) {
@@ -57,10 +64,19 @@
 	}
 
 	let refreshTrigger = $state(0);
-	let channelMode = $state<'both' | 'email' | 'sms'>('both');
+	let channelMode = $state<ChannelMode>(untrack(() => data.initialDraft?.channelMode ?? 'both'));
 	const targetChannels = $derived<('email' | 'sms')[]>(
 		channelMode === 'email' ? ['email'] : channelMode === 'sms' ? ['sms'] : ['email', 'sms']
 	);
+
+	// The e-mail sender. Without the list (older backend, or it failed) the
+	// picker is hidden and the backend uses its default.
+	const senderOptions = $derived(data.senders?.items ?? []);
+	let senderId = $state<string | undefined>(untrack(() => initialSenderId(data.senders)));
+	const showSenderPicker = $derived(senderOptions.length > 0 && channelMode !== 'sms');
+	const chosenSender = $derived(senderOptions.find((o) => o.id === senderId) ?? null);
+	// Only sent when an e-mail goes out and the user could choose.
+	const requestSenderId = $derived(showSenderPicker ? senderId : undefined);
 
 	function activeNeeds(inc: ResolvedRecipient) {
 		const full = missingChannels(inc.channels);
@@ -77,19 +93,24 @@
 	let isFixingSaving = $state(false);
 	let fixSuccessMessage = $state<string | null>(null);
 
-	function startFixing(inc: ResolvedRecipient) {
+	async function startFixing(inc: ResolvedRecipient) {
 		fixingRecipientId = inc.recipient.id;
 		fixEmail = '';
 		fixPhone = '';
 		fixError = null;
 		fixSuccessMessage = null;
+		await tick();
+		document.querySelector<HTMLInputElement>(`#fix-${inc.recipient.id} input`)?.focus();
 	}
 
-	function cancelFixing() {
+	async function cancelFixing() {
+		const id = fixingRecipientId;
 		fixingRecipientId = null;
 		fixEmail = '';
 		fixPhone = '';
 		fixError = null;
+		await tick();
+		if (id) document.querySelector<HTMLButtonElement>(`#fix-open-${id}`)?.focus();
 	}
 
 	async function submitFix(inc: ResolvedRecipient) {
@@ -129,20 +150,6 @@
 		})
 	);
 
-	$effect(() => {
-		if (resolvedRecipients.length > 0 && excludedRecipientIds.length > 0) {
-			for (const id of excludedRecipientIds) {
-				if (!excludedPeople.some((p) => p.id === id)) {
-					const found = resolvedRecipients.find((r) => r.recipient.id === id);
-					if (found) {
-						const name = `${found.recipient.lastName} ${found.recipient.firstName}`.trim() || id;
-						excludedPeople = [...excludedPeople, { id, name }];
-					}
-				}
-			}
-		}
-	});
-
 	let estimate = $state<SendEstimate | null>(null);
 	let failure = $state<string | null>(null);
 	let counting = $state(false);
@@ -153,29 +160,54 @@
 	let confirming = $state(false);
 	let sending = $state(false);
 	let sendFailure = $state<string | null>(null);
-	// A new key for every opening of the confirmation; a retry after a network error
-	// reuses it, so the backend returns the same batch instead of sending twice.
-	let idempotencyKey = '';
+	// The same draft keeps its key across openings of the confirmation, so a
+	// confirmation repeated after a network error cannot send a second batch.
+	let idempotency: IdempotencyState | null = null;
+	let nextButton = $state<HTMLButtonElement | null>(null);
+	let confirmHeading = $state<HTMLHeadingElement | null>(null);
 
 	const ready = $derived(
 		canConfirm(subject, estimate, counting, targetChannels) && failure === null
 	);
 
-	function openConfirmation() {
-		idempotencyKey = newIdempotencyKey();
-		sendFailure = null;
-		confirming = true;
+	function currentDraft(): DraftSnapshot {
+		return {
+			subject,
+			body,
+			channels: targetChannels,
+			senderId: requestSenderId,
+			selection: {
+				groupIds: selectedGroupIds,
+				recipientIds: selectedRecipientIds,
+				excludedRecipientIds
+			}
+		};
 	}
 
-	function closeConfirmation() {
+	async function openConfirmation() {
+		idempotency = idempotencyFor(idempotency, currentDraft());
+		sendFailure = null;
+		confirming = true;
+		await tick();
+		confirmHeading?.focus();
+	}
+
+	async function closeConfirmation() {
 		confirming = false;
 		sendFailure = null;
+		await tick();
+		nextButton?.focus();
 	}
 
 	function togglePeople(people: RecipientLookup[], selected: boolean) {
 		if (selected) {
 			const known = new Set(selectedRecipients.map((r) => r.id));
-			selectedRecipients = [...selectedRecipients, ...people.filter((r) => !known.has(r.id))];
+			selectedRecipients = [
+				...selectedRecipients,
+				...people
+					.filter((r) => !known.has(r.id))
+					.map((r) => ({ id: r.id, firstName: r.firstName, lastName: r.lastName }))
+			];
 		} else {
 			const drop = new Set(people.map((r) => r.id));
 			selectedRecipients = selectedRecipients.filter((r) => !drop.has(r.id));
@@ -187,21 +219,24 @@
 	}
 
 	async function send() {
+		const draft = currentDraft();
+		idempotency = idempotencyFor(idempotency, draft);
 		sending = true;
 		sendFailure = null;
 		try {
 			const batch = await sendBatch(
 				{
-					subject,
-					body,
-					channels: targetChannels,
+					subject: draft.subject,
+					body: draft.body,
+					channels: [...draft.channels],
+					...(draft.senderId ? { senderId: draft.senderId } : {}),
 					selection: {
-						groupIds: [...selectedGroupIds],
-						recipientIds: [...selectedRecipientIds],
-						excludedRecipientIds: [...excludedRecipientIds]
+						groupIds: [...draft.selection.groupIds],
+						recipientIds: [...draft.selection.recipientIds],
+						excludedRecipientIds: [...draft.selection.excludedRecipientIds]
 					}
 				},
-				idempotencyKey
+				idempotency.key
 			);
 			await goto(`/historia/${batch.id}`);
 		} catch (err) {
@@ -211,8 +246,9 @@
 		}
 	}
 
-	const warnings = $derived(estimate ? estimateWarnings(estimate) : []);
+	const warnings = $derived(estimate ? estimateWarnings(estimate, targetChannels) : []);
 	const hasRecipients = $derived((estimate?.recipientCount ?? 0) > 0);
+	const hasSelection = $derived(selectedGroupIds.length > 0 || selectedRecipients.length > 0);
 	// Counts and cost are only meaningful once the body renders for the recipients.
 	const renders = $derived(
 		estimate !== null && estimate.template.parts > 0 && estimate.unknownPlaceholders.length === 0
@@ -259,6 +295,7 @@
 		};
 		if (sel.groupIds.length === 0 && sel.recipientIds.length === 0) {
 			resolvedRecipients = [];
+			resolveFailed = false;
 			return;
 		}
 		const req = ++latestResolve;
@@ -267,11 +304,11 @@
 				const res = await resolveSelection(sel);
 				if (req === latestResolve) {
 					resolvedRecipients = res.recipients;
+					resolveFailed = false;
 				}
 			} catch {
-				if (req === latestResolve) {
-					resolvedRecipients = [];
-				}
+				// Keep the last list rather than hide the people with missing data.
+				if (req === latestResolve) resolveFailed = true;
 			}
 		}, PREVIEW_DELAY_MS);
 		return () => clearTimeout(timer);
@@ -288,12 +325,16 @@
 	sama. Temat dotyczy tylko e-maila, więc wszystko, co ważne, wpisz w treść.
 </p>
 
-{#if data.copiedBatchSubject && showCopyBanner}
+{#if data.copyFailed}
+	<p class="alert-warning" role="status">
+		Nie udało się wczytać wysyłki do skopiowania — mogła nie istnieć albo nie masz do niej dostępu.
+		Zaczynasz od pustej wiadomości.
+	</p>
+{:else if data.copiedBatchSubject !== null && showCopyBanner}
 	<aside class="copy-banner" role="status" aria-label="Informacja o załadowaniu kopii">
 		<span class="copy-banner-text">
-			Załadowano treść i grupy na podstawie wcześniejszej wysyłki: <strong
-				>{data.copiedBatchSubject}</strong
-			>.
+			Załadowano treść, kanały i odbiorców na podstawie wcześniejszej wysyłki{#if data.copiedBatchSubject}:
+				<strong>{data.copiedBatchSubject}</strong>{/if}.
 		</span>
 		<button
 			type="button"
@@ -310,31 +351,48 @@
 	<form class="draft" onsubmit={(e) => e.preventDefault()}>
 		<fieldset class="frozen" disabled={confirming}>
 			<div class="channel-mode-container">
-				<span class="channel-mode-title">Kanały wysyłki</span>
-				<div class="channel-mode-group" role="radiogroup" aria-label="Kanały wysyłki">
+				<span class="channel-mode-title" id="channel-mode-title">Kanały wysyłki</span>
+				<div class="channel-mode-group" role="radiogroup" aria-labelledby="channel-mode-title">
 					<label class="channel-radio-label" class:selected={channelMode === 'both'}>
 						<input type="radio" name="channelMode" value="both" bind:group={channelMode} />
 						<span class="channel-radio-content">
-							<strong class="channel-name">E-mail i SMS</strong>
+							<strong class="channel-name">{channelModeLabels.both}</strong>
 							<span class="channel-desc">Dwa kanały jednocześnie (zalecane)</span>
 						</span>
 					</label>
 					<label class="channel-radio-label" class:selected={channelMode === 'email'}>
 						<input type="radio" name="channelMode" value="email" bind:group={channelMode} />
 						<span class="channel-radio-content">
-							<strong class="channel-name">Tylko E-mail</strong>
-							<span class="channel-desc">Wysyłka wyłącznie e-mailem (brak kosztu SMS)</span>
+							<strong class="channel-name">{channelModeLabels.email}</strong>
+							<span class="channel-desc"
+								>Bez kosztu SMS; wysyłka zostanie oznaczona jako jednokanałowa</span
+							>
 						</span>
 					</label>
 					<label class="channel-radio-label" class:selected={channelMode === 'sms'}>
 						<input type="radio" name="channelMode" value="sms" bind:group={channelMode} />
 						<span class="channel-radio-content">
-							<strong class="channel-name">Tylko SMS</strong>
-							<span class="channel-desc">Szybkie powiadomienie na telefon</span>
+							<strong class="channel-name">{channelModeLabels.sms}</strong>
+							<span class="channel-desc"
+								>Tylko na telefon; wysyłka zostanie oznaczona jako jednokanałowa</span
+							>
 						</span>
 					</label>
 				</div>
 			</div>
+
+			{#if showSenderPicker}
+				<label for="sender">Nadawca e-maila</label>
+				<select id="sender" name="sender" bind:value={senderId} aria-describedby="sender-hint">
+					{#each senderOptions as option (option.id)}
+						<option value={option.id} disabled={!option.usable}>{senderOptionText(option)}</option>
+					{/each}
+				</select>
+				<p id="sender-hint" class="hint">
+					Adres, z którego odbiorcy dostaną e-mail. Wyszarzone adresy nie są jeszcze gotowe do
+					wysyłki.
+				</p>
+			{/if}
 
 			{#if channelMode !== 'sms'}
 				<label for="subject">Temat e-maila</label>
@@ -348,7 +406,7 @@
 					name="subject"
 					type="text"
 					bind:value={subject}
-					placeholder="Opcjonalny (wiadomość zostanie wysłana wyłącznie przez SMS)"
+					placeholder="Opcjonalny — pojawi się tylko w historii"
 					autocomplete="off"
 				/>
 			{/if}
@@ -371,6 +429,9 @@
 							>
 						{/if}
 					</div>
+					{#if channelMode !== 'sms' && chosenSender}
+						<p class="preview-subject"><strong>Od:</strong> {addressText(chosenSender)}</p>
+					{/if}
 					{#if channelMode !== 'sms' && subject.trim()}
 						<p class="preview-subject"><strong>Temat e-maila:</strong> {subject}</p>
 					{/if}
@@ -391,7 +452,7 @@
 			<fieldset>
 				<legend>Odbiorcy</legend>
 
-				<h4>Grupy odbiorców</h4>
+				<h3 class="sub-heading">Grupy odbiorców</h3>
 				{#if data.groupsFailed}
 					<p class="error" role="alert">Nie udało się wczytać listy grup. Odśwież stronę.</p>
 				{:else if data.groups.length === 0}
@@ -415,7 +476,7 @@
 					<p class="hint">Osoba w kilku zaznaczonych grupach dostanie wiadomość tylko raz.</p>
 				{/if}
 
-				<h4 class="mt-section">Pojedynczy odbiorcy</h4>
+				<h3 class="sub-heading mt-section">Pojedynczy odbiorcy</h3>
 				{#if selectedRecipients.length > 0}
 					<div class="selected-chips">
 						<p class="hint">Wybrani odbiorcy ({selectedRecipients.length}):</p>
@@ -446,15 +507,25 @@
 					/>
 				</details>
 
-				{#if fixSuccessMessage}
-					<p class="notice" role="status">
-						{fixSuccessMessage}
-					</p>
+				<div aria-live="polite">
+					{#if fixSuccessMessage}
+						<p class="notice">{fixSuccessMessage}</p>
+					{/if}
+				</div>
+
+				{#if resolveFailed}
+					<div class="alert-warning" role="alert">
+						<p>
+							Nie udało się sprawdzić danych kontaktowych wybranych osób, więc lista osób z brakami
+							może być nieaktualna.
+						</p>
+						<button type="button" onclick={() => refreshTrigger++}>Sprawdź ponownie</button>
+					</div>
 				{/if}
 
 				{#if incompleteRecipients.length > 0}
 					<div class="incomplete-section">
-						<h4 class="incomplete-heading">
+						<h3 class="incomplete-heading">
 							{#if channelMode === 'email'}
 								Osoby bez adresu e-mail ({incompleteRecipients.length})
 							{:else if channelMode === 'sms'}
@@ -462,17 +533,18 @@
 							{:else}
 								Osoby z niepełnymi danymi kontaktowymi ({incompleteRecipients.length})
 							{/if}
-						</h4>
+						</h3>
 						<p class="hint">
 							{#if channelMode === 'email'}
-								Te osoby nie mają adresu e-mail wymaganego do tej wysyłki. Możesz uzupełnić
-								brakujący adres lub wykluczyć odbiorcę z tej wysyłki:
+								Te osoby nie mają adresu e-mail, więc nie dostaną tej wiadomości. Uzupełnij adres
+								albo wyklucz je z wysyłki.
 							{:else if channelMode === 'sms'}
-								Te osoby nie mają numeru telefonu wymaganego do tej wysyłki. Możesz uzupełnić
-								brakujący numer lub wykluczyć odbiorcę z tej wysyłki:
+								Te osoby nie mają numeru telefonu, więc nie dostaną tej wiadomości. Uzupełnij numer
+								albo wyklucz je z wysyłki.
 							{:else}
-								Te osoby nie mają kompletu danych kontaktowych. Możesz uzupełnić brakujące dane
-								przed wysyłką lub wykluczyć odbiorcę z tej wiadomości:
+								Te osoby nie mają kompletu danych kontaktowych. Możesz uzupełnić dane albo wykluczyć
+								je z wysyłki. Jeśli nic nie zrobisz, dostaną wiadomość tylko dostępnym kanałem, a
+								wysyłka do nich zostanie oznaczona jako częściowa.
 							{/if}
 						</p>
 						<ul class="incomplete-list">
@@ -493,7 +565,13 @@
 											</span>
 										</div>
 										<div class="inc-actions">
-											<button type="button" class="button btn-fix" onclick={() => startFixing(inc)}>
+											<button
+												type="button"
+												id="fix-open-{inc.recipient.id}"
+												class="btn-fix"
+												aria-expanded={fixingRecipientId === inc.recipient.id}
+												onclick={() => startFixing(inc)}
+											>
 												Popraw dane
 											</button>
 											<button
@@ -507,14 +585,16 @@
 									</div>
 
 									{#if fixingRecipientId === inc.recipient.id}
-										<div class="fix-form">
+										<div class="fix-form" id="fix-{inc.recipient.id}">
 											<div class="fix-heading">
 												Uzupełnij brakujące dane: <strong
 													>{inc.recipient.firstName} {inc.recipient.lastName}</strong
 												>
 											</div>
 											{#if fixError}
-												<div class="alert-warning" role="alert">{fixError}</div>
+												<div class="alert-warning" role="alert" id="fix-error-{inc.recipient.id}">
+													{fixError}
+												</div>
 											{/if}
 											<div class="fix-inputs">
 												{#if needs.needsEmail}
@@ -525,6 +605,10 @@
 															placeholder="np. jan.kowalski@example.test"
 															bind:value={fixEmail}
 															disabled={isFixingSaving}
+															aria-invalid={fixError ? 'true' : undefined}
+															aria-describedby={fixError
+																? `fix-error-${inc.recipient.id}`
+																: undefined}
 														/>
 													</label>
 												{/if}
@@ -536,6 +620,10 @@
 															placeholder="np. +48 500 100 101"
 															bind:value={fixPhone}
 															disabled={isFixingSaving}
+															aria-invalid={fixError ? 'true' : undefined}
+															aria-describedby={fixError
+																? `fix-error-${inc.recipient.id}`
+																: undefined}
 														/>
 													</label>
 												{/if}
@@ -543,18 +631,13 @@
 											<div class="fix-buttons">
 												<button
 													type="button"
-													class="button primary"
+													class="primary"
 													disabled={isFixingSaving}
 													onclick={() => submitFix(inc)}
 												>
-													{isFixingSaving ? 'Zapisywanie...' : 'Zapisz'}
+													{isFixingSaving ? 'Zapisuję…' : 'Zapisz'}
 												</button>
-												<button
-													type="button"
-													class="button"
-													disabled={isFixingSaving}
-													onclick={cancelFixing}
-												>
+												<button type="button" disabled={isFixingSaving} onclick={cancelFixing}>
 													Anuluj
 												</button>
 											</div>
@@ -568,17 +651,11 @@
 
 				{#if excludedRecipientIds.length > 0}
 					<div class="excluded-section">
-						<h4>Wykluczeni z tej wysyłki ({excludedRecipientIds.length})</h4>
+						<h3 class="sub-heading">Wykluczeni z tej wysyłki ({excludedRecipientIds.length})</h3>
 						<ul class="chips">
 							{#each excludedRecipientIds as id (id)}
 								{@const person = excludedPeople.find((p) => p.id === id)}
-								{@const resolved = resolvedRecipients.find((r) => r.recipient.id === id)}
-								{@const displayName =
-									person?.name ??
-									(resolved
-										? `${resolved.recipient.lastName} ${resolved.recipient.firstName}`.trim()
-										: null) ??
-									`Osoba wykluczona (${id.slice(0, 8)}…)`}
+								{@const displayName = person?.name ?? `Osoba spoza listy (${id.slice(0, 8)}…)`}
 								<li class="chip chip-excluded">
 									<span>{displayName}</span>
 									<button
@@ -608,7 +685,7 @@
 			<div aria-live="polite">
 				<p class="template">
 					{#if channelMode === 'email'}
-						Tryb: <strong>Tylko E-mail</strong> (wiadomość nie zużywa pakietu SMS).
+						Tryb: <strong>{channelModeLabels.email}</strong> (wiadomość nie zużywa pakietu SMS).
 					{:else if estimate.template.parts === 0}
 						Wpisz treść, żeby zobaczyć liczbę SMS-ów.
 					{:else}
@@ -649,8 +726,10 @@
 							{/if}
 						{/if}
 					</dl>
+				{:else if hasSelection}
+					<p class="hint">Wybrane grupy i osoby nie dają teraz żadnego odbiorcy.</p>
 				{:else}
-					<p class="hint">Zaznacz co najmniej jedną grupę.</p>
+					<p class="hint">Wybierz co najmniej jedną grupę lub osobę.</p>
 				{/if}
 
 				{#if warnings.length > 0}
@@ -667,8 +746,11 @@
 
 		{#if confirming && estimate}
 			<section class="confirm" aria-labelledby="confirm-heading">
-				<h3 id="confirm-heading">Zatwierdź wysyłkę</h3>
+				<h3 id="confirm-heading" tabindex="-1" bind:this={confirmHeading}>Zatwierdź wysyłkę</h3>
 				<p>{confirmText(estimate)}</p>
+				{#if channelMode !== 'sms' && chosenSender}
+					<p>Nadawca e-maila: <strong>{addressText(chosenSender)}</strong></p>
+				{/if}
 				{#if channelMode !== 'email'}
 					<p>Szacowany koszt SMS: <strong>{costText(estimate.costMilli)}</strong></p>
 				{/if}
@@ -684,9 +766,9 @@
 				{/if}
 				<p class="hint">
 					{#if channelMode === 'email'}
-						Wysyłki nie da się cofnąć. Każdy odbiorca dostanie wiadomość e-mail.
+						Wysyłki nie da się cofnąć. Każdy odbiorca dostanie wiadomość tylko e-mailem.
 					{:else if channelMode === 'sms'}
-						Wysyłki nie da się cofnąć. Każdy odbiorca dostanie wiadomość SMS.
+						Wysyłki nie da się cofnąć. Każdy odbiorca dostanie wiadomość tylko SMS-em.
 					{:else}
 						Wysyłki nie da się cofnąć. Każdy odbiorca dostanie tę samą treść e-mailem i SMS-em.
 					{/if}
@@ -704,7 +786,13 @@
 				</div>
 			</section>
 		{:else}
-			<button type="button" class="primary" onclick={openConfirmation} disabled={!ready}>
+			<button
+				type="button"
+				class="primary"
+				bind:this={nextButton}
+				onclick={openConfirmation}
+				disabled={!ready}
+			>
 				Dalej: zatwierdź wysyłkę
 			</button>
 			{#if !ready && estimate && hasRecipients && channelMode !== 'sms' && subject.trim() === ''}
@@ -726,7 +814,11 @@
 	}
 	@media (max-width: 48rem) {
 		.composer {
-			grid-template-columns: 1fr;
+			/* minmax(0, …): a long sender address must not widen the page on phones. */
+			grid-template-columns: minmax(0, 1fr);
+		}
+		.summary {
+			position: static;
 		}
 	}
 	.draft {
@@ -764,7 +856,8 @@
 	}
 	.summary {
 		position: sticky;
-		top: 1rem;
+		/* Below the sticky site header. */
+		top: calc(var(--header-height) + var(--space-4));
 		padding: 1rem 1.25rem;
 		border: 1px solid var(--color-border);
 		border-radius: 6px;
@@ -828,6 +921,10 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.5rem;
+	}
+	.sub-heading {
+		font-size: var(--text-base);
+		margin: 0.5rem 0 0.4rem;
 	}
 	.mt-section {
 		margin-top: 1.25rem;
@@ -1031,7 +1128,7 @@
 		gap: 0.5rem;
 		margin-top: 0.25rem;
 	}
-	.fix-buttons .button {
+	.fix-buttons button {
 		min-height: 0;
 		padding: 0.25rem 0.75rem;
 		font-size: 0.85em;
@@ -1039,7 +1136,7 @@
 	.excluded-section {
 		margin-top: 1rem;
 	}
-	.excluded-section h4 {
+	.excluded-section .sub-heading {
 		margin: 0 0 0.3rem;
 		font-size: 0.9em;
 		color: var(--color-text-muted);
@@ -1076,7 +1173,7 @@
 		background: var(--color-surface-muted);
 		border: 1px solid var(--color-border);
 		border-left: 4px solid var(--color-primary);
-		border-radius: var(--radius-sm, 4px);
+		border-radius: var(--radius);
 		padding: 0.75rem 1rem;
 		margin: 1rem 0;
 	}
@@ -1099,8 +1196,8 @@
 	.channel-mode-container {
 		margin-bottom: 1.5rem;
 		padding: 1rem;
-		background: var(--color-surface-muted, #f8fafc);
-		border: 1px solid var(--color-border, #e2e8f0);
+		background: var(--color-surface-muted);
+		border: 1px solid var(--color-border);
 		border-radius: 8px;
 	}
 	.channel-mode-title {
@@ -1108,32 +1205,36 @@
 		font-weight: 600;
 		font-size: 0.95rem;
 		margin-bottom: 0.75rem;
-		color: var(--color-text, #1e293b);
+		color: var(--color-text);
 	}
 	.channel-mode-group {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+		grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
 		gap: 0.75rem;
+	}
+	.draft select {
+		max-width: 100%;
+		min-width: 0;
 	}
 	.channel-radio-label {
 		display: flex;
 		align-items: flex-start;
 		gap: 0.6rem;
 		padding: 0.75rem 1rem;
-		border: 1px solid var(--color-border, #cbd5e1);
+		border: 1px solid var(--color-border);
 		border-radius: 6px;
-		background: var(--color-surface, #ffffff);
+		background: var(--color-surface);
 		cursor: pointer;
 		transition: all 150ms ease;
 	}
 	.channel-radio-label:hover {
-		border-color: var(--color-primary, #2563eb);
-		background: var(--color-surface-hover, #f1f5f9);
+		border-color: var(--color-primary);
+		background: var(--color-surface-hover);
 	}
 	.channel-radio-label.selected {
-		border-color: var(--color-primary, #2563eb);
-		background: var(--color-primary-soft, #eff6ff);
-		box-shadow: 0 0 0 1px var(--color-primary, #2563eb);
+		border-color: var(--color-primary);
+		background: var(--color-primary-soft);
+		box-shadow: 0 0 0 1px var(--color-primary);
 	}
 	.channel-radio-content {
 		display: flex;
@@ -1142,15 +1243,15 @@
 	}
 	.channel-name {
 		font-size: 0.95rem;
-		color: var(--color-text, #0f172a);
+		color: var(--color-text);
 	}
 	.channel-desc {
 		font-size: 0.8rem;
-		color: var(--color-text-muted, #64748b);
+		color: var(--color-text-muted);
 	}
 	.optional-label .hint-tag {
 		font-weight: normal;
 		font-size: 0.85em;
-		color: var(--color-text-muted, #64748b);
+		color: var(--color-text-muted);
 	}
 </style>

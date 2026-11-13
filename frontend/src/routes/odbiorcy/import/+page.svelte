@@ -159,7 +159,9 @@
 </p>
 
 <form onsubmit={check}>
+	<label for="import-file">Plik z odbiorcami (CSV lub XLSX)</label>
 	<input
+		id="import-file"
 		type="file"
 		name="file"
 		accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

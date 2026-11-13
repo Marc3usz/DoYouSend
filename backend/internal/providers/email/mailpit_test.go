@@ -170,6 +170,7 @@ func TestBuildRFC822(t *testing.T) {
 	msgID := "<test-123@example.test>"
 	got := buildRFC822(
 		"Szkola <no-reply@example.test>",
+		"",
 		"parent@example.test",
 		"Zebranie z rodzicami — klasa 3A",
 		"Zapraszamy na zebranie",
@@ -187,6 +188,9 @@ func TestBuildRFC822(t *testing.T) {
 		{"has Date header", "Date: "},
 		{"has Content-Type", "Content-Type: text/plain; charset=utf-8"},
 		{"has body", "Zapraszamy na zebranie"},
+	}
+	if strings.Contains(got, "Reply-To:") {
+		t.Errorf("empty replyTo still wrote a Reply-To header:\n%s", got)
 	}
 
 	for _, tt := range tests {
@@ -403,19 +407,20 @@ func TestSenderAddress(t *testing.T) {
 	}
 }
 
-// TestMailpit_SendWithDisplayName is a regression test: MAIL FROM used to get
-// the whole "Name <address>" value, which Mailpit rejects with 501.
-func TestMailpit_SendWithDisplayName(t *testing.T) {
-	t.Parallel()
+// smtpSeen is what fakeSMTP saw of one message.
+type smtpSeen struct{ mailFrom, fromHeader, replyToHeader string }
 
+// fakeSMTP accepts one SMTP session on a local port and reports the envelope
+// sender and the From and Reply-To headers.
+func fakeSMTP(t *testing.T) (host, port string, got <-chan smtpSeen) {
+	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer func() { _ = l.Close() }()
+	t.Cleanup(func() { _ = l.Close() })
 
-	type seen struct{ mailFrom, fromHeader string }
-	got := make(chan seen, 1)
+	ch := make(chan smtpSeen, 1)
 	go func() {
 		conn, err := l.Accept()
 		if err != nil {
@@ -425,7 +430,7 @@ func TestMailpit_SendWithDisplayName(t *testing.T) {
 		reply := func(msg string) { _, _ = fmt.Fprint(conn, msg) }
 		r := bufio.NewReader(conn)
 		reply("220 127.0.0.1 ESMTP\r\n")
-		var s seen
+		var s smtpSeen
 		for {
 			line, err := r.ReadString('\n')
 			if err != nil {
@@ -448,8 +453,11 @@ func TestMailpit_SendWithDisplayName(t *testing.T) {
 					if err != nil {
 						return
 					}
-					if strings.HasPrefix(dataLine, "From: ") {
+					switch {
+					case strings.HasPrefix(dataLine, "From: "):
 						s.fromHeader = strings.TrimSpace(dataLine)
+					case strings.HasPrefix(dataLine, "Reply-To: "):
+						s.replyToHeader = strings.TrimSpace(dataLine)
 					}
 					if dataLine == ".\r\n" {
 						break
@@ -458,15 +466,23 @@ func TestMailpit_SendWithDisplayName(t *testing.T) {
 				reply("250 Ok: queued\r\n")
 			case upper == "QUIT":
 				reply("221 Bye\r\n")
-				got <- s
+				ch <- s
 				return
 			default:
 				reply("500 Unrecognized\r\n")
 			}
 		}
 	}()
+	host, port, _ = net.SplitHostPort(l.Addr().String())
+	return host, port, ch
+}
 
-	host, port, _ := net.SplitHostPort(l.Addr().String())
+// TestMailpit_SendWithDisplayName is a regression test: MAIL FROM used to get
+// the whole "Name <address>" value, which Mailpit rejects with 501.
+func TestMailpit_SendWithDisplayName(t *testing.T) {
+	t.Parallel()
+
+	host, port, got := fakeSMTP(t)
 	m := NewMailpit(MailpitConfig{Host: host, Port: port, From: "Szkoła Demo <sekretariat@example.test>"}, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -479,5 +495,88 @@ func TestMailpit_SendWithDisplayName(t *testing.T) {
 	}
 	if want := "From: =?utf-8?q?Szko=C5=82a_Demo?= <sekretariat@example.test>"; s.fromHeader != want {
 		t.Errorf("From header = %q, want %q", s.fromHeader, want)
+	}
+	if s.replyToHeader != "" {
+		t.Errorf("Reply-To = %q, want none", s.replyToHeader)
+	}
+}
+
+// TestMailpit_SendFromChosenSender: a sender chosen for the batch (ADR-0021)
+// replaces the configured one in the envelope and the header.
+func TestMailpit_SendFromChosenSender(t *testing.T) {
+	t.Parallel()
+
+	host, port, got := fakeSMTP(t)
+	m := NewMailpit(MailpitConfig{Host: host, Port: port, From: "Szkoła <no-reply@example.test>"}, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	msg := providers.Message{
+		RecipientID: "r-1", To: "parent@example.test", Subject: "Test", Body: "Treść",
+		From:    providers.Address{Email: "anna.nowak@example.test", Name: "Anna Nowak"},
+		ReplyTo: providers.Address{Email: "sekretariat@example.test"},
+	}
+	if _, err := m.Send(ctx, msg); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	s := <-got
+	if !strings.HasPrefix(s.mailFrom, "MAIL FROM:<anna.nowak@example.test>") {
+		t.Errorf("MAIL FROM = %q, want the chosen sender", s.mailFrom)
+	}
+	if want := `From: "Anna Nowak" <anna.nowak@example.test>`; s.fromHeader != want {
+		t.Errorf("From header = %q, want %q", s.fromHeader, want)
+	}
+	if want := "Reply-To: <sekretariat@example.test>"; s.replyToHeader != want {
+		t.Errorf("Reply-To header = %q, want %q", s.replyToHeader, want)
+	}
+}
+
+// TestMailpit_NoAnswerAfterDataIsNotRetried: once the whole message reached the
+// server, a missing answer may mean it is already queued, so the error must not
+// be transient (the dispatcher would send it again).
+func TestMailpit_NoAnswerAfterDataIsNotRetried(t *testing.T) {
+	t.Parallel()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = l.Close() })
+	go func() {
+		conn, err := l.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		r := bufio.NewReader(conn)
+		_, _ = fmt.Fprint(conn, "220 ok\r\n")
+		for {
+			line, err := r.ReadString('\n')
+			if err != nil {
+				return
+			}
+			switch up := strings.ToUpper(strings.TrimSpace(line)); {
+			case strings.HasPrefix(up, "EHLO"), strings.HasPrefix(up, "HELO"):
+				_, _ = fmt.Fprint(conn, "250 ok\r\n")
+			case strings.HasPrefix(up, "MAIL"), strings.HasPrefix(up, "RCPT"):
+				_, _ = fmt.Fprint(conn, "250 ok\r\n")
+			case up == "DATA":
+				_, _ = fmt.Fprint(conn, "354 go\r\n")
+				for {
+					l, err := r.ReadString('\n')
+					if err != nil || l == ".\r\n" {
+						break
+					}
+				}
+				time.Sleep(2 * time.Second) // never answers the end of data in time
+				return
+			}
+		}
+	}()
+	host, port, _ := net.SplitHostPort(l.Addr().String())
+	m := NewMailpit(MailpitConfig{Host: host, Port: port, From: "no-reply@example.test"}, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	_, err = m.Send(ctx, providers.Message{RecipientID: "r-1", To: "parent@example.test", Subject: "S", Body: "B"})
+	if err == nil || providers.IsTransient(err) || providers.IsPermanent(err) {
+		t.Errorf("err = %v, want an unclassified error", err)
 	}
 }

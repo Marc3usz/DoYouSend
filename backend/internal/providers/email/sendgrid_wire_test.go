@@ -7,6 +7,7 @@ package email
 type sgMailSend struct {
 	Personalizations []sgPersonalization `json:"personalizations"`
 	From             sgAddress           `json:"from"`
+	ReplyTo          *sgAddress          `json:"reply_to,omitempty"`
 	Subject          string              `json:"subject"`
 	Content          []sgContent         `json:"content"`
 	TrackingSettings sgTracking          `json:"tracking_settings"`

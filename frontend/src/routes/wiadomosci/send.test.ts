@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '$lib/api/client';
 import type { SendEstimate } from '$lib/api/messages';
-import { canConfirm, confirmText, newIdempotencyKey, sendFailureText } from './send';
+import {
+	canConfirm,
+	confirmText,
+	idempotencyFor,
+	newIdempotencyKey,
+	sendFailureText,
+	type DraftSnapshot
+} from './send';
 
 const est: SendEstimate = {
 	template: { encoding: 'GSM7', units: 20, parts: 1 },
@@ -90,7 +97,19 @@ describe('sendFailureText', () => {
 		],
 		[
 			apiError(422, { code: 'no_recipients', message: 'x' }),
-			'Zaznaczone grupy nie mają teraz żadnych odbiorców. Nic nie zostało wysłane.'
+			'Wybrane grupy i osoby nie dają teraz żadnego odbiorcy. Nic nie zostało wysłane.'
+		],
+		[
+			apiError(400, {
+				code: 'invalid_input',
+				message: 'x',
+				fields: [{ field: 'senderId', message: 'x' }]
+			}),
+			'Nie możesz wysyłać z tego adresu. Odśwież stronę i wybierz nadawcę ponownie.'
+		],
+		[
+			apiError(400, { code: 'empty_selection', message: 'x' }),
+			'Wybierz co najmniej jedną grupę lub osobę.'
 		],
 		[
 			apiError(409, { code: 'idempotency_conflict', message: 'x' }),
@@ -106,6 +125,45 @@ describe('sendFailureText', () => {
 		]
 	])('%#', (err, want) => {
 		expect(sendFailureText(err)).toBe(want);
+	});
+});
+
+describe('idempotencyFor', () => {
+	const draft: DraftSnapshot = {
+		subject: 'Zebranie',
+		body: 'Treść',
+		channels: ['email', 'sms'],
+		senderId: 'shared',
+		selection: { groupIds: ['g1', 'g2'], recipientIds: [], excludedRecipientIds: ['r9'] }
+	};
+	let n = 0;
+	const makeKey = () => `key-${++n}`;
+
+	it('keeps the key for the same draft, so a retry cannot send twice', () => {
+		const first = idempotencyFor(null, draft, makeKey);
+		const again = idempotencyFor(first, { ...draft }, makeKey);
+		expect(again.key).toBe(first.key);
+	});
+
+	it('ignores the order of picked groups and channels', () => {
+		const first = idempotencyFor(null, draft, makeKey);
+		const reordered: DraftSnapshot = {
+			...draft,
+			channels: ['sms', 'email'],
+			selection: { ...draft.selection, groupIds: ['g2', 'g1'] }
+		};
+		expect(idempotencyFor(first, reordered, makeKey).key).toBe(first.key);
+	});
+
+	it.each<[string, Partial<DraftSnapshot>]>([
+		['subject', { subject: 'Inny temat' }],
+		['body', { body: 'Treść ' }],
+		['channels', { channels: ['sms'] }],
+		['sender', { senderId: 'own' }],
+		['selection', { selection: { groupIds: ['g1'], recipientIds: [], excludedRecipientIds: [] } }]
+	])('gets a new key when the %s changes', (_, change) => {
+		const first = idempotencyFor(null, draft, makeKey);
+		expect(idempotencyFor(first, { ...draft, ...change }, makeKey).key).not.toBe(first.key);
 	});
 });
 

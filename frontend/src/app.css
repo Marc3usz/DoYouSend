@@ -52,12 +52,15 @@
 	--space-4: 1rem;
 	--space-5: 1.5rem;
 	--space-6: 2rem;
+	--radius-sm: 4px;
 	--radius: 6px;
 	--radius-lg: 10px;
 	--shadow-sm: 0 1px 2px rgb(16 24 40 / 6%);
 	--shadow: 0 1px 3px rgb(16 24 40 / 8%), 0 1px 2px rgb(16 24 40 / 4%);
 
 	--content-width: 72rem;
+	/* Height of the sticky site header, for anything that sticks below it. */
+	--header-height: 3.75rem;
 
 	color-scheme: light;
 }
@@ -438,10 +441,12 @@ tbody tr:hover td {
 	font-weight: normal;
 }
 
-/* Alerts: <div class="error" role="alert"> and <p class="notice"> on every page.
+/* Alerts: <div class="error" role="alert">, <p class="notice"> and
+   <p class="alert-warning"> on every page. .alert is a neutral info box.
    (.warn stays free: pages use it as a text or bar modifier.) */
 .error,
 .notice,
+.alert,
 .alert-warning {
 	border: 1px solid;
 	border-radius: var(--radius);
@@ -467,8 +472,15 @@ tbody tr:hover td {
 	color: var(--color-warning);
 }
 
+.alert {
+	border-color: var(--color-border-strong);
+	background: var(--color-primary-soft);
+	color: var(--color-text);
+}
+
 .error > :last-child,
 .notice > :last-child,
+.alert > :last-child,
 .alert-warning > :last-child {
 	margin-bottom: 0;
 }

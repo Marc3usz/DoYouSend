@@ -28,8 +28,11 @@ func mapSMSAPIStatus(raw string) (providers.DeliveryStatus, string, bool) {
 		return providers.StatusSent, "", true
 
 	// Terminal failures
+	// NOT_FOUND and UNKNOWN say only that no report is available: the SMS may
+	// well have arrived. The "unclassified" prefix makes them uncertain
+	// (delivery.RetryClassOf), so a plain retry never sends them a second time.
 	case "401", "NOT_FOUND":
-		return providers.StatusFailed, "message not found or report expired in SMSAPI", true
+		return providers.StatusFailed, "unclassified: message not found or report expired in SMSAPI", true
 	case "402", "EXPIRED":
 		return providers.StatusFailed, "delivery timed out, message expired before reaching handset", true
 	case "405", "UNDELIVERED":
@@ -39,7 +42,7 @@ func mapSMSAPIStatus(raw string) (providers.DeliveryStatus, string, bool) {
 	case "407", "REJECTED":
 		return providers.StatusFailed, "message rejected by carrier or invalid recipient number", true
 	case "408", "UNKNOWN":
-		return providers.StatusFailed, "no delivery report available from carrier (undeliverable)", true
+		return providers.StatusFailed, "unclassified: no delivery report available from carrier", true
 	case "412", "STOP":
 		return providers.StatusFailed, "message delivery stopped", true
 

@@ -294,6 +294,58 @@ func TestRealSendingNeedsConfirmation(t *testing.T) {
 	}
 }
 
+// TestRemoteSMTPCountsAsRealSending: the SMTP provider can relay real mail, so
+// pointing it away from this machine with DRY_RUN off needs the confirmation.
+func TestRemoteSMTPCountsAsRealSending(t *testing.T) {
+	for _, host := range []string{"localhost", "127.0.0.1", "[::1]", "mailpit", "dev.localhost"} {
+		if !IsLocalHost(host) {
+			t.Errorf("IsLocalHost(%q) = false, want true", host)
+		}
+	}
+	for _, host := range []string{"smtp.example.test", "10.0.0.5", ""} {
+		if IsLocalHost(host) {
+			t.Errorf("IsLocalHost(%q) = true, want false", host)
+		}
+	}
+
+	svc, _, _, _ := testService(t, nil, false)
+	ctx := context.Background()
+	if _, err := svc.Update(ctx, "u1", []Change{{Key: KeyDryRun, Value: str("false")}}, false); err != nil {
+		t.Fatalf("dry run off with local Mailpit: %v", err)
+	}
+	_, err := svc.Update(ctx, "u1", []Change{{Key: KeySMTPHost, Value: str("smtp.example.test")}}, false)
+	if !errors.Is(err, ErrConfirmationRequired) {
+		t.Fatalf("remote SMTP host without confirmation: err = %v, want ErrConfirmationRequired", err)
+	}
+	snap, err := svc.Update(ctx, "u1", []Change{{Key: KeySMTPHost, Value: str("smtp.example.test")}}, true)
+	if err != nil || !snap.SendsExternally() {
+		t.Fatalf("confirmed remote SMTP = %v, external %v", err, snap.SendsExternally())
+	}
+}
+
+func TestReplyToAndMaxParts(t *testing.T) {
+	svc, _, _, _ := testService(t, nil, false)
+	ctx := context.Background()
+	_, err := svc.Update(ctx, "u1", []Change{{Key: KeySMSMaxParts, Value: str("-1")}, {Key: KeyEmailReplyTo, Value: str("nope")}}, false)
+	var v *ValidationError
+	if !errors.As(err, &v) || len(v.Fields) != 2 {
+		t.Fatalf("err = %v, want 2 field errors", err)
+	}
+	snap, err := svc.Update(ctx, "u1", []Change{
+		{Key: KeySMSMaxParts, Value: str("3")},
+		{Key: KeyEmailReplyTo, Value: str("Sekretariat <sekretariat@example.test>")},
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.SMSMaxParts() != 3 || snap.ProviderConfig().SMSMaxParts != 3 {
+		t.Errorf("max parts = %d / %d, want 3", snap.SMSMaxParts(), snap.ProviderConfig().SMSMaxParts)
+	}
+	if snap.ReplyTo() != "Sekretariat <sekretariat@example.test>" {
+		t.Errorf("ReplyTo() = %q", snap.ReplyTo())
+	}
+}
+
 func TestDryRunLock(t *testing.T) {
 	svc, _, _, _ := testService(t, map[string]string{"DRY_RUN": "false"}, true)
 	if !svc.Current().DryRun() {
@@ -386,7 +438,7 @@ func TestNotionSettings(t *testing.T) {
 	}
 
 	_, err := svc.Update(context.Background(), "u1", []Change{
-		{Key: KeyNotionDatabaseID, Value: str("https://www.notion.so/team/Leady-1429989fe8ac4effbc8f57f56486db54?v=0123456789abcdef0123456789abcdef")},
+		{Key: KeyNotionDatabaseID, Value: str("https://www.notion.so/szkola/Odbiorcy-0d0a1b2c3d4e4f508a6b7c8d9e0f1a2b?v=0123456789abcdef0123456789abcdef")},
 		{Key: KeyNotionPropertyMap, Value: str("Name=first_name, Mail=email")},
 		{Key: KeyNotionToken, Value: str("ntn_test_token")},
 	}, false)
@@ -394,7 +446,7 @@ func TestNotionSettings(t *testing.T) {
 		t.Fatalf("Update: %v", err)
 	}
 	snap := svc.Current()
-	if got, want := snap.Value(KeyNotionDatabaseID), "1429989f-e8ac-4eff-bc8f-57f56486db54"; got != want {
+	if got, want := snap.Value(KeyNotionDatabaseID), "0d0a1b2c-3d4e-4f50-8a6b-7c8d9e0f1a2b"; got != want {
 		t.Errorf("database ID = %q, want %q (URL reduced to the ID)", got, want)
 	}
 	if !store.rows[KeyNotionToken].Encrypted {

@@ -2,7 +2,7 @@
 	import { enhance } from '$app/forms';
 	import type { PageProps } from './$types';
 
-	let { form }: PageProps = $props();
+	let { data, form }: PageProps = $props();
 
 	let submitting = $state(false);
 </script>
@@ -14,6 +14,13 @@
 <section>
 	<h1>Logowanie</h1>
 	<p class="lead">System wysyłania komunikatów szkoły e-mailem i SMS-em.</p>
+
+	{#if data.backendDown && !form?.failure}
+		<p class="alert-warning" role="status">
+			Serwer chwilowo nie odpowiada, więc nie udało się sprawdzić Twojej sesji. Spróbuj za chwilę
+			albo zaloguj się ponownie.
+		</p>
+	{/if}
 
 	<form
 		method="POST"

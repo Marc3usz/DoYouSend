@@ -18,6 +18,9 @@ type SelectionResolver interface {
 // Estimate is everything the composer shows before the sender confirms a batch
 // (openapi.yaml SendEstimate).
 type Estimate struct {
+	// SMSPartLimit is the most parts one SMS may have (0: no limit). An SMS over
+	// it is not sent (delivery fails it at planning); the e-mail still goes.
+	SMSPartLimit int
 	// Template measures the body exactly as typed, before placeholders are filled in.
 	Template            SMSLength
 	Placeholders        []string
@@ -39,6 +42,7 @@ type Estimate struct {
 type Previewer struct {
 	resolver          SelectionResolver
 	pricePerPartMilli int64
+	smsPartLimit      int
 }
 
 // NewPreviewer returns a Previewer that prices every SMS part at pricePerPartMilli
@@ -47,12 +51,20 @@ func NewPreviewer(resolver SelectionResolver, pricePerPartMilli int64) *Previewe
 	return &Previewer{resolver: resolver, pricePerPartMilli: pricePerPartMilli}
 }
 
+// WithSMSPartLimit reports the operator's limit of parts per SMS (0: none) in
+// every Estimate, so the composer can warn before a too long SMS is confirmed.
+func (p *Previewer) WithSMSPartLimit(n int) *Previewer {
+	p.smsPartLimit = n
+	return p
+}
+
 // Preview measures body and, when sel picks anyone, renders it for every resolved
 // recipient. The body is never altered. Problems with the content are reported in the
 // Estimate; an error means the selection is malformed (groups.ErrInvalidInput) or
 // resolving failed.
 func (p *Previewer) Preview(ctx context.Context, body string, sel groups.Selection, targetChannels ...string) (Estimate, error) {
 	est := Estimate{
+		SMSPartLimit:        p.smsPartLimit,
 		Template:            MeasureSMS(body),
 		Placeholders:        Placeholders(body),
 		UnknownPlaceholders: UnknownPlaceholders(body),

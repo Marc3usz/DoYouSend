@@ -50,7 +50,8 @@ sterowany jest przez `SMS_PROVIDER=smsapi`.
 
 - Wybór operatora nie wycieka poza `internal/providers`; reszta kodu (zwłaszcza `delivery`)
   zna wyłącznie wspólny interfejs `providers.Provider` oraz kanoniczny model `providers.DeliveryReport`.
-- Klucze trafiają wyłącznie do `.env` (`SMS_API_KEY`, `SMS_API_SECRET`).
+- Klucze trafiają wyłącznie do `.env` (`SMS_API_KEY`). *(2026-11-13: SMSAPI uwierzytelnia jednym
+  tokenem OAuth, więc `SMS_API_SECRET` usunięto; od ADR-0018 klucz ustawia się w panelu.)*
 - Webhook DLR SMSAPI wymaga publicznego endpointu (`GET /providers/sms/dlr`), który:
   - parsuje parametry `MsgId`, `status`, `donedate` (obsługując wartości pojedyncze i listy po przecinku),
   - aktualizuje `deliveries.status`,

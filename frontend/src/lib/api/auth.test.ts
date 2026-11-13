@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { login, sessionFromSetCookie } from './auth';
+import { changePassword, login, sessionFromSetCookie } from './auth';
 
 describe('sessionFromSetCookie', () => {
 	it('reads the token and Max-Age', () => {
@@ -45,5 +45,20 @@ describe('login', () => {
 	it('fails when the backend sets no session', async () => {
 		const fakeFetch: typeof fetch = async () => new Response('{}', { status: 200 });
 		await expect(login('a@example.test', 'x', fakeFetch)).rejects.toThrow(/no session/);
+	});
+});
+
+describe('changePassword', () => {
+	it('returns the new session the backend issued', async () => {
+		const fakeFetch: typeof fetch = async (input, init) => {
+			expect(String(input)).toBe('/api/auth/password');
+			expect(init?.method).toBe('PUT');
+			return new Response(null, {
+				status: 204,
+				headers: { 'set-cookie': 'dys_session=nowy; Path=/; Max-Age=60; HttpOnly' }
+			});
+		};
+		const got = await changePassword('stare-haslo-123', 'nowe-haslo-123', fakeFetch);
+		expect(got.token).toBe('nowy');
 	});
 });

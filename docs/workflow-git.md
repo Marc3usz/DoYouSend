@@ -23,20 +23,21 @@ Treść po angielsku, tryb rozkazujący, bez kropki na końcu tematu.
 
 1. `make check` i `make test` lokalnie — zielone.
 2. PR do `master`, opis z szablonu (`.github/pull_request_template.md`).
-3. Review od drugiej osoby z zespołu (Marc3usz ↔ MichalK252); CODEOWNERS przypisuje właściciela domeny.
+3. Zielone CI i przegląd subagentem `recenzent` (uwagi i odpowiedzi w opisie PR-a). Projekt
+   prowadzi jedna osoba (ADR-0020); gdy dołączy druga, wraca review od innej osoby.
 4. Merge: **squash**, tytuł PR w formacie Conventional Commit.
 5. Po merge usuń gałąź i odśwież swoją: `git switch master && git pull --ff-only`.
 
 ## Konflikty — jak ich nie mieć
 
 - Rebase na `master` codziennie rano: `git fetch origin && git rebase origin/master`.
-- Migracje: **nigdy** nie edytuj zastosowanego pliku. Dwie osoby dodały `0007_*`?
-  Ta, która mergeuje później, przenumerowuje swój plik na `0008_*`.
-- `openapi.yaml`, `platform/`, `go.mod`, `package.json`, `Makefile`: uprzedź na czacie,
-  zrób osobny mały PR, zmergeuj szybko.
+- Migracje: **nigdy** nie edytuj zastosowanego pliku. Dwie gałęzie (albo dwie sesje agenta)
+  dodały `0011_*`? Ta, która mergeuje później, przenumerowuje swój plik na `0012_*`.
+- `openapi.yaml`, `platform/`, `go.mod`, `package.json`, `Makefile`: osobny mały PR,
+  zmergowany szybko.
 - Nie formatuj cudzych plików „przy okazji" — formatowanie w osobnym commicie.
 
-## Praca z Claude Code w cztery osoby
+## Praca z Claude Code
 
 - **Jeden agent = jeden worktree.** Równoległe sesje w tym samym katalogu roboczym nadpisują
   sobie pliki. Nowe zadanie:
@@ -46,7 +47,7 @@ Treść po angielsku, tryb rozkazujący, bez kropki na końcu tematu.
   ```
   (w Claude Code można też użyć trybu worktree bez ręcznego polecenia).
 - `.claude/settings.json` jest **wspólny i commitowany** — zmiany uprawnień idą przez PR,
-  żeby wszyscy mieli ten sam zestaw. Prywatne wyjątki trzymaj w
+  żeby każda sesja miała ten sam zestaw. Prywatne wyjątki trzymaj w
   `.claude/settings.local.json` (w `.gitignore`).
 - `CLAUDE.md` w katalogu głównym oraz w `backend/` i `frontend/` to kontrakt zespołu z agentem.
   Gdy poprawiasz Claude'a w kółko tak samo — dopisz regułę do właściwego `CLAUDE.md`

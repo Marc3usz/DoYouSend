@@ -194,29 +194,40 @@ func TestRetryPlan(t *testing.T) {
 		},
 	}
 
-	retriedPlan, count := plan.RetryPlan()
-	if count != 1 {
-		t.Fatalf("count = %d, want 1", count)
+	if retryable, uncertain := plan.RetryCounts(); retryable != 2 || uncertain != 1 {
+		t.Errorf("RetryCounts() = %d, %d; want 2, 1", retryable, uncertain)
 	}
 
-	// rec-1: email is still sent, transient SMS is now pending with cleared error and reset attempts
+	retriedPlan, count := plan.RetryPlan(false)
+	if count != 2 {
+		t.Fatalf("count = %d, want 2", count)
+	}
+
+	// rec-1: email is still sent; transient SMS is pending again, keeping its last
+	// error and cumulative attempts for the history.
 	del0 := retriedPlan.Recipients[0].Deliveries[0]
 	if del0.Status != StatusSent || del0.ProviderMessageID != "msg-1" {
 		t.Errorf("del0 = %+v, want StatusSent", del0)
 	}
 	del1 := retriedPlan.Recipients[0].Deliveries[1]
-	if del1.Status != StatusPending || del1.Error != "" || del1.Attempts != 0 {
-		t.Errorf("del1 = %+v, want StatusPending with empty error and 0 attempts", del1)
+	if del1.Status != StatusPending || del1.Error != "transient: gateway timeout" || del1.Attempts != 3 {
+		t.Errorf("del1 = %+v, want StatusPending keeping error and 3 attempts", del1)
 	}
 
-	// rec-1: unclassified and permanent errors remain failed (not retried)
+	// rec-1: an unclassified error may have reached the gateway, so it stays failed;
+	// a permanent one is sent again (the contact may have been corrected).
 	delUnclass := retriedPlan.Recipients[0].Deliveries[2]
 	if delUnclass.Status != StatusFailed || delUnclass.Error != "unclassified provider error" {
 		t.Errorf("delUnclass = %+v, want StatusFailed", delUnclass)
 	}
 	delPerm := retriedPlan.Recipients[0].Deliveries[3]
-	if delPerm.Status != StatusFailed || delPerm.Error != "permanent: invalid recipient address or number" {
-		t.Errorf("delPerm = %+v, want StatusFailed", delPerm)
+	if delPerm.Status != StatusPending {
+		t.Errorf("delPerm = %+v, want StatusPending", delPerm)
+	}
+
+	withUncertain, count := plan.RetryPlan(true)
+	if count != 3 || withUncertain.Recipients[0].Deliveries[2].Status != StatusPending {
+		t.Errorf("RetryPlan(true) count = %d, unclassified = %+v; want 3 and pending", count, withUncertain.Recipients[0].Deliveries[2])
 	}
 
 	// rec-2: delivered is untouched, sending is untouched

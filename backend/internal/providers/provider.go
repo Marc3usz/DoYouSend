@@ -54,7 +54,24 @@ type Message struct {
 
 	// Body is the message content, identical for both channels.
 	Body string
+
+	// From, when its Email is set, replaces the e-mail provider's configured
+	// sender for this message (ADR-0021). SMS providers ignore it.
+	From Address
+
+	// ReplyTo, when its Email is set, is where replies to the e-mail go.
+	// SMS providers ignore it.
+	ReplyTo Address
 }
+
+// Address is an e-mail sender: the address and the name shown next to it.
+type Address struct {
+	Email string
+	Name  string
+}
+
+// IsZero reports whether no address is set.
+func (a Address) IsZero() bool { return a.Email == "" }
 
 // Result is returned by Provider.Send on success.
 type Result struct {

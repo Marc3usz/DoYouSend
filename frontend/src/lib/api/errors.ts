@@ -24,6 +24,7 @@ export const errorCodes = [
 	'self_lockout',
 	'batch_running',
 	'no_failed_deliveries',
+	'sender_not_allowed',
 	'provider_error',
 	'confirmation_required',
 	'dry_run_locked',
@@ -33,6 +34,10 @@ export const errorCodes = [
 	'sender_already_verified',
 	'sender_missing',
 	'sender_rejected',
+	'wrong_password',
+	'domain_exists',
+	'address_exists',
+	'provider_rejected',
 	'internal'
 ] as const;
 

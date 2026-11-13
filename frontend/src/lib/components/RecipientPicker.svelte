@@ -10,7 +10,7 @@
 		type RecipientLookup,
 		type RecipientLookupPage
 	} from '$lib/api/recipients';
-	import { issueHint, issueText, recipientTypeLabel } from '../../routes/odbiorcy/messages';
+	import { issueHint, issueText, recipientTypeLabel } from '$lib/format/recipients';
 	import {
 		emptyFilters,
 		pageSelection,

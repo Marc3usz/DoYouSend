@@ -93,6 +93,61 @@ func setupUsageFixtures(t *testing.T, pool *pgxpool.Pool) (string, string) {
 	return batch1ID, batch2ID
 }
 
+// TestPGUsageStore_CostsUseBatchPriceAndSkipSimulated: each part costs what its
+// batch recorded, and simulated sends (DRY_RUN, fake, SMSAPI test mode) are
+// counted apart and never billed.
+func TestPGUsageStore_CostsUseBatchPriceAndSkipSimulated(t *testing.T) {
+	pool := dbtest.New(t)
+	batch1ID, batch2ID := setupUsageFixtures(t, pool)
+	ctx := context.Background()
+
+	// Batch 1 was priced at 0.08 zł per part (7 parts), batch 2 at 0.10 zł (3 parts).
+	if _, err := pool.Exec(ctx, `
+		UPDATE message_batches SET sms_part_count = 7, estimated_cost = 0.56 WHERE id = $1;
+	`, batch1ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE message_batches SET sms_part_count = 3, estimated_cost = 0.30 WHERE id = $1`, batch2ID); err != nil {
+		t.Fatal(err)
+	}
+	// The "sent" 3-part SMS of batch 1 was only simulated.
+	if _, err := pool.Exec(ctx, `UPDATE deliveries SET provider_message_id = 'dryrun-sms-x-1' WHERE provider_message_id = 'sms-2'`); err != nil {
+		t.Fatal(err)
+	}
+	// The delivered 2-part SMS of batch 2 was retried once after a billed failure.
+	if _, err := pool.Exec(ctx, `UPDATE deliveries SET billed_parts_before_retry = 2 WHERE provider_message_id = 'sms-6'`); err != nil {
+		t.Fatal(err)
+	}
+
+	counts, err := NewPGUsageStore(pool).GetUsage(ctx, UsageFilter{})
+	if err != nil {
+		t.Fatalf("GetUsage: %v", err)
+	}
+	if !counts.CostsKnown {
+		t.Fatal("CostsKnown = false, want the store to price parts")
+	}
+	if counts.SimulatedMessages != 1 || counts.SimulatedParts != 3 {
+		t.Errorf("Simulated = (%d, %d), want (1, 3)", counts.SimulatedMessages, counts.SimulatedParts)
+	}
+	// Billed: batch 1 delivered 2 + failed-with-id 1 = 3 parts at 80; batch 2 delivered 2 parts
+	// plus 2 parts of the try before its retry, at 100.
+	if want := int64(3*80 + 4*100); counts.BilledParts != 7 || counts.BilledCostMilli != want {
+		t.Errorf("Billed = (%d parts, %d), want (7, %d)", counts.BilledParts, counts.BilledCostMilli, want)
+	}
+	// Planned: 7 parts at 80 + 3 parts at 100.
+	if counts.PlannedCostMilli != 7*80+3*100 {
+		t.Errorf("PlannedCostMilli = %d, want %d", counts.PlannedCostMilli, 7*80+3*100)
+	}
+	if counts.DeliveredCostMilli != 2*80+2*100 {
+		t.Errorf("DeliveredCostMilli = %d, want %d", counts.DeliveredCostMilli, 2*80+2*100)
+	}
+	// A later price change does not rewrite the past.
+	stats := CalculateUsageStats(counts, 500)
+	if stats.BilledCostMilli != counts.BilledCostMilli {
+		t.Errorf("stats.BilledCostMilli = %d, want the recorded %d", stats.BilledCostMilli, counts.BilledCostMilli)
+	}
+}
+
 func TestPGUsageStore_Aggregation(t *testing.T) {
 	pool := dbtest.New(t)
 	batch1ID, _ := setupUsageFixtures(t, pool)

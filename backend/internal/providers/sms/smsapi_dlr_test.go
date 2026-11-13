@@ -59,11 +59,11 @@ func TestParseSMSAPIDLR_SingleMessage(t *testing.T) {
 			wantStatus: providers.StatusSent,
 		},
 		{
-			name:       "401 NOT_FOUND is failure",
+			name:       "401 NOT_FOUND is an uncertain failure",
 			query:      "MsgId=msg-006&status=401",
 			wantID:     "msg-006",
 			wantStatus: providers.StatusFailed,
-			wantError:  "not found",
+			wantError:  "unclassified: message not found",
 		},
 		{
 			name:       "402 EXPIRED is failure",
@@ -94,11 +94,11 @@ func TestParseSMSAPIDLR_SingleMessage(t *testing.T) {
 			wantError:  "rejected",
 		},
 		{
-			name:       "408 UNKNOWN is failure (not treated as sent)",
+			name:       "408 UNKNOWN is an uncertain failure (not treated as sent)",
 			query:      "MsgId=msg-011&status=408",
 			wantID:     "msg-011",
 			wantStatus: providers.StatusFailed,
-			wantError:  "no delivery report available",
+			wantError:  "unclassified: no delivery report available",
 		},
 		{
 			name:       "412 STOP is failure",
