@@ -15,7 +15,6 @@ type Config struct {
 	AppEnv      string
 	APIPort     string
 	DatabaseURL string
-	RedisURL    string
 	// DryRun keeps the system from reaching real e-mail/SMS providers. It defaults to true
 	// and may only be turned off with the project supervisor's approval.
 	DryRun bool
@@ -30,7 +29,6 @@ func Load() (Config, error) {
 		AppEnv:      env("APP_ENV", "development"),
 		APIPort:     env("API_PORT", "8080"),
 		DatabaseURL: env("DATABASE_URL", ""),
-		RedisURL:    env("REDIS_URL", ""),
 	}
 
 	dryRun, err := strconv.ParseBool(env("DRY_RUN", "true"))
