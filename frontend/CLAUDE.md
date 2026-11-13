@@ -4,9 +4,9 @@ SvelteKit 2 + Svelte 5 (runes) + TypeScript strict. Read the root `CLAUDE.md` fi
 
 ## Layout
 
-- `src/routes/` — pages, mirroring the domain split:
-  `odbiorcy/`, `grupy/`, `admin/`, `login/` (Marc3usz — domains A and D),
-  `wiadomosci/`, `historia/` (MichalK252 — domain B).
+- `src/routes/` — pages, mirroring the domain split: `odbiorcy/`, `grupy/` (domain A),
+  `wiadomosci/`, `historia/` (domain B), `admin/`, `login/` (domain D). All domains are
+  maintained by Marc3usz (ADR-0020).
 - `src/lib/api/` — the only place that calls the backend. Add one typed function per endpoint.
 - `src/lib/components/` — shared components. Anything used by two domains lives here;
   domain-only components stay under the route folder.
@@ -28,7 +28,7 @@ SvelteKit 2 + Svelte 5 (runes) + TypeScript strict. Read the root `CLAUDE.md` fi
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173, /api proxied to :8080
+npm run dev      # http://localhost:5173, /api proxied to PUBLIC_API_URL from the root .env
 npm run check    # svelte-check + tsc
 npm run lint     # prettier + eslint
 npm run test     # vitest
