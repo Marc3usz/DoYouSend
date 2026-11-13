@@ -1,23 +1,27 @@
 import { error, redirect, type Handle, type HandleFetch } from '@sveltejs/kit';
-import { env } from '$env/dynamic/public';
-import { SESSION_COOKIE, type User } from '$lib/api/auth';
+import { ApiError } from '$lib/api/client';
+import { SESSION_COOKIE, me, type User } from '$lib/api/auth';
 import { canOpen } from '$lib/access';
-
-function apiOrigin(): string {
-	return (env.PUBLIC_API_URL || 'http://localhost:8080').replace(/\/+$/, '');
-}
+import { apiOrigin } from '$lib/server/backend';
 
 // Every page knows who is logged in. The backend decides access to the API
 // on its own (iam middleware); this only keeps pages from rendering for
 // someone who could not use them anyway.
 export const handle: Handle = async ({ event, resolve }) => {
-	event.locals.user = await currentUser(event.cookies.get(SESSION_COOKIE));
+	const session = await currentUser(event.cookies.get(SESSION_COOKIE), event.fetch);
+	event.locals.user = session.user;
 
 	const path = event.url.pathname;
+	// The /api passthrough answers for itself: the backend checks the session.
+	if (path.startsWith('/api/')) return resolve(event);
+
 	const access = canOpen(event.locals.user, path);
 	if (access === 'login') {
-		const next = path === '/' ? '' : `?next=${encodeURIComponent(path + event.url.search)}`;
-		redirect(303, `/login${next}`);
+		const params = new URLSearchParams();
+		if (path !== '/') params.set('next', path + event.url.search);
+		// Tell the login page why: a dead backend is not a logged-out user.
+		if (session.backendDown) params.set('powod', 'serwer');
+		redirect(303, params.size > 0 ? `/login?${params}` : '/login');
 	}
 	if (access === 'forbidden') {
 		error(403, 'Ta strona jest dostępna tylko dla administratora.');
@@ -25,24 +29,23 @@ export const handle: Handle = async ({ event, resolve }) => {
 	return resolve(event);
 };
 
-async function currentUser(token: string | undefined): Promise<User | null> {
-	if (!token) return null;
+async function currentUser(
+	token: string | undefined,
+	fetch: typeof globalThis.fetch
+): Promise<{ user: User | null; backendDown: boolean }> {
+	if (!token) return { user: null, backendDown: false };
 	try {
-		const response = await fetch(`${apiOrigin()}/api/auth/me`, {
-			headers: { cookie: `${SESSION_COOKIE}=${token}` }
-		});
-		return response.ok ? ((await response.json()) as User) : null;
-	} catch {
-		// Backend down: treat as logged out rather than failing every page.
-		return null;
+		return { user: await me(fetch), backendDown: false };
+	} catch (err) {
+		// 401: the session expired. Anything else: the backend is not answering.
+		const expired = err instanceof ApiError && err.status < 500;
+		return { user: null, backendDown: !expired };
 	}
 }
 
-// In the browser /api/* reaches the Go backend through the Vite dev proxy
-// (vite.config.ts). Server-side load functions and form actions do not go
-// through that proxy: SvelteKit would look for an /api route of its own and
-// answer 404. This hook sends those requests straight to the backend, with
-// the session cookie of the page request.
+// Server-side load functions and form actions do not go through the Vite dev
+// proxy: SvelteKit would look for its own /api route. This hook sends those
+// requests straight to the backend, with the session cookie of the page.
 export const handleFetch: HandleFetch = async ({ event, request, fetch }) => {
 	const url = new URL(request.url);
 	if (url.origin !== event.url.origin || !url.pathname.startsWith('/api/')) {

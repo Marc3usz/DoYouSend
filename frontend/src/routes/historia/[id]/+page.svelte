@@ -1,47 +1,78 @@
 <script lang="ts">
-	import { invalidateAll } from '$app/navigation';
-	import { retryBatch } from '$lib/api/batches';
+	import { getBatch, retryBatch, type BatchDetail } from '$lib/api/batches';
 	import { errorBody } from '$lib/api/errors';
+	import { batchTitle, channelModeLabels, channelModeOf, usesChannel } from '$lib/format/batches';
+	import { costText, dateTimeText, plural, recipientsText, smsText } from '$lib/format/text';
 	import type { PageProps } from './$types';
-	import { costText, plural, recipientsText, smsText } from '../../wiadomosci/estimate';
 	import {
 		batchStatusLabels,
-		dateTimeText,
 		deliveryOf,
 		deliveryText,
 		excludedText,
-		stillSending
+		fromText,
+		stillSending,
+		timesText
 	} from '../format';
 
 	// How often a running batch is reloaded to show new statuses.
 	const REFRESH_MS = 3000;
 
 	let { data }: PageProps = $props();
-	const batch = $derived(data.batch);
+
+	// Fresher copy of the batch fetched by the poll or returned by a retry. The
+	// page load (with the excluded names) does not run again for that.
+	let live = $state<BatchDetail | null>(null);
+	const batch = $derived(live && live.id === data.batch.id ? live : data.batch);
+
+	const mode = $derived(channelModeOf(batch.channels));
+	const usesEmail = $derived(usesChannel(batch.channels, 'email'));
+	const usesSms = $derived(usesChannel(batch.channels, 'sms'));
+	const excludedCount = $derived(batch.excludedRecipientIds?.length ?? 0);
 	const retriedCount = $derived(
 		batch.recipients.reduce((sum, r) => sum + r.deliveries.filter((d) => d.attempts > 1).length, 0)
+	);
+	// Older backends do not split failures; a plain retry then covers them all.
+	const retryable = $derived(batch.retryableCount ?? batch.failedCount);
+	const uncertain = $derived(batch.uncertainCount ?? 0);
+
+	let onlyFailed = $state(false);
+	const shownRecipients = $derived(
+		onlyFailed
+			? batch.recipients.filter((r) => r.deliveries.some((d) => d.status === 'failed'))
+			: batch.recipients
 	);
 
 	let retrying = $state(false);
 	let retryError = $state<string | null>(null);
+	let retryNotice = $state<string | null>(null);
 	let expandedBodies = $state<Record<string, boolean>>({});
 
 	function toggleBody(id: string) {
 		expandedBodies[id] = !expandedBodies[id];
 	}
 
-	async function onRetry() {
+	async function onRetry(includeUncertain: boolean) {
+		if (
+			includeUncertain &&
+			!confirm(
+				'Niepewne wiadomości mogły już dotrzeć do odbiorców — operator nie potwierdził ani wysłania, ani błędu. ' +
+					'Ponowienie może sprawić, że część osób dostanie wiadomość dwa razy. Ponowić także je?'
+			)
+		) {
+			return;
+		}
 		retrying = true;
 		retryError = null;
+		retryNotice = null;
 		try {
-			await retryBatch(batch.id);
-			await invalidateAll();
+			live = await retryBatch(batch.id, { includeUncertain });
+			retryNotice = 'Ponowienie uruchomione. Statusy odświeżą się same.';
 		} catch (err) {
 			const body = errorBody(err);
 			if (body?.code === 'no_failed_deliveries') {
-				retryError = 'Brak nieudanych dostaw do ponowienia.';
+				retryError = 'Brak nieudanych wiadomości do ponowienia.';
 			} else if (body?.code === 'batch_running') {
-				retryError = 'Wysyłka jest obecnie w trakcie.';
+				retryError = 'Wysyłka jest w trakcie — poczekaj, aż się zakończy.';
 			} else {
 				retryError = 'Nie udało się uruchomić ponowienia. Spróbuj ponownie.';
 			}
@@ -52,17 +83,24 @@
 
 	$effect(() => {
 		if (!stillSending(batch.status)) return;
-		const timer = setInterval(() => invalidateAll(), REFRESH_MS);
+		const id = batch.id;
+		const timer = setInterval(async () => {
+			try {
+				live = await getBatch(id);
+			} catch {
+				// Keep the last statuses; the next tick tries again.
+			}
+		}, REFRESH_MS);
 		return () => clearInterval(timer);
 	});
 </script>
 
 <svelte:head>
-	<title>{batch.subject} — Historia — DoYouSend</title>
+	<title>{batchTitle(batch)} — Historia — DoYouSend</title>
 </svelte:head>
 
 <p><a href="/historia">← Historia wysyłek</a></p>
-<h1>{batch.subject}</h1>
+<h1>{batchTitle(batch)}</h1>
 
 <dl class="summary">
 	<dt>Status</dt>
@@ -70,6 +108,17 @@
 		<span class="status {batch.status}">{batchStatusLabels[batch.status]}</span>
 		{#if stillSending(batch.status)}<span class="hint">(odświeża się samo)</span>{/if}
 	</dd>
+	<dt>Kanały</dt>
+	<dd>
+		{channelModeLabels[mode]}
+		{#if mode !== 'both'}
+			<span class="warn">— wysyłka jednym kanałem</span>
+		{/if}
+	</dd>
+	{#if usesEmail}
+		<dt>Nadawca e-maila</dt>
+		<dd>{fromText(batch.from)}</dd>
+	{/if}
 	<dt>Zatwierdzona przez</dt>
 	<dd>{batch.createdBy.fullName}, {dateTimeText(batch.createdAt)}</dd>
 	<dt>Zakończona</dt>
@@ -90,32 +139,53 @@
 			· <span class="warn">{batch.partialCount} jednym kanałem</span>
 		{/if}
 	</dd>
-	{#if (batch.excludedRecipientIds?.length ?? 0) > 0}
+	{#if excludedCount > 0}
 		<dt>Wykluczeni z wysyłki</dt>
-		<dd><span class="warn">{excludedText(batch.excludedRecipientIds!.length)}</span></dd>
+		<dd><span class="warn">{excludedText(excludedCount)}</span></dd>
 	{/if}
-	<dt>SMS</dt>
-	<dd>{smsText(batch.totalSmsParts)}, {costText(batch.costMilli)}</dd>
-	{#if retriedCount > 0}
+	{#if usesSms}
+		<dt>SMS</dt>
+		<dd>{smsText(batch.totalSmsParts)}, {costText(batch.costMilli)}</dd>
+	{/if}
+	{#if (batch.retryCount ?? 0) > 0}
 		<dt>Ponowienia</dt>
 		<dd>
+			{timesText(batch.retryCount ?? 0)}, ostatnio {dateTimeText(batch.lastRetryAt)}
+		</dd>
+	{/if}
+	{#if retriedCount > 0}
+		<dt>Wiadomości ponawiane</dt>
+		<dd>
 			{retriedCount}
-			{plural(
-				retriedCount,
-				'wiadomość ponawiana',
-				'wiadomości ponawiane',
-				'wiadomości ponawianych'
-			)}
+			{plural(retriedCount, 'wiadomość', 'wiadomości', 'wiadomości')} wysłano więcej niż raz
 		</dd>
 	{/if}
 </dl>
 
 <div class="batch-actions">
 	<a href="/wiadomosci?kopia={batch.id}" class="button">Użyj jako podstawy nowej wiadomości</a>
-	{#if batch.failedCount > 0 && !stillSending(batch.status)}
-		<button type="button" class="primary" onclick={onRetry} disabled={retrying}>
-			{retrying ? 'Uruchamianie ponowienia…' : `Ponów nieudane wiadomości (${batch.failedCount})`}
-		</button>
+	{#if !stillSending(batch.status)}
+		{#if retryable > 0}
+			<button type="button" class="primary" onclick={() => onRetry(false)} disabled={retrying}>
+				{retrying ? 'Uruchamiam ponowienie…' : `Ponów nieudane (${retryable})`}
+			</button>
+		{/if}
+		{#if uncertain > 0}
+			<button type="button" onclick={() => onRetry(true)} disabled={retrying}>
+				Ponów także niepewne ({uncertain})
+			</button>
+		{/if}
+	{/if}
+</div>
+{#if uncertain > 0 && !stillSending(batch.status)}
+	<p class="hint">
+		Niepewne to wiadomości, o których operator nie dał jednoznacznej odpowiedzi — mogły dotrzeć.
+		Ponawiaj je tylko wtedy, gdy wiesz, że odbiorcy ich nie dostali.
+	</p>
+{/if}
+<div aria-live="polite">
+	{#if retryNotice}
+		<p class="notice">{retryNotice}</p>
 	{/if}
 </div>
 {#if retryError}
@@ -129,12 +199,18 @@
 {#if batch.recipients.length === 0}
 	<p>Brak odbiorców.</p>
 {:else}
+	{#if batch.failedCount > 0}
+		<label class="filter">
+			<input type="checkbox" bind:checked={onlyFailed} />
+			Pokaż tylko odbiorców z błędem
+		</label>
+	{/if}
 	<table>
 		<thead>
-			<tr><th>Odbiorca</th><th>E-mail</th><th>SMS</th></tr>
+			<tr><th scope="col">Odbiorca</th><th scope="col">E-mail</th><th scope="col">SMS</th></tr>
 		</thead>
 		<tbody>
-			{#each batch.recipients as r (r.recipientId)}
+			{#each shownRecipients as r (r.recipientId)}
 				{@const email = deliveryOf(r, 'email')}
 				{@const sms = deliveryOf(r, 'sms')}
 				<tr>
@@ -150,13 +226,18 @@
 						{/if}
 						{#if r.renderedBody && r.renderedBody !== batch.body}
 							<br />
-							<button type="button" class="btn-preview" onclick={() => toggleBody(r.recipientId)}>
+							<button
+								type="button"
+								class="link btn-preview"
+								aria-expanded={expandedBodies[r.recipientId] ?? false}
+								onclick={() => toggleBody(r.recipientId)}
+							>
 								{expandedBodies[r.recipientId] ? 'Ukryj treść' : 'Podgląd spersonalizowanej treści'}
 							</button>
 						{/if}
 					</td>
-					<td class="delivery {email?.status ?? 'none'}">{deliveryText(email)}</td>
-					<td class="delivery {sms?.status ?? 'none'}">{deliveryText(sms)}</td>
+					<td class="delivery {email?.status ?? 'none'}">{deliveryText(email, usesEmail)}</td>
+					<td class="delivery {sms?.status ?? 'none'}">{deliveryText(sms, usesSms)}</td>
 				</tr>
 				{#if expandedBodies[r.recipientId] && r.renderedBody}
 					<tr class="preview-row">
@@ -168,12 +249,14 @@
 						</td>
 					</tr>
 				{/if}
+			{:else}
+				<tr><td colspan="3">Nikt nie ma błędu.</td></tr>
 			{/each}
 		</tbody>
 	</table>
 {/if}
 
-{#if data.excludedRecipients && data.excludedRecipients.length > 0}
+{#if data.excludedRecipients.length > 0}
 	<section class="excluded-section" aria-labelledby="excluded-heading">
 		<h2 id="excluded-heading">Wykluczeni z tej wysyłki ({data.excludedRecipients.length})</h2>
 		<p class="hint">
@@ -202,7 +285,7 @@
 		font: inherit;
 		background: var(--color-surface-muted);
 		border: 1px solid var(--color-border);
-		border-radius: 4px;
+		border-radius: var(--radius);
 		padding: 0.75rem;
 		max-width: 42rem;
 	}
@@ -230,18 +313,16 @@
 		gap: 0.75rem;
 		margin: 1.25rem 0;
 	}
-	.btn-preview {
-		background: none;
-		border: none;
-		padding: 0;
-		color: var(--color-primary);
-		text-decoration: underline;
-		cursor: pointer;
-		font-size: 0.8125rem;
-		margin-top: 0.25rem;
+	.filter {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-weight: normal;
+		margin-bottom: 0.75rem;
 	}
-	.btn-preview:hover {
-		color: var(--color-primary-hover, var(--color-primary));
+	.btn-preview {
+		font-size: var(--text-sm);
+		margin-top: 0.25rem;
 	}
 	.preview-row td {
 		background: var(--color-surface-muted);
@@ -258,7 +339,7 @@
 		padding: 0.5rem;
 		background: var(--color-surface);
 		border: 1px solid var(--color-border);
-		border-radius: var(--radius-sm, 4px);
+		border-radius: var(--radius);
 	}
 	.excluded-section {
 		margin-top: 2rem;
@@ -270,8 +351,6 @@
 		padding: 0;
 	}
 	.hint {
-		color: var(--color-text-muted);
-		font-size: 0.875rem;
 		margin: 0.25rem 0;
 	}
 </style>

@@ -33,6 +33,10 @@ export const errorCodes = [
 	'sender_already_verified',
 	'sender_missing',
 	'sender_rejected',
+	'wrong_password',
+	'domain_exists',
+	'address_exists',
+	'provider_rejected',
 	'internal'
 ] as const;
 

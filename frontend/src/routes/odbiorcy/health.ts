@@ -22,7 +22,9 @@ function percentOf(part: number, total: number): number {
 }
 
 /** Per-channel coverage. A count above the total (a race between requests) is clamped. */
-export function coverage(counts: RecipientCounts): ChannelCoverage[] {
+export function coverage(
+	counts: Omit<RecipientCounts, 'unreachable'> & { unreachable?: number }
+): ChannelCoverage[] {
 	const row = (channel: Channel, label: string, missing: number): ChannelCoverage => {
 		const bad = Math.min(Math.max(missing, 0), Math.max(counts.total, 0));
 		return {

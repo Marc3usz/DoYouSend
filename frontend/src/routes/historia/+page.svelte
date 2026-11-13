@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PageProps } from './$types';
+	import { batchTitle, channelModeLabels, channelModeOf } from '$lib/format/batches';
 	import { costText, dateTimeText, recipientsText } from '$lib/format/text';
 	import { batchStatusLabels, filterStatuses } from './format';
 
@@ -60,7 +61,15 @@
 			{#each data.batches.items as batch (batch.id)}
 				<tr>
 					<td>{dateTimeText(batch.createdAt)}</td>
-					<td><a href="/historia/{batch.id}">{batch.subject}</a></td>
+					<td>
+						<a href="/historia/{batch.id}">{batchTitle(batch)}</a>
+						{#if channelModeOf(batch.channels) !== 'both'}
+							<br /><span class="badge">{channelModeLabels[channelModeOf(batch.channels)]}</span>
+						{/if}
+						{#if (batch.retryCount ?? 0) > 0}
+							<br /><small class="muted">ponawiana: {batch.retryCount}×</small>
+						{/if}
+					</td>
 					<td>{batch.createdBy.fullName}</td>
 					<td>{batch.groups.map((g) => g.name).join(', ') || '—'}</td>
 					<td>
@@ -117,6 +126,9 @@
 	.status.running,
 	.warn {
 		color: var(--color-warning);
+	}
+	.muted {
+		color: var(--color-text-muted);
 	}
 	.pager {
 		display: flex;

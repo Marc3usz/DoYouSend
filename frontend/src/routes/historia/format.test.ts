@@ -5,9 +5,11 @@ import {
 	deliveryOf,
 	deliveryText,
 	excludedText,
+	fromText,
 	isBatchStatus,
 	pageParam,
-	stillSending
+	stillSending,
+	timesText
 } from './format';
 
 const sms = (over: Partial<Delivery> = {}): Delivery => ({
@@ -36,7 +38,7 @@ describe('attemptsText', () => {
 
 describe('deliveryText', () => {
 	it.each([
-		[undefined, 'brak kanału'],
+		[undefined, 'brak kontaktu'],
 		[sms(), 'Wysłano'],
 		[sms({ status: 'delivered', parts: 3 }), 'Doręczono (3 części)'],
 		[
@@ -53,6 +55,33 @@ describe('deliveryText', () => {
 		[sms({ channel: 'email', status: 'delivered', attempts: 4 }), 'Doręczono (4 próby)']
 	])('%#', (d, want) => {
 		expect(deliveryText(d)).toBe(want);
+	});
+
+	it('says a skipped channel does not apply instead of blaming the recipient', () => {
+		expect(deliveryText(undefined, false)).toBe('nie dotyczy');
+	});
+});
+
+describe('timesText', () => {
+	it.each([
+		[1, '1 raz'],
+		[2, '2 razy'],
+		[5, '5 razy']
+	])('%d -> %s', (n, want) => {
+		expect(timesText(n)).toBe(want);
+	});
+});
+
+describe('fromText', () => {
+	it('names the sender with the address', () => {
+		expect(fromText({ email: 'sekretariat@example.test', name: 'Sekretariat' })).toBe(
+			'Sekretariat <sekretariat@example.test>'
+		);
+	});
+	it('shows the bare address without a name and a dash for old batches', () => {
+		expect(fromText({ email: 'a@example.test', name: '' })).toBe('a@example.test');
+		expect(fromText(null)).toBe('—');
+		expect(fromText(undefined)).toBe('—');
 	});
 });
 

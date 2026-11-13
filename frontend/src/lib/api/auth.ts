@@ -21,6 +21,22 @@ export function me(fetch?: typeof globalThis.fetch): Promise<User> {
 	return api<User>('/auth/me', { fetch });
 }
 
+/**
+ * PUT /auth/password: the logged-in user changes their own password. 403
+ * wrong_password when the current one does not match.
+ */
+export function changePassword(
+	currentPassword: string,
+	newPassword: string,
+	fetch?: typeof globalThis.fetch
+): Promise<void> {
+	return api<void>('/auth/password', {
+		method: 'PUT',
+		body: { currentPassword, newPassword },
+		fetch
+	});
+}
+
 /** POST /auth/logout: ends the session of the cookie sent with the request. */
 export function logout(fetch?: typeof globalThis.fetch): Promise<void> {
 	return api<void>('/auth/logout', { method: 'POST', fetch });
