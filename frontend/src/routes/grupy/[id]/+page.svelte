@@ -6,7 +6,7 @@
 	import type { PageProps } from './$types';
 	import GroupForm from '../GroupForm.svelte';
 	import { kindLabel, peopleCount } from '../messages';
-	import { issueHint, issueText, recipientTypeLabel } from '../../odbiorcy/messages';
+	import { issueHint, issueText, recipientTypeLabel } from '$lib/format/recipients';
 
 	let { data, form }: PageProps = $props();
 

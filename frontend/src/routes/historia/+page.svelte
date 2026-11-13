@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { PageProps } from './$types';
-	import { costText, recipientsText } from '../wiadomosci/estimate';
-	import { batchStatusLabels, dateTimeText, filterStatuses } from './format';
+	import { costText, dateTimeText, recipientsText } from '$lib/format/text';
+	import { batchStatusLabels, filterStatuses } from './format';
 
 	let { data }: PageProps = $props();
 

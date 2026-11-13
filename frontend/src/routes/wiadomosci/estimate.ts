@@ -2,34 +2,9 @@
 // backend (POST /messages/preview); nothing here counts characters or SMS parts.
 import { ApiError } from '$lib/api/client';
 import type { SendEstimate } from '$lib/api/messages';
+import { plural, recipientsText } from '$lib/format/text';
 
-const MILLI_PER_ZLOTY = 1000;
-
-const pln = new Intl.NumberFormat('pl-PL', {
-	style: 'currency',
-	currency: 'PLN',
-	minimumFractionDigits: 2,
-	maximumFractionDigits: 3,
-	useGrouping: false
-});
-
-/** Formats a cost given in thousandths of a złoty (80 -> "0,08 zł"). */
-export function costText(costMilli: number): string {
-	return pln.format(costMilli / MILLI_PER_ZLOTY);
-}
-
-/** Picks the Polish plural form: 1 SMS, 2 SMS-y, 5 SMS-ów, 22 SMS-y. */
-export function plural(n: number, one: string, few: string, many: string): string {
-	if (n === 1) return one;
-	const lastDigit = n % 10;
-	const lastTwo = n % 100;
-	return lastDigit >= 2 && lastDigit <= 4 && (lastTwo < 12 || lastTwo > 14) ? few : many;
-}
-
-export const smsText = (n: number) => `${n} ${plural(n, 'SMS', 'SMS-y', 'SMS-ów')}`;
-
-export const recipientsText = (n: number) =>
-	`${n} ${plural(n, 'odbiorca', 'odbiorcy', 'odbiorców')}`;
+export { costText, plural, recipientsText, smsText } from '$lib/format/text';
 
 // Verbs agree with the counted noun: 1 odbiorca ma, 2 odbiorcy mają, 5 odbiorców ma.
 const lacks = (n: number) => plural(n, 'nie ma', 'nie mają', 'nie ma');

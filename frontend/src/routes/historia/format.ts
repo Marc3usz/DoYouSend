@@ -2,7 +2,9 @@
 // backend (GET /batches, GET /batches/{id}).
 import type { Channel } from '$lib/api/recipients';
 import type { BatchRecipient, BatchStatus, Delivery, DeliveryStatus } from '$lib/api/batches';
-import { plural } from '../wiadomosci/estimate';
+import { plural } from '$lib/format/text';
+
+export { dateTimeText } from '$lib/format/text';
 
 export const batchStatusLabels: Record<BatchStatus, string> = {
 	draft: 'Szkic',
@@ -31,16 +33,6 @@ export function excludedText(n: number): string {
 
 export function isBatchStatus(value: string | null): value is BatchStatus {
 	return value !== null && Object.hasOwn(batchStatusLabels, value);
-}
-
-const dateTime = new Intl.DateTimeFormat('pl-PL', {
-	dateStyle: 'medium',
-	timeStyle: 'short',
-	timeZone: 'Europe/Warsaw'
-});
-
-export function dateTimeText(iso: string | null): string {
-	return iso ? dateTime.format(new Date(iso)) : '—';
 }
 
 /** The delivery of one channel, or undefined when the batch did not use it for the person. */

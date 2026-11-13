@@ -3,19 +3,12 @@
 import type { AuditEntry } from '$lib/api/admin';
 import type { User } from '$lib/api/auth';
 import { roleLabels } from '$lib/access';
+import { costText } from '$lib/format/text';
 
-const pln = new Intl.NumberFormat('pl-PL', {
-	style: 'currency',
-	currency: 'PLN',
-	minimumFractionDigits: 2,
-	maximumFractionDigits: 3,
-	useGrouping: true
-});
+export { dateTimeText } from '$lib/format/text';
 
 /** A cost in thousandths of a złoty (80 -> "0,08 zł"). */
-export function plnText(milli: number): string {
-	return pln.format(milli / 1000);
-}
+export const plnText = costText;
 
 const pointsFormat = new Intl.NumberFormat('pl-PL', {
 	minimumFractionDigits: 2,
@@ -41,15 +34,6 @@ export function creditsText(remain?: number, total?: number): string {
 		return `${remain} / ${total} kredytów`;
 	}
 	return `${remain} kredytów`;
-}
-const dateTime = new Intl.DateTimeFormat('pl-PL', {
-	dateStyle: 'medium',
-	timeStyle: 'short',
-	timeZone: 'Europe/Warsaw'
-});
-
-export function dateTimeText(iso: string | null): string {
-	return iso ? dateTime.format(new Date(iso)) : '—';
 }
 
 const monthName = new Intl.DateTimeFormat('pl-PL', {
