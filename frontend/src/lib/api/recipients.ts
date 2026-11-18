@@ -220,6 +220,17 @@ export async function listAllRecipients(
 	}
 }
 
+/** The RecipientDuplicates schema: people of one type sharing a first and last name. */
+export type RecipientDuplicateGroup = { name: string; recipients: Recipient[] };
+
+/** GET /recipients/duplicates: possible duplicates in the base (admin only). */
+export async function listDuplicates(
+	fetch?: typeof globalThis.fetch
+): Promise<RecipientDuplicateGroup[]> {
+	const res = await api<{ items: RecipientDuplicateGroup[] }>('/recipients/duplicates', { fetch });
+	return res.items;
+}
+
 /** The RecipientLookup schema: a recipient without e-mail or phone. */
 export type RecipientLookup = Pick<
 	Recipient,

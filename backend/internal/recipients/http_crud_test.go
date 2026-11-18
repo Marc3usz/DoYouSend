@@ -294,3 +294,28 @@ func TestHandlerFixContact(t *testing.T) {
 		t.Errorf("failed fixes must not be audited: %+v", audit.got)
 	}
 }
+
+func TestHandlerDuplicates(t *testing.T) {
+	store := serviceFixture()
+	if _, err := store.CreateRecipient(context.Background(), Recipient{FirstName: "Jan", LastName: "Kowalski", Email: "jan.drugi@example.test", Type: TypeParent}); err != nil {
+		t.Fatal(err)
+	}
+	rec, body := do(t, crudServer(store), http.MethodGet, "/api/recipients/duplicates", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %v", rec.Code, body)
+	}
+	items, _ := body["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("items = %v, want the two Jan Kowalski rows as one group", items)
+	}
+	g, _ := items[0].(map[string]any)
+	people, _ := g["recipients"].([]any)
+	if g["name"] != "Kowalski Jan" || len(people) != 2 {
+		t.Errorf("group = %v", g)
+	}
+
+	rec, _ = do(t, crudServer(newMemRecipients()), http.MethodGet, "/api/recipients/duplicates", "")
+	if got := strings.TrimSpace(rec.Body.String()); got != `{"items":[]}` {
+		t.Errorf("empty base = %s, want items as []", got)
+	}
+}

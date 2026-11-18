@@ -248,6 +248,16 @@ func (s *Service) Lookup(ctx context.Context, q ListQuery) (Page, error) {
 	return s.List(ctx, q)
 }
 
+// Duplicates returns groups of recipients that look like the same person entered twice
+// (GET /recipients/duplicates): same type, first and last name. See FindNameDuplicates.
+func (s *Service) Duplicates(ctx context.Context) ([]Duplicate, error) {
+	all, err := s.store.ListRecipients(ctx, Filter{})
+	if err != nil {
+		return nil, fmt.Errorf("list recipients for duplicates: %w", err)
+	}
+	return FindNameDuplicates(all), nil
+}
+
 // Stats are the counts behind the data-quality panel (GET /recipients/stats).
 // WithoutEmail and WithoutPhone use the same rule as the "issue" filter of List.
 type Stats struct {

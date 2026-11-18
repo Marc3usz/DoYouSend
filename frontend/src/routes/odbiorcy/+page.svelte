@@ -69,6 +69,7 @@
 	<a class="button primary" href="/odbiorcy/nowy">Dodaj odbiorcę</a>
 	<a class="button" href="/odbiorcy/import">Import z pliku</a>
 	<a class="button" href="/odbiorcy/do-poprawy">Do poprawy</a>
+	<a class="button" href="/odbiorcy/duplikaty">Możliwe duplikaty</a>
 	<a class="button" href="/grupy">Grupy</a>
 </p>
 
