@@ -4,7 +4,7 @@ import type { Channel } from '$lib/api/recipients';
 import type { BatchRecipient, BatchStatus, Delivery, DeliveryStatus } from '$lib/api/batches';
 import { plural } from '$lib/format/text';
 
-export { dateTimeText } from '$lib/format/text';
+export { dateTimeText, pageParam } from '$lib/format/text';
 
 export const batchStatusLabels: Record<BatchStatus, string> = {
 	draft: 'Szkic',
@@ -145,10 +145,4 @@ export const timesText = (n: number) => `${n} ${n === 1 ? 'raz' : 'razy'}`;
 export function fromText(from: { email: string; name: string } | null | undefined): string {
 	if (!from) return '—';
 	return from.name ? `${from.name} <${from.email}>` : from.email;
-}
-
-/** Page number from ?strona=, 1 for anything that is not a positive integer. */
-export function pageParam(raw: string | null): number {
-	const n = Number(raw ?? '1');
-	return Number.isInteger(n) && n > 0 ? n : 1;
 }

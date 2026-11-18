@@ -13,6 +13,12 @@
 		{ id: 'both', label: 'Bez żadnego kanału' }
 	];
 	const href = (id: FixView) => (id === 'all' ? '/odbiorcy/do-poprawy' : `?pokaz=${id}`);
+	const pageHref = (p: number) => {
+		const q = new URLSearchParams();
+		if (data.view !== 'all') q.set('pokaz', data.view);
+		if (p > 1) q.set('strona', String(p));
+		return q.size > 0 ? `?${q}` : '/odbiorcy/do-poprawy';
+	};
 </script>
 
 <svelte:head>
@@ -35,12 +41,6 @@
 			<strong>{data.summary.noPhone}</strong> · bez żadnego kanału:
 			<strong>{data.summary.unreachable}</strong>
 		</p>
-		{#if data.summary.truncated}
-			<p class="notice" role="status">
-				Lista pokazuje pierwsze {data.limit} osób z każdego problemu. Popraw te dane i odśwież stronę,
-				żeby zobaczyć kolejne.
-			</p>
-		{/if}
 	{/if}
 
 	<nav class="tabs" aria-label="Rodzaj problemu">
@@ -58,7 +58,7 @@
 			{/if}
 		</p>
 	{:else}
-		<p class="count">{peopleLabel(data.items.length)} na liście.</p>
+		<p class="count">{peopleLabel(data.total)} na liście.</p>
 		<table>
 			<thead>
 				<tr
@@ -93,10 +93,23 @@
 				{/each}
 			</tbody>
 		</table>
+		{#if data.pages > 1}
+			<nav class="pager" aria-label="Strony listy">
+				{#if data.page > 1}<a href={pageHref(data.page - 1)}>← Poprzednia</a>{/if}
+				<span>Strona {data.page} z {data.pages}</span>
+				{#if data.page < data.pages}<a href={pageHref(data.page + 1)}>Następna →</a>{/if}
+			</nav>
+		{/if}
 	{/if}
 {/if}
 
 <style>
+	.pager {
+		display: flex;
+		gap: 1rem;
+		align-items: center;
+		margin-top: 0.75rem;
+	}
 	.lead {
 		color: var(--color-text-muted);
 		max-width: 42rem;

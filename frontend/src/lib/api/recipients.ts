@@ -204,6 +204,22 @@ export function listRecipients(
 	return api<RecipientPage>(`/recipients${search}`, { fetch });
 }
 
+/**
+ * Every recipient matching `query`, read 200 at a time (the API's page maximum).
+ * For lists that must be complete, like the people with contact problems.
+ */
+export async function listAllRecipients(
+	query: Omit<RecipientListQuery, 'limit' | 'offset'>,
+	fetch?: typeof globalThis.fetch
+): Promise<Recipient[]> {
+	const all: Recipient[] = [];
+	for (let offset = 0; ; offset += 200) {
+		const page = await listRecipients({ ...query, limit: 200, offset }, fetch);
+		all.push(...page.items);
+		if (page.items.length === 0 || all.length >= page.total) return all;
+	}
+}
+
 /** The RecipientLookup schema: a recipient without e-mail or phone. */
 export type RecipientLookup = Pick<
 	Recipient,

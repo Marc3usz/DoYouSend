@@ -3,7 +3,6 @@ import type { Recipient } from '$lib/api/recipients';
 import {
 	coverage,
 	filterFixItems,
-	isTruncated,
 	mergeFixItems,
 	parseFixView,
 	peopleLabel,
@@ -128,16 +127,6 @@ describe('unreachableCount', () => {
 			[person('b', 'B'), person('c', 'C')]
 		);
 		expect(unreachableCount(items)).toBe(1);
-	});
-});
-
-describe('isTruncated', () => {
-	it.each([
-		[200, 200, false],
-		[200, 201, true],
-		[0, 0, false]
-	])('shown %i of %i -> %s', (shown, total, want) => {
-		expect(isTruncated(shown, total)).toBe(want);
 	});
 });
 
