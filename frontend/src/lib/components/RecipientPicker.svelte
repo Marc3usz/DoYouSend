@@ -5,6 +5,10 @@
 	returns no contact data. The first page comes from the route's load.
 -->
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { page as appPage } from '$app/state';
+	import { loginHref } from '$lib/access';
+	import { sessionExpired } from '$lib/api/client';
 	import {
 		lookupRecipients,
 		type RecipientLookup,
@@ -72,7 +76,10 @@
 			try {
 				const res = await lookupRecipients(pickerQuery(filters, page, pageSize));
 				if (req === latest) result = res;
-			} catch {
+			} catch (err) {
+				if (sessionExpired(err)) {
+					return void goto(loginHref(appPage.url.pathname, appPage.url.search));
+				}
 				if (req === latest) failure = 'Nie udało się pobrać listy odbiorców. Spróbuj ponownie.';
 			} finally {
 				if (req === latest) loading = false;

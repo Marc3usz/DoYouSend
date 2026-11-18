@@ -13,6 +13,11 @@ export class ApiError extends Error {
 	}
 }
 
+/** Whether the backend refused the call because the session is missing or expired. */
+export function sessionExpired(err: unknown): boolean {
+	return err instanceof ApiError && err.status === 401;
+}
+
 type RequestOptions = {
 	method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 	// FormData is sent as multipart/form-data, anything else as JSON.

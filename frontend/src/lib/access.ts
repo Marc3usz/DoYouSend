@@ -28,6 +28,12 @@ export function nextPath(raw: string | null): string {
 	return under(raw, '/login') ? '/' : raw;
 }
 
+/** The login page that brings the user back to `path` (plus query) afterwards. */
+export function loginHref(path: string, search = ''): string {
+	if (path === '/' || under(path, '/login')) return '/login';
+	return `/login?${new URLSearchParams({ next: path + search })}`;
+}
+
 export type NavLink = { href: string; label: string };
 
 /** The main navigation for a user's role. */

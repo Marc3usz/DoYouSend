@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import { loginHref } from '$lib/access';
 	import { sendBatch } from '$lib/api/batches';
+	import { sessionExpired } from '$lib/api/client';
 	import { resolveSelection, type ResolvedRecipient } from '$lib/api/groups';
 	import { previewMessage, type SendEstimate } from '$lib/api/messages';
 	import { fixRecipientContact, type RecipientLookup } from '$lib/api/recipients';
@@ -18,6 +21,7 @@
 		confirmText,
 		idempotencyFor,
 		sendFailureText,
+		unknownSelectionIds,
 		type DraftSnapshot,
 		type IdempotencyState
 	} from './send';
@@ -56,6 +60,11 @@
 			const name = `${r.recipient.lastName} ${r.recipient.firstName}`.trim() || id;
 			excludedPeople = [...excludedPeople.filter((p) => p.id !== id), { id, name }];
 		}
+	}
+
+	function unexcludeMany(ids: Set<string>) {
+		excludedRecipientIds = excludedRecipientIds.filter((x) => !ids.has(x));
+		excludedPeople = excludedPeople.filter((p) => !ids.has(p.id));
 	}
 
 	function unexcludeRecipient(id: string) {
@@ -241,6 +250,13 @@
 			await goto(`/historia/${batch.id}`);
 		} catch (err) {
 			sendFailure = sendFailureText(err);
+			// Drop what no longer exists so the next confirmation can go through.
+			const gone = new Set(unknownSelectionIds(err));
+			if (gone.size > 0) {
+				selectedGroupIds = selectedGroupIds.filter((id) => !gone.has(id));
+				selectedRecipients = selectedRecipients.filter((r) => !gone.has(r.id));
+				unexcludeMany(gone);
+			}
 		} finally {
 			sending = false;
 		}
@@ -278,6 +294,7 @@
 					failure = null;
 				}
 			} catch (err) {
+				if (sessionExpired(err)) return void goto(loginHref(page.url.pathname, page.url.search));
 				if (request === latestRequest) failure = previewFailureText(err);
 			} finally {
 				if (request === latestRequest) counting = false;
@@ -335,6 +352,9 @@
 		<span class="copy-banner-text">
 			Załadowano treść, kanały i odbiorców na podstawie wcześniejszej wysyłki{#if data.copiedBatchSubject}:
 				<strong>{data.copiedBatchSubject}</strong>{/if}.
+			{#if data.initialDraft && data.initialDraft.skippedGroups.length > 0}
+				Pominięto grupy, które już nie istnieją: {data.initialDraft.skippedGroups.join(', ')}.
+			{/if}
 		</span>
 		<button
 			type="button"
