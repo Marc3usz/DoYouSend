@@ -9,6 +9,7 @@ import {
 	fromText,
 	isBatchStatus,
 	pageParam,
+	refreshEveryMs,
 	stillSending,
 	timesText,
 	unreachableText
@@ -172,7 +173,7 @@ describe('failureReasonText', () => {
 		],
 		['render body: missing value', 'brak danych do pola w treści (np. imienia)'],
 		['message rejected by carrier or invalid recipient number', 'nieprawidłowy adres lub numer'],
-		['bounced: mailbox full', 'operator: bounced: mailbox full']
+		['bounced: mailbox full', 'błąd operatora']
 	])('%s', (raw, want) => {
 		expect(failureReasonText(raw)).toBe(want);
 	});
@@ -185,5 +186,40 @@ describe('unreachableText', () => {
 		[false, true, 'brak telefonu']
 	])('email=%s sms=%s -> %s', (email, sms, want) => {
 		expect(unreachableText(email, sms)).toBe(want);
+	});
+});
+
+describe('refreshEveryMs', () => {
+	const finished = '2026-11-18T10:00:00Z';
+	const t0 = Date.parse(finished);
+	const withDelivery = (status: Delivery['status']): BatchRecipient[] => [
+		{
+			recipientId: 'r1',
+			firstName: 'Jan',
+			lastName: 'Testowy',
+			renderedBody: 'x',
+			partial: false,
+			unreachable: false,
+			deliveries: [sms({ status })]
+		}
+	];
+	it('reloads fast while sending', () => {
+		expect(refreshEveryMs({ status: 'running', finishedAt: null }, t0)).toBe(3000);
+	});
+	it('waits for reports of a recently finished batch', () => {
+		const b = { status: 'done' as const, finishedAt: finished, recipients: withDelivery('sent') };
+		expect(refreshEveryMs(b, t0 + 60_000)).toBe(15000);
+	});
+	it('stops once every delivery has its final status', () => {
+		const b = {
+			status: 'done' as const,
+			finishedAt: finished,
+			recipients: withDelivery('delivered')
+		};
+		expect(refreshEveryMs(b, t0 + 60_000)).toBeNull();
+	});
+	it('stops waiting ten minutes after the batch finished', () => {
+		const b = { status: 'done' as const, finishedAt: finished, recipients: withDelivery('sent') };
+		expect(refreshEveryMs(b, t0 + 11 * 60_000)).toBeNull();
 	});
 });

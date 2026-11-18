@@ -77,7 +77,8 @@ export function deliveryText(d: Delivery | undefined, used = true): string {
 /**
  * The Polish text of a stored failure reason. The backend stores short English
  * reasons (delivery.describe, delivery reports); the known ones read as Polish,
- * anything else is shown as the operator's own words.
+ * anything else is a generic "błąd operatora" — the raw text goes to a tooltip
+ * (see rawFailureReason), not into the Polish sentence.
  */
 export function failureReasonText(reason: string): string {
 	const r = reason.toLowerCase();
@@ -103,12 +104,38 @@ export function failureReasonText(reason: string): string {
 		[r === 'delivery failed', 'nie doręczono']
 	];
 	const hit = known.find(([match]) => match);
-	return hit ? hit[1] : `operator: ${reason}`;
+	return hit ? hit[1] : 'błąd operatora';
+}
+
+/** The operator's own words for a failed delivery, shown as a tooltip; undefined otherwise. */
+export function rawFailureReason(d: Delivery | undefined): string | undefined {
+	return d?.status === 'failed' && d.error ? d.error : undefined;
 }
 
 /** Whether a history page should keep refreshing: something is still being sent. */
 export function stillSending(status: BatchStatus): boolean {
 	return status === 'running';
+}
+
+/** How long after a batch finished the page keeps waiting for delivery reports. */
+export const REPORT_WAIT_MS = 10 * 60 * 1000;
+
+/**
+ * How often the detail page should reload, or null to stop: fast while sending, slower
+ * while a recently finished batch still has deliveries waiting for an operator's report
+ * (sent → delivered/failed arrives later through the webhooks).
+ */
+export function refreshEveryMs(
+	batch: { status: BatchStatus; finishedAt: string | null; recipients?: BatchRecipient[] },
+	now: number
+): number | null {
+	if (stillSending(batch.status)) return 3000;
+	if (!batch.finishedAt) return null;
+	if (now - Date.parse(batch.finishedAt) > REPORT_WAIT_MS) return null;
+	const waiting = (batch.recipients ?? []).some((r) =>
+		r.deliveries.some((d) => d.status === 'sent')
+	);
+	return waiting ? 15000 : null;
 }
 
 /** "1 raz", "2 razy", "5 razy": how many times a batch was retried. */
