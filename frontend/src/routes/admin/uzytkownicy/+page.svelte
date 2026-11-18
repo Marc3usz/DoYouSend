@@ -211,6 +211,24 @@
 									</form>
 								{/if}
 								<details>
+									<summary>Zmień imię i nazwisko</summary>
+									<form
+										method="POST"
+										action="?/update"
+										use:enhance={guarded(`rename:${user.id}`)}
+										class="password"
+									>
+										<input type="hidden" name="id" value={user.id} />
+										<label>
+											Imię i nazwisko
+											<input name="fullName" value={user.fullName} autocomplete="off" required />
+										</label>
+										<button type="submit" disabled={busy(user.id)}>
+											{pending === `rename:${user.id}` ? 'Zapisuję…' : 'Zapisz'}
+										</button>
+									</form>
+								</details>
+								<details>
 									<summary>Nowe hasło</summary>
 									<form
 										method="POST"

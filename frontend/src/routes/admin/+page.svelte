@@ -51,16 +51,20 @@
 				</p>
 			{/if}
 			<dl>
-				<dt>Wiadomości SMS</dt>
-				<dd>{data.usage.totalMessages}</dd>
-				<dt>Części SMS</dt>
-				<dd>{data.usage.totalParts}</dd>
+				<dt>Wiadomości SMS (części)</dt>
+				<dd>{data.usage.totalMessages} ({data.usage.totalParts})</dd>
+				<dt>Wysłane, bez raportu</dt>
+				<dd>{data.usage.sentMessages} ({data.usage.sentParts})</dd>
 				<dt>Doręczone</dt>
-				<dd>{data.usage.deliveredMessages}</dd>
+				<dd>{data.usage.deliveredMessages} ({data.usage.deliveredParts})</dd>
 				<dt>Nieudane</dt>
-				<dd>{data.usage.failedMessages}</dd>
+				<dd>{data.usage.failedMessages} ({data.usage.failedParts})</dd>
 				<dt>W trakcie</dt>
-				<dd>{data.usage.inFlightMessages}</dd>
+				<dd>{data.usage.inFlightMessages} ({data.usage.inFlightParts})</dd>
+				<dt>Koszt zaplanowany</dt>
+				<dd>{plnText(data.usage.plannedCostMilli)}</dd>
+				<dt>Koszt doręczonych</dt>
+				<dd>{plnText(data.usage.deliveredCostMilli)}</dd>
 				<dt>Cena za część</dt>
 				<dd>{plnText(data.usage.pricePerPartMilli)}</dd>
 			</dl>
