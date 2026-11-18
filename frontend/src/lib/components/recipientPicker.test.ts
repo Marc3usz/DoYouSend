@@ -109,4 +109,14 @@ describe('collectMatching', () => {
 		);
 		expect(queries).toEqual([{ q: 'anna', type: 'parent', class: '3A', limit: 200, offset: 0 }]);
 	});
+
+	it('keeps each person once when the base shifts between pages', async () => {
+		const all = base(3);
+		const shifted = async (q: { offset?: number }) =>
+			q.offset === 0
+				? { items: all.slice(0, 2), total: 3 }
+				: { items: [all[1] as RecipientLookup, all[2] as RecipientLookup], total: 3 };
+		const got = await collectMatching(shifted, emptyFilters, 2);
+		expect(got.people.map((p) => p.id)).toEqual(['id-0', 'id-1', 'id-2']);
+	});
 });

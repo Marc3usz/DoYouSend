@@ -64,9 +64,16 @@ export async function collectMatching(
 	cap = SELECT_ALL_CAP
 ): Promise<{ people: RecipientLookup[]; truncated: boolean }> {
 	const people: RecipientLookup[] = [];
+	// The base may change between pages and shift someone onto the next one: keep each person once.
+	const seen = new Set<string>();
 	for (let page = 1; people.length < cap; page++) {
 		const res = await fetchPage(pickerQuery(filters, page, pageSize));
-		people.push(...res.items);
+		for (const r of res.items) {
+			if (!seen.has(r.id)) {
+				seen.add(r.id);
+				people.push(r);
+			}
+		}
 		if (res.items.length === 0 || people.length >= res.total) {
 			return { people: people.slice(0, cap), truncated: res.total > cap };
 		}
