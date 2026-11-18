@@ -90,6 +90,15 @@ func normalizeEmail(email string) string {
 }
 
 // AuditEntry is one row of audit_log: who did what to which entity.
+// AuditFilter narrows the audit log; zero fields do not filter. From is inclusive and
+// To exclusive.
+type AuditFilter struct {
+	Action string
+	UserID string
+	From   time.Time
+	To     time.Time
+}
+
 type AuditEntry struct {
 	ID        int64
 	UserID    string // empty for actions without a known user (a failed login)
@@ -147,6 +156,6 @@ type Store interface {
 	DeleteUserSessions(ctx context.Context, userID string) error
 
 	AddAudit(ctx context.Context, e AuditEntry) error
-	// ListAudit returns a page of entries, newest first, and the total count.
-	ListAudit(ctx context.Context, limit, offset int) ([]AuditEntry, int, error)
+	// ListAudit returns a page of entries matching f, newest first, and their total count.
+	ListAudit(ctx context.Context, f AuditFilter, limit, offset int) ([]AuditEntry, int, error)
 }

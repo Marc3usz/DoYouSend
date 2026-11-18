@@ -359,8 +359,8 @@ type AuditPage struct {
 	Total int
 }
 
-// ListAudit returns a page of the audit log, newest first.
-func (s *Service) ListAudit(ctx context.Context, limit, offset int) (AuditPage, error) {
+// ListAudit returns a page of the audit log matching f, newest first.
+func (s *Service) ListAudit(ctx context.Context, f AuditFilter, limit, offset int) (AuditPage, error) {
 	var errs []FieldError
 	switch {
 	case limit == 0:
@@ -371,10 +371,13 @@ func (s *Service) ListAudit(ctx context.Context, limit, offset int) (AuditPage, 
 	if offset < 0 {
 		errs = append(errs, FieldError{Field: "offset", Message: "offset must not be negative"})
 	}
+	if !f.From.IsZero() && !f.To.IsZero() && !f.From.Before(f.To) {
+		errs = append(errs, FieldError{Field: "to", Message: "to must not be before from"})
+	}
 	if len(errs) > 0 {
 		return AuditPage{}, &ValidationError{Fields: errs}
 	}
-	items, total, err := s.store.ListAudit(ctx, limit, offset)
+	items, total, err := s.store.ListAudit(ctx, f, limit, offset)
 	if err != nil {
 		return AuditPage{}, fmt.Errorf("list audit log: %w", err)
 	}

@@ -106,7 +106,7 @@ func TestPGStoreAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	items, total, err := s.ListAudit(ctx, 10, 0)
+	items, total, err := s.ListAudit(ctx, AuditFilter{}, 10, 0)
 	if err != nil || total != 3 || len(items) != 3 {
 		t.Fatalf("ListAudit() = %d items, total %d, %v", len(items), total, err)
 	}
@@ -119,7 +119,7 @@ func TestPGStoreAudit(t *testing.T) {
 	if last := items[2]; last.UserID != "" || last.UserName != "" || last.EntityID != "" {
 		t.Errorf("entry without a user = %+v, want empty user fields", last)
 	}
-	if page, _, _ := s.ListAudit(ctx, 1, 2); len(page) != 1 || page[0].Action != ActionLoginFailed {
+	if page, _, _ := s.ListAudit(ctx, AuditFilter{}, 1, 2); len(page) != 1 || page[0].Action != ActionLoginFailed {
 		t.Errorf("ListAudit(1, 2) = %+v", page)
 	}
 }
@@ -148,7 +148,7 @@ func TestServiceWithPGStore(t *testing.T) {
 	if _, err := svc.Authenticate(ctx, session.Token); !errors.Is(err, ErrUnauthenticated) {
 		t.Errorf("Authenticate(after logout) error = %v", err)
 	}
-	page, err := svc.ListAudit(ctx, 0, 0)
+	page, err := svc.ListAudit(ctx, AuditFilter{}, 0, 0)
 	if err != nil || page.Total != 2 || page.Items[0].Action != ActionLogout {
 		t.Errorf("audit = %+v, %v, want login then logout", page, err)
 	}

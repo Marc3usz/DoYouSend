@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -205,9 +206,16 @@ func (s *PGStore) AddAudit(ctx context.Context, e AuditEntry) error {
 
 // ListAudit implements Store. Details written by other domains may hold
 // non-string values; they are shown as their JSON text.
-func (s *PGStore) ListAudit(ctx context.Context, limit, offset int) ([]AuditEntry, int, error) {
+func (s *PGStore) ListAudit(ctx context.Context, f AuditFilter, limit, offset int) ([]AuditEntry, int, error) {
+	// $1..$4 are the filter; an empty or zero value matches everything.
+	const where = `
+		WHERE ($1 = '' OR a.action = $1)
+		  AND ($2 = '' OR a.user_id::text = $2)
+		  AND ($3::timestamptz IS NULL OR a.created_at >= $3)
+		  AND ($4::timestamptz IS NULL OR a.created_at < $4)`
+	args := []any{f.Action, strings.ToLower(f.UserID), nullTime(f.From), nullTime(f.To)}
 	var total int
-	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM audit_log`).Scan(&total); err != nil {
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM audit_log a`+where, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count audit log: %w", err)
 	}
 	rows, err := s.pool.Query(ctx, `
@@ -216,9 +224,9 @@ func (s *PGStore) ListAudit(ctx context.Context, limit, offset int) ([]AuditEntr
 			coalesce((SELECT jsonb_object_agg(k, CASE WHEN jsonb_typeof(v) = 'string' THEN v #>> '{}' ELSE v::text END)
 				FROM jsonb_each(CASE WHEN jsonb_typeof(a.details) = 'object' THEN a.details ELSE '{}' END) AS d(k, v)), '{}'),
 			a.created_at
-		FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+		FROM audit_log a LEFT JOIN users u ON u.id = a.user_id`+where+`
 		ORDER BY a.created_at DESC, a.id DESC
-		LIMIT $1 OFFSET $2`, limit, offset)
+		LIMIT $5 OFFSET $6`, append(args, limit, offset)...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("query audit log: %w", err)
 	}
@@ -231,6 +239,14 @@ func (s *PGStore) ListAudit(ctx context.Context, limit, offset int) ([]AuditEntr
 		return nil, 0, fmt.Errorf("read audit log: %w", err)
 	}
 	return entries, total, nil
+}
+
+// nullTime is nil for the zero time, so a filter bound can be left out.
+func nullTime(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t
 }
 
 var _ Store = (*PGStore)(nil)

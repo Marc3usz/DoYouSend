@@ -133,6 +133,28 @@ const actionTexts: Record<string, string> = {
 	sender_address_removed: 'Usunięcie adresu nadawcy'
 };
 
+/** Every action with a Polish name, for the log's filter, sorted by that name. */
+export const auditActionOptions: { value: string; label: string }[] = Object.entries(actionTexts)
+	.map(([value, label]) => ({ value, label }))
+	.sort((a, b) => a.label.localeCompare(b.label, 'pl'));
+
+/** The log filter read from the page URL (?zdarzenie, ?kto, ?od, ?do); junk is dropped. */
+export function auditFilterOf(params: URLSearchParams): {
+	action: string;
+	userId: string;
+	from: string;
+	to: string;
+} {
+	const date = (v: string | null) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '');
+	const action = params.get('zdarzenie') ?? '';
+	return {
+		action: Object.hasOwn(actionTexts, action) ? action : '',
+		userId: /^[0-9a-f-]{36}$/i.test(params.get('kto') ?? '') ? (params.get('kto') ?? '') : '',
+		from: date(params.get('od')),
+		to: date(params.get('do'))
+	};
+}
+
 /**
  * A Polish name for an audit action. An action this version does not know yet
  * shows as "inne zdarzenie (code)" rather than a bare English code.
