@@ -48,13 +48,22 @@ describe('getBatch', () => {
 });
 
 describe('retryBatch', () => {
-	it('POSTs /batches/{id}/retry and returns 202', async () => {
+	it('POSTs /batches/{id}/retry without a body by default', async () => {
 		const fakeFetch: typeof fetch = async (input, init) => {
 			expect(String(input)).toBe('/api/batches/b1%2F2/retry');
 			expect(init?.method).toBe('POST');
+			expect(init?.body).toBeUndefined();
 			return new Response(JSON.stringify({ id: 'b1/2', status: 'running' }), { status: 202 });
 		};
-		const got = await retryBatch('b1/2', fakeFetch);
+		const got = await retryBatch('b1/2', {}, fakeFetch);
 		expect(got.status).toBe('running');
+	});
+
+	it('asks for uncertain deliveries only when told to', async () => {
+		const fakeFetch: typeof fetch = async (_input, init) => {
+			expect(JSON.parse(String(init?.body))).toEqual({ includeUncertain: true });
+			return new Response(JSON.stringify({ id: 'b1', status: 'running' }), { status: 202 });
+		};
+		await retryBatch('b1', { includeUncertain: true }, fakeFetch);
 	});
 });

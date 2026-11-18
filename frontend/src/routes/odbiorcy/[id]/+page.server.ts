@@ -1,13 +1,18 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { ApiError } from '$lib/api/client';
+import { listGroups } from '$lib/api/groups';
 import { deleteRecipient, getRecipient, updateRecipient } from '$lib/api/recipients';
 import type { Actions, PageServerLoad } from './$types';
 import { readForm, saveFailure, toInput } from '../form';
+import { memberGroups } from '../groups';
 import { errorTexts, failureText, isNotFound } from '../messages';
 
 export const load: PageServerLoad = async ({ params, fetch }) => {
+	// Names of the person's groups; the page still works without them.
+	const groups = listGroups(fetch).catch(() => null);
 	try {
-		return { recipient: await getRecipient(params.id, fetch) };
+		const recipient = await getRecipient(params.id, fetch);
+		return { recipient, groups: memberGroups(recipient, await groups) };
 	} catch (err) {
 		// A malformed ID is answered with 400 invalid_input: for the user it is
 		// the same as a recipient that does not exist.

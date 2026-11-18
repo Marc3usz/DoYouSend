@@ -1,10 +1,13 @@
 <script lang="ts">
 	import type { PageProps } from './$types';
+	import { plural } from '$lib/format/text';
 	import {
 		actionText,
 		actorText,
 		creditsText,
 		dateTimeText,
+		detailsText,
+		entityHref,
 		LOW_EMAIL_CREDITS_THRESHOLD,
 		LOW_POINTS_THRESHOLD,
 		plnText,
@@ -25,12 +28,28 @@
 
 <h1>Panel administratora</h1>
 
+<nav class="months" aria-label="Miesiąc statystyk">
+	<a href="?miesiac={data.month.previous}">← Poprzedni miesiąc</a>
+	<strong>{data.month.label}</strong>
+	{#if data.month.next}
+		<a href="?miesiac={data.month.next}">Następny miesiąc →</a>
+		<a href="/admin">Bieżący</a>
+	{/if}
+</nav>
+
 <div class="grid">
 	<section class="card" aria-labelledby="sms-heading">
 		<h2 id="sms-heading">SMS-y — {data.month.label}</h2>
 		{#if data.usage}
 			<p class="big">{plnText(data.usage.billedCostMilli)}</p>
 			<p class="sub">koszt wysłanych SMS-ów (naliczany przez operatora)</p>
+			{#if (data.usage.simulatedMessages ?? 0) > 0}
+				<p class="sub">
+					W tym {data.usage.simulatedMessages}
+					{plural(data.usage.simulatedMessages ?? 0, 'SMS', 'SMS-y', 'SMS-ów')} w trybie testowym — nic
+					nie wyszło do operatora, więc nie ma kosztu.
+				</p>
+			{/if}
 			<dl>
 				<dt>Wiadomości SMS</dt>
 				<dd>{data.usage.totalMessages}</dd>
@@ -88,7 +107,7 @@
 		<h2 id="email-heading">E-maile — {data.month.label}</h2>
 		{#if data.emailStats}
 			<p class="big">{data.emailStats.totalMessages}</p>
-			<p class="sub">wysłanych wiadomości e-mail w bieżącym miesiącu</p>
+			<p class="sub">wysłanych wiadomości e-mail w tym miesiącu</p>
 			<dl>
 				<dt>Wiadomości e-mail</dt>
 				<dd>{data.emailStats.totalMessages}</dd>
@@ -179,8 +198,9 @@
 				<dd>{data.config.sms.senderName}</dd>
 			</dl>
 			<p class="sub">
-				<a href="/admin/ustawienia">Zmień ustawienia wysyłki →</a> Podłączenie prawdziwej bramki wymaga
-				zgody opiekuna projektu.
+				<a href="/admin/ustawienia">Zmień ustawienia wysyłki →</a><br />
+				<a href="/admin/nadawcy">Nadawcy e-maili →</a><br />
+				Podłączenie prawdziwej bramki wymaga zgody opiekuna projektu.
 			</p>
 		{:else}
 			<p class="error" role="alert">Nie udało się wczytać konfiguracji.</p>
@@ -205,7 +225,7 @@
 		<h2 id="data-heading">Dane odbiorców</h2>
 		<ul class="links">
 			<li><a href="/odbiorcy">Odbiorcy</a> — lista, dodawanie i poprawianie danych</li>
-			<li><a href="/odbiorcy/import">Import z pliku</a> — CSV lub XLSX</li>
+			<li><a href="/odbiorcy/import">Import</a> — z pliku CSV/XLSX albo z Notion</li>
 			<li><a href="/grupy">Grupy</a> — grupy własne i systemowe</li>
 		</ul>
 	</section>
@@ -215,13 +235,22 @@
 	<h2 id="audit-heading">Ostatnie zdarzenia</h2>
 	{#if data.audit && data.audit.items.length > 0}
 		<table>
-			<thead><tr><th>Kiedy</th><th>Kto</th><th>Co</th></tr></thead>
+			<thead>
+				<tr><th scope="col">Kiedy</th><th scope="col">Kto</th><th scope="col">Co</th></tr>
+			</thead>
 			<tbody>
 				{#each data.audit.items as entry (entry.id)}
 					<tr>
 						<td>{dateTimeText(entry.createdAt)}</td>
 						<td>{actorText(entry)}</td>
-						<td>{actionText(entry.action)}</td>
+						<td>
+							{#if entityHref(entry)}
+								<a href={entityHref(entry)}>{actionText(entry.action)}</a>
+							{:else}
+								{actionText(entry.action)}
+							{/if}
+							{#if detailsText(entry)}<br /><small class="sub">{detailsText(entry)}</small>{/if}
+						</td>
 					</tr>
 				{/each}
 			</tbody>
@@ -241,11 +270,15 @@
 		gap: 1rem;
 		margin-bottom: 2rem;
 	}
+	.months {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem 1rem;
+		margin-bottom: 1rem;
+	}
 	.card {
-		border: 1px solid var(--color-border);
-		border-radius: 6px;
-		padding: 1rem 1.25rem;
-		background: var(--color-surface-muted);
+		margin-bottom: 0;
 	}
 	.card h2 {
 		margin-top: 0;

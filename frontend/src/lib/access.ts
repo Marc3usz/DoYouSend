@@ -41,6 +41,7 @@ export function navLinks(user: User | null): NavLink[] {
 		links.push(
 			{ href: '/odbiorcy', label: 'Odbiorcy' },
 			{ href: '/grupy', label: 'Grupy' },
+			{ href: '/admin/nadawcy', label: 'Nadawcy' },
 			{ href: '/admin', label: 'Panel administratora' }
 		);
 	}

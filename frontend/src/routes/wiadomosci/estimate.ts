@@ -2,34 +2,9 @@
 // backend (POST /messages/preview); nothing here counts characters or SMS parts.
 import { ApiError } from '$lib/api/client';
 import type { SendEstimate } from '$lib/api/messages';
+import { plural, recipientsText } from '$lib/format/text';
 
-const MILLI_PER_ZLOTY = 1000;
-
-const pln = new Intl.NumberFormat('pl-PL', {
-	style: 'currency',
-	currency: 'PLN',
-	minimumFractionDigits: 2,
-	maximumFractionDigits: 3,
-	useGrouping: false
-});
-
-/** Formats a cost given in thousandths of a złoty (80 -> "0,08 zł"). */
-export function costText(costMilli: number): string {
-	return pln.format(costMilli / MILLI_PER_ZLOTY);
-}
-
-/** Picks the Polish plural form: 1 SMS, 2 SMS-y, 5 SMS-ów, 22 SMS-y. */
-export function plural(n: number, one: string, few: string, many: string): string {
-	if (n === 1) return one;
-	const lastDigit = n % 10;
-	const lastTwo = n % 100;
-	return lastDigit >= 2 && lastDigit <= 4 && (lastTwo < 12 || lastTwo > 14) ? few : many;
-}
-
-export const smsText = (n: number) => `${n} ${plural(n, 'SMS', 'SMS-y', 'SMS-ów')}`;
-
-export const recipientsText = (n: number) =>
-	`${n} ${plural(n, 'odbiorca', 'odbiorcy', 'odbiorców')}`;
+export { costText, plural, recipientsText, smsText } from '$lib/format/text';
 
 // Verbs agree with the counted noun: 1 odbiorca ma, 2 odbiorcy mają, 5 odbiorców ma.
 const lacks = (n: number) => plural(n, 'nie ma', 'nie mają', 'nie ma');
@@ -42,13 +17,41 @@ export function partsText(min: number, max: number): string {
 
 const placeholderList = (names: string[]) => names.map((n) => `{{${n}}}`).join(', ');
 
-/** Problems the sender should see before confirming, most serious first. */
-export function estimateWarnings(est: SendEstimate): string[] {
+/** Whether some recipient's SMS is longer than the operator's part limit. */
+export function overSMSLimit(est: SendEstimate): boolean {
+	const limit = est.smsPartLimit ?? 0;
+	return limit > 0 && est.smsCount > 0 && est.maxPartsPerRecipient > limit;
+}
+
+/** What an unreachable recipient lacks for the chosen channels. */
+function missingForChannels(channels: readonly ('email' | 'sms')[]): string {
+	if (channels.length === 1) {
+		return channels[0] === 'email' ? 'działającego e-maila' : 'działającego numeru telefonu';
+	}
+	return 'ani e-maila, ani telefonu';
+}
+
+/**
+ * Problems the sender should see before confirming, most serious first.
+ * channels are the ones chosen in the composer (both by default).
+ */
+export function estimateWarnings(
+	est: SendEstimate,
+	channels: readonly ('email' | 'sms')[] = ['email', 'sms']
+): string[] {
 	const warnings: string[] = [];
 	if (est.unknownPlaceholders.length > 0) {
 		const label = est.unknownPlaceholders.length === 1 ? 'Nieznane pole' : 'Nieznane pola';
 		warnings.push(
 			`${label} ${placeholderList(est.unknownPlaceholders)} — dostępne są tylko {{imie}} i {{nazwisko}}. Z takimi polami wiadomość nie zostanie wysłana.`
+		);
+	}
+	if (channels.includes('sms') && overSMSLimit(est)) {
+		const tail = channels.includes('email')
+			? 'Te SMS-y nie zostaną wysłane (e-maile tak) — skróć treść albo zmień limit w ustawieniach.'
+			: 'Nic nie zostanie wysłane — skróć treść albo zmień limit w ustawieniach.';
+		warnings.push(
+			`SMS ma do ${est.maxPartsPerRecipient} części, a limit to ${est.smsPartLimit}. ${tail}`
 		);
 	}
 	const failed = est.renderFailedIds.length;
@@ -60,7 +63,7 @@ export function estimateWarnings(est: SendEstimate): string[] {
 	if (est.unreachableCount > 0) {
 		const n = est.unreachableCount;
 		warnings.push(
-			`${recipientsText(n)} ${lacks(n)} ani e-maila, ani telefonu — nie ${gets(n)} wiadomości.`
+			`${recipientsText(n)} ${lacks(n)} ${missingForChannels(channels)} — nie ${gets(n)} wiadomości.`
 		);
 	}
 	if (est.partialCount > 0) {
@@ -75,7 +78,7 @@ export function estimateWarnings(est: SendEstimate): string[] {
 /** Text for a preview request that failed as a whole. */
 export function previewFailureText(err: unknown): string {
 	if (err instanceof ApiError && err.status === 400) {
-		return 'Serwer odrzucił wybór odbiorców. Odśwież stronę i zaznacz grupy ponownie.';
+		return 'Serwer odrzucił wybór odbiorców. Odśwież stronę i wybierz odbiorców ponownie.';
 	}
 	return 'Nie udało się policzyć podsumowania. Spróbuj ponownie za chwilę.';
 }

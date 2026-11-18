@@ -21,11 +21,17 @@
 			<span>Napisz komunikat, wybierz grupy i sprawdź liczbę SMS-ów oraz koszt.</span>
 		</a>
 	</li>
+	<li>
+		<a href="/historia">
+			<strong>Historia wysyłek</strong>
+			<span>Do kogo wiadomość dotarła, a u kogo był błąd; ponowienie i kopia komunikatu.</span>
+		</a>
+	</li>
 	{#if data.user?.role === 'admin'}
 		<li>
 			<a href="/odbiorcy">
 				<strong>Odbiorcy</strong>
-				<span>Rodzice i uczniowie, ich e-maile i telefony, import z pliku.</span>
+				<span>Rodzice i uczniowie, ich e-maile i telefony, import z pliku albo z Notion.</span>
 				{#if data.counts}
 					<small>
 						W bazie: {data.counts.total}.

@@ -238,8 +238,15 @@ func (sg *SendGrid) buildRequest(msg providers.Message) rest.Request {
 	p := mail.NewPersonalization()
 	p.AddTos(mail.NewEmail("", msg.To))
 
+	// A sender chosen for the batch (ADR-0021) replaces the configured one. Only the
+	// From header changes: the body stays the same as in the SMS.
+	from := sg.fromAddr
+	if !msg.From.IsZero() {
+		from = mail.NewEmail(msg.From.Name, msg.From.Email)
+	}
+
 	m := mail.NewV3Mail().
-		SetFrom(sg.fromAddr).
+		SetFrom(from).
 		AddPersonalizations(p).
 		AddContent(mail.NewContent("text/plain", msg.Body)).
 		SetTrackingSettings(&mail.TrackingSettings{
@@ -248,6 +255,10 @@ func (sg *SendGrid) buildRequest(msg providers.Message) rest.Request {
 		}).
 		SetCustomArg("recipient_id", msg.RecipientID)
 	m.Subject = msg.Subject
+
+	if !msg.ReplyTo.IsZero() {
+		m.SetReplyTo(mail.NewEmail(msg.ReplyTo.Name, msg.ReplyTo.Email))
+	}
 
 	if sg.cfg.Sandbox {
 		m.SetMailSettings(&mail.MailSettings{SandboxMode: mail.NewSetting(true)})

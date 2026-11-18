@@ -27,7 +27,15 @@ export const settingLabels: Record<string, Label> = {
 	},
 	email_from: {
 		label: 'Nadawca e-mail',
-		hint: 'Np. Szkoła Podstawowa nr 1 <sekretariat@szkola.pl>'
+		hint: 'Np. Szkoła Podstawowa nr 1 <sekretariat@example.test>'
+	},
+	email_reply_to: {
+		label: 'Adres do odpowiedzi dla wysyłek ze wspólnego adresu',
+		hint: 'Gdzie trafią odpowiedzi na e-maile wysłane ze wspólnego adresu szkoły. Pusty = na adres nadawcy.'
+	},
+	email_sender_default: {
+		label: 'Domyślny nadawca e-maili',
+		hint: 'own = własny adres wysyłającego, gdy operator go przyjmie (np. po uwierzytelnieniu domeny szkoły); shared = zawsze wspólny adres powyżej.'
 	},
 	smtp_host: { label: 'Serwer SMTP (Mailpit)' },
 	smtp_port: { label: 'Port SMTP' },
@@ -69,6 +77,10 @@ export const settingLabels: Record<string, Label> = {
 	sms_price_per_part_pln: {
 		label: 'Cena części SMS (zł)',
 		hint: 'Z kropką, np. 0.08. Dotyczy nowych wysyłek.'
+	},
+	sms_max_parts: {
+		label: 'Maksymalna liczba części SMS (0 = bez limitu)',
+		hint: 'Dłuższa wiadomość nie zostanie wysłana SMS-em — treść nigdy nie jest skracana.'
 	},
 	smsapi_dlr_token: {
 		label: 'Token raportów doręczeń SMSAPI',
@@ -125,7 +137,10 @@ export function collectChanges(data: FormData, current: Settings): Record<string
 			if (v.trim() !== '') out[item.key] = v.trim();
 			continue;
 		}
-		if (v.trim() !== (item.value ?? '')) out[item.key] = v.trim();
+		if (v.trim() === (item.value ?? '')) continue;
+		// An emptied address cannot be stored as "": drop the panel value instead
+		// (the setting falls back to .env or its default, e.g. no Reply-To).
+		out[item.key] = v.trim() === '' && item.kind === 'address' ? null : v.trim();
 	}
 	return out;
 }
@@ -194,14 +209,38 @@ export function settingsFailureOf(err: unknown): {
 	};
 }
 
+/** A Polish message for a failed test message (POST /admin/settings/test). */
+export function testFailureOf(err: unknown): { status: number; failure: string } {
+	const body = errorBody(err);
+	switch (body?.code) {
+		case 'invalid_input':
+			return {
+				status: 400,
+				failure: 'Podaj poprawny adres e-mail albo numer telefonu, np. +48 500 100 101.'
+			};
+		case 'provider_error':
+			// The provider's text is the only useful detail (e.g. a rejected key).
+			return { status: 502, failure: `Operator odrzucił wiadomość testową: ${body.message}` };
+	}
+	const status = err instanceof ApiError && err.status < 500 ? err.status : 500;
+	return {
+		status,
+		failure: 'Nie udało się wysłać wiadomości testowej. Spróbuj ponownie za chwilę.'
+	};
+}
+
 function fieldText(key: string): string {
 	switch (key) {
 		case 'sms_price_per_part_pln':
 			return 'Podaj cenę z kropką, np. 0.08 (najwyżej 3 miejsca po przecinku).';
 		case 'smtp_port':
 			return 'Podaj numer portu od 1 do 65535.';
+		case 'sms_max_parts':
+			return 'Podaj liczbę całkowitą od 0 do 1000 (0 = bez limitu).';
+		case 'email_reply_to':
+			return 'Podaj adres e-mail, np. sekretariat@example.test, albo zostaw puste.';
 		case 'email_from':
-			return 'Podaj adres, np. Szkoła <sekretariat@szkola.pl>.';
+			return 'Podaj adres, np. Szkoła <sekretariat@example.test>.';
 		case 'notion_database_id':
 		case 'notion_data_source_id':
 			return 'Wklej link skopiowany z Notion albo identyfikator (32 znaki).';

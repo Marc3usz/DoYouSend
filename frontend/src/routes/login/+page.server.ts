@@ -8,7 +8,8 @@ import { loginFailureText } from './messages';
 export const load: PageServerLoad = ({ locals, url }) => {
 	// Already logged in: the login form has nothing to offer.
 	if (locals.user) redirect(303, nextPath(url.searchParams.get('next')));
-	return {};
+	// Set by hooks.server.ts when a session could not be checked.
+	return { backendDown: url.searchParams.get('powod') === 'serwer' };
 };
 
 export const actions: Actions = {

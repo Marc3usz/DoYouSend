@@ -20,6 +20,7 @@ import (
 type Live struct {
 	current atomic.Pointer[liveState]
 	fake    *email.FakeSenders // kept across swaps, so test identities survive them
+	domains *email.FakeDomains // likewise for test domains
 	logger  *slog.Logger
 }
 
@@ -28,6 +29,7 @@ type liveState struct {
 	provs       *Providers
 	verifier    email.SenderVerifier
 	liveSenders bool
+	domains     email.DomainAuthenticator
 }
 
 // Prepared is a configuration whose providers were built successfully but
@@ -42,7 +44,7 @@ func NewLive(cfg Config, logger *slog.Logger) (*Live, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	l := &Live{fake: email.NewFakeSenders(logger), logger: logger}
+	l := &Live{fake: email.NewFakeSenders(logger), domains: email.NewFakeDomains(logger), logger: logger}
 	p, err := l.Prepare(cfg)
 	if err != nil {
 		return nil, err
@@ -62,10 +64,15 @@ func (l *Live) Prepare(cfg Config) (*Prepared, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !liveSenders {
+	var domains email.DomainAuthenticator = l.domains
+	if liveSenders {
+		if domains, err = email.NewSendGridDomains(email.SendGridConfig{APIKey: cfg.SendGridAPIKey, Region: cfg.SendGridRegion}, l.logger); err != nil {
+			return nil, err
+		}
+	} else {
 		verifier = l.fake
 	}
-	return &Prepared{state: &liveState{cfg: cfg, provs: provs, verifier: verifier, liveSenders: liveSenders}}, nil
+	return &Prepared{state: &liveState{cfg: cfg, provs: provs, verifier: verifier, liveSenders: liveSenders, domains: domains}}, nil
 }
 
 // Activate makes p the current configuration. Messages already handed to a
@@ -101,6 +108,23 @@ func (l *Live) EmailProfiler() email.Profiler { return l.state().provs.EmailProf
 func (l *Live) SenderVerifier() (email.SenderVerifier, bool) {
 	s := l.state()
 	return s.verifier, s.liveSenders
+}
+
+// Provider returns the current provider of channel, e.g. for a test message
+// from the settings panel. It honours DRY_RUN like every send.
+func (l *Live) Provider(channel providers.Channel) providers.Provider {
+	if channel == providers.ChannelEmail {
+		return l.state().provs.Email
+	}
+	return l.state().provs.SMS
+}
+
+// DomainAuthenticator returns the current domain-authentication API and
+// whether it is the real one (false: the in-memory fake, under DRY_RUN or
+// without SendGrid, ADR-0021).
+func (l *Live) DomainAuthenticator() (email.DomainAuthenticator, bool) {
+	s := l.state()
+	return s.domains, s.liveSenders
 }
 
 // liveSender is a delivery.Sender that forwards to the current provider of

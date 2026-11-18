@@ -308,23 +308,31 @@ export type RecipientCounts = {
 	noEmail: number;
 	/** People without a working phone number (missing or invalid). */
 	noPhone: number;
+	/** People without a working e-mail and phone at once. */
+	unreachable: number;
 };
 
-/**
- * Counts for the data-quality panel. There is no stats endpoint, so this asks
- * GET /recipients for one row five times and reads only `total`.
- */
+/** The RecipientStats schema of GET /recipients/stats. */
+type RecipientStats = {
+	total: number;
+	parents: number;
+	students: number;
+	withoutEmail: number;
+	withoutPhone: number;
+	unreachable: number;
+};
+
+/** Counts for the data-quality panel: GET /recipients/stats, one exact query. */
 export async function getRecipientCounts(
 	fetch?: typeof globalThis.fetch
 ): Promise<RecipientCounts> {
-	const total = (query: RecipientListQuery) =>
-		listRecipients({ ...query, limit: 1 }, fetch).then((p) => p.total);
-	const [all, parents, students, noEmail, noPhone] = await Promise.all([
-		total({}),
-		total({ type: 'parent' }),
-		total({ type: 'student' }),
-		total({ issue: 'email' }),
-		total({ issue: 'sms' })
-	]);
-	return { total: all, parents, students, noEmail, noPhone };
+	const s = await api<RecipientStats>('/recipients/stats', { fetch });
+	return {
+		total: s.total,
+		parents: s.parents,
+		students: s.students,
+		noEmail: s.withoutEmail,
+		noPhone: s.withoutPhone,
+		unreachable: s.unreachable
+	};
 }

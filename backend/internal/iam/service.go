@@ -306,6 +306,53 @@ func (s *Service) ResetPassword(ctx context.Context, actor User, id, password st
 	return nil
 }
 
+// ChangeOwnPassword lets a signed-in user replace their password. The current
+// password is checked like a login (wrong attempts count towards the same
+// throttle), every session of the user ends, and a fresh one is returned so
+// the user stays signed in where they made the change.
+func (s *Service) ChangeOwnPassword(ctx context.Context, actor User, current, next string) (Session, error) {
+	email := normalizeEmail(actor.Email)
+	if s.throttled(email) {
+		return Session{}, ErrTooManyAttempts
+	}
+	user, hash, err := s.store.UserByEmail(ctx, email)
+	if err != nil {
+		return Session{}, fmt.Errorf("look up user: %w", err)
+	}
+	ok, err := VerifyPassword(current, hash)
+	if err != nil && !errors.Is(err, errMalformedHash) {
+		return Session{}, fmt.Errorf("verify password: %w", err)
+	}
+	if !ok || user.ID != actor.ID {
+		_ = s.failLogin(ctx, email, actor.ID)
+		return Session{}, ErrWrongPassword
+	}
+	if err := CheckPasswordPolicy(next); err != nil {
+		return Session{}, &ValidationError{Fields: []FieldError{{Field: "newPassword", Message: err.Error()}}}
+	}
+	newHash, err := s.hash(next)
+	if err != nil {
+		return Session{}, err
+	}
+	if err := s.store.SetPassword(ctx, user.ID, newHash); err != nil {
+		return Session{}, fmt.Errorf("set password: %w", err)
+	}
+	if err := s.store.DeleteUserSessions(ctx, user.ID); err != nil {
+		return Session{}, fmt.Errorf("end sessions: %w", err)
+	}
+	token, tokenHash, err := newToken()
+	if err != nil {
+		return Session{}, err
+	}
+	expires := s.now().Add(SessionTTL)
+	if err := s.store.CreateSession(ctx, tokenHash, user.ID, expires); err != nil {
+		return Session{}, fmt.Errorf("create session: %w", err)
+	}
+	s.clearFailures(email)
+	s.audit(ctx, user.ID, ActionPasswordChange, "user", user.ID, nil)
+	return Session{User: user, Token: token, ExpiresAt: expires}, nil
+}
+
 // AuditPage is one page of the audit log.
 type AuditPage struct {
 	Items []AuditEntry

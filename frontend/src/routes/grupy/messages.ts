@@ -3,11 +3,11 @@
 import { ApiError } from '$lib/api/client';
 import { errorBody } from '$lib/api/errors';
 import type { Group } from '$lib/api/groups';
-import { errorTexts as recipientErrorTexts } from '../odbiorcy/messages';
+import { commonErrorTexts } from '$lib/format/recipients';
+import { peopleText } from '$lib/format/text';
 
 export const errorTexts = {
-	unavailable: recipientErrorTexts.unavailable,
-	unexpected: recipientErrorTexts.unexpected,
+	...commonErrorTexts,
 	notFound: 'Nie ma takiej grupy — mogła zostać usunięta.',
 	systemGroup:
 		'Grupy systemowej nie można zmienić: jej skład wynika z typu odbiorcy (rodzic albo uczeń).',
@@ -21,13 +21,7 @@ export function kindLabel(kind: Group['kind']): string {
 }
 
 /** "3 osoby", "1 osoba", "5 osób". */
-export function peopleCount(n: number): string {
-	const lastTwo = n % 100;
-	const last = n % 10;
-	if (n === 1) return '1 osoba';
-	if (last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14)) return `${n} osoby`;
-	return `${n} osób`;
-}
+export const peopleCount = peopleText;
 
 /** The text for a failed group request; see odbiorcy/messages.ts failureText. */
 export function failureText(err: unknown): string {

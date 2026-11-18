@@ -1,4 +1,4 @@
-// Batch endpoints of the delivery domain (domain B, MichalK252), see docs/api/openapi.yaml.
+// Batch endpoints of the delivery domain (domain B), see docs/api/openapi.yaml.
 import { api } from './client';
 import type { RecipientSelection } from './groups';
 import type { Channel } from './recipients';
@@ -14,9 +14,14 @@ export type BatchRequest = {
 	/** One body for both channels, sent byte for byte: never trim or reformat it. */
 	body: string;
 	/** Target channels: ['email', 'sms'] (default), ['email'], or ['sms']. */
-	channels?: ('email' | 'sms')[];
+	channels?: Channel[];
+	/** An id from GET /me/senders; omitted means that list's defaultId. */
+	senderId?: string;
 	selection: RecipientSelection;
 };
+
+/** The e-mail From a batch actually used. */
+export type BatchFrom = { email: string; name: string };
 
 export type BatchSummary = {
 	id: string;
@@ -32,6 +37,13 @@ export type BatchSummary = {
 	totalSmsParts: number;
 	/** Thousandths of a złoty: 1000 = 1 zł. */
 	costMilli: number;
+	/** Channels the batch was sent on; absent on older responses (= both). */
+	channels?: Channel[];
+	/** How many times "retry failed" was run. */
+	retryCount?: number;
+	lastRetryAt?: string | null;
+	/** null for batches recorded before the sender was stored. */
+	from?: BatchFrom | null;
 };
 
 export type BatchPage = { items: BatchSummary[]; total: number };
@@ -40,6 +52,7 @@ export type Delivery = {
 	channel: Channel;
 	status: DeliveryStatus;
 	parts: number;
+	/** Cumulative across retries. */
 	attempts: number;
 	error: string | null;
 	updatedAt?: string;
@@ -61,12 +74,16 @@ export type BatchDetail = BatchSummary & {
 	recipientIds: string[];
 	excludedRecipientIds?: string[];
 	recipients: BatchRecipient[];
+	/** Failed deliveries a plain retry re-sends. */
+	retryableCount?: number;
+	/** Failed deliveries whose outcome is unknown: the gateway may have delivered them. */
+	uncertainCount?: number;
 };
 
 /**
- * POST /batches: the sender's final confirmation. idempotencyKey is a new UUID
- * for every opening of the confirmation step, so a double click or a retried
- * request returns the same batch instead of sending twice.
+ * POST /batches: the sender's final confirmation. The same idempotencyKey for
+ * the same draft makes a double click or a retried request return the same
+ * batch instead of sending twice.
  */
 export function sendBatch(
 	request: BatchRequest,
@@ -101,10 +118,19 @@ export function getBatch(id: string, fetch?: typeof globalThis.fetch): Promise<B
 	return api<BatchDetail>(`/batches/${encodeURIComponent(id)}`, { fetch });
 }
 
-/** POST /batches/{id}/retry: re-sends only failed deliveries of a batch. */
-export function retryBatch(id: string, fetch?: typeof globalThis.fetch): Promise<BatchDetail> {
+/**
+ * POST /batches/{id}/retry: re-sends failed deliveries. includeUncertain also
+ * re-sends those the gateway may have delivered, so some people may get the
+ * message twice.
+ */
+export function retryBatch(
+	id: string,
+	options: { includeUncertain?: boolean } = {},
+	fetch?: typeof globalThis.fetch
+): Promise<BatchDetail> {
 	return api<BatchDetail>(`/batches/${encodeURIComponent(id)}/retry`, {
 		method: 'POST',
+		body: options.includeUncertain ? { includeUncertain: true } : undefined,
 		fetch
 	});
 }

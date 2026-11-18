@@ -21,6 +21,20 @@ const batch = {
 	]
 };
 
+const senders = {
+	defaultId: 'shared',
+	items: [
+		{
+			id: 'shared',
+			email: 'szkola@example.test',
+			name: 'Szkoła',
+			kind: 'shared',
+			usable: true,
+			reason: null
+		}
+	]
+};
+
 function fakeEvent(urlStr: string, answers: Record<string, Response>): LoadEvent {
 	const url = new URL(urlStr);
 	const fetch: typeof globalThis.fetch = async (input) => {
@@ -32,85 +46,97 @@ function fakeEvent(urlStr: string, answers: Record<string, Response>): LoadEvent
 	return { url, fetch } as unknown as LoadEvent;
 }
 
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+
 describe('wiadomosci load', () => {
 	it('loads groups with no initial draft when kopia is omitted', async () => {
-		const ev = fakeEvent('http://localhost/wiadomosci', {
-			'/api/groups': new Response(JSON.stringify(groups), { status: 200 })
-		});
+		const ev = fakeEvent('http://localhost/wiadomosci', { '/api/groups': json(groups) });
 		const got = await load(ev);
 		expect(got).toEqual({
 			groups,
 			groupsFailed: false,
 			initialDraft: null,
 			copiedBatchSubject: null,
-			people: null
+			copyFailed: false,
+			people: null,
+			senders: null
 		});
+	});
+
+	it('loads the sender options', async () => {
+		const ev = fakeEvent('http://localhost/wiadomosci', {
+			'/api/groups': json(groups),
+			'/api/me/senders': json(senders)
+		});
+		const got = await load(ev);
+		expect(got?.senders).toEqual(senders);
 	});
 
 	it('prefills draft from batch when kopia is provided and batch exists', async () => {
 		const ev = fakeEvent('http://localhost/wiadomosci?kopia=00000000-0000-4000-8000-000000000001', {
-			'/api/groups': new Response(JSON.stringify(groups), { status: 200 }),
-			'/api/batches/00000000-0000-4000-8000-000000000001': new Response(JSON.stringify(batch), {
-				status: 200
-			})
+			'/api/groups': json(groups),
+			'/api/batches/00000000-0000-4000-8000-000000000001': json(batch)
 		});
 		const got = await load(ev);
-		expect(got).toEqual({
-			groups,
-			groupsFailed: false,
-			people: null,
-			copiedBatchSubject: 'Zebranie rodziców',
-			initialDraft: {
-				subject: 'Zebranie rodziców',
-				body: 'Wiadomość testowa dla {{imie}}',
-				groupIds: ['g1'],
-				excludedRecipientIds: [],
-				recipients: [
+		expect(got?.copiedBatchSubject).toBe('Zebranie rodziców');
+		expect(got?.copyFailed).toBe(false);
+		expect(got?.initialDraft).toEqual({
+			subject: 'Zebranie rodziców',
+			body: 'Wiadomość testowa dla {{imie}}',
+			channelMode: 'both',
+			groupIds: ['g1'],
+			excludedRecipientIds: [],
+			excludedPeople: [],
+			recipients: [
+				{ id: '00000000-0000-4000-8000-000000000002', firstName: 'Jan', lastName: 'Kowalski' }
+			]
+		});
+	});
+
+	it('restores the channel choice of an SMS-only batch', async () => {
+		const ev = fakeEvent('http://localhost/wiadomosci?kopia=b2', {
+			'/api/groups': json(groups),
+			'/api/batches/b2': json({ ...batch, id: 'b2', subject: '', channels: ['sms'] })
+		});
+		const got = await load(ev);
+		expect(got?.initialDraft?.channelMode).toBe('sms');
+	});
+
+	it('names the excluded recipients of the copied batch', async () => {
+		const excludedId = '00000000-0000-4000-8000-000000000099';
+		const ev = fakeEvent('http://localhost/wiadomosci?kopia=00000000-0000-4000-8000-000000000001', {
+			'/api/groups': json(groups),
+			'/api/batches/00000000-0000-4000-8000-000000000001': json({
+				...batch,
+				excludedRecipientIds: [excludedId]
+			}),
+			'/api/recipients/lookup?limit=200&offset=0': json({
+				items: [
 					{
-						id: '00000000-0000-4000-8000-000000000002',
-						firstName: 'Jan',
-						lastName: 'Kowalski',
+						id: excludedId,
+						firstName: 'Anna',
+						lastName: 'Nowak',
 						type: 'parent',
 						classes: [],
 						issues: []
 					}
-				]
-			}
-		});
-	});
-
-	it('prefills excluded recipients from batch when kopia is provided', async () => {
-		const batchWithExclusions = {
-			...batch,
-			excludedRecipientIds: ['00000000-0000-4000-8000-000000000099']
-		};
-		const ev = fakeEvent('http://localhost/wiadomosci?kopia=00000000-0000-4000-8000-000000000001', {
-			'/api/groups': new Response(JSON.stringify(groups), { status: 200 }),
-			'/api/batches/00000000-0000-4000-8000-000000000001': new Response(
-				JSON.stringify(batchWithExclusions),
-				{ status: 200 }
-			)
+				],
+				total: 1
+			})
 		});
 		const got = await load(ev);
-		if (!got) throw new Error('expected load output');
-		expect(got.initialDraft?.excludedRecipientIds).toEqual([
-			'00000000-0000-4000-8000-000000000099'
-		]);
+		expect(got?.initialDraft?.excludedRecipientIds).toEqual([excludedId]);
+		expect(got?.initialDraft?.excludedPeople).toEqual([{ id: excludedId, name: 'Nowak Anna' }]);
 	});
 
-	it('gracefully handles missing kopia batch and leaves draft null', async () => {
+	it('says so when the batch to copy cannot be loaded', async () => {
 		const ev = fakeEvent('http://localhost/wiadomosci?kopia=non-existent', {
-			'/api/groups': new Response(JSON.stringify(groups), { status: 200 }),
+			'/api/groups': json(groups),
 			'/api/batches/non-existent': new Response(null, { status: 404 })
 		});
 		const got = await load(ev);
-		expect(got).toEqual({
-			groups,
-			groupsFailed: false,
-			initialDraft: null,
-			copiedBatchSubject: null,
-			people: null
-		});
+		expect(got?.initialDraft).toBeNull();
+		expect(got?.copyFailed).toBe(true);
 	});
 
 	it('loads the first page of the recipient picker', async () => {
@@ -128,8 +154,8 @@ describe('wiadomosci load', () => {
 			total: 1
 		};
 		const ev = fakeEvent('http://localhost/wiadomosci', {
-			'/api/groups': new Response(JSON.stringify(groups), { status: 200 }),
-			'/api/recipients/lookup?limit=10': new Response(JSON.stringify(people), { status: 200 })
+			'/api/groups': json(groups),
+			'/api/recipients/lookup?limit=10': json(people)
 		});
 		const got = await load(ev);
 		expect(got?.people).toEqual(people);

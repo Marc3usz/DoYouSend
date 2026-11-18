@@ -15,10 +15,12 @@
 //   - resolve.go   - Resolver: selection -> deduplicated list with contact problems flagged,
 //   - service.go   - Service: custom group CRUD and membership,
 //   - store.go     - storage interfaces this package consumes,
-//   - memstore.go  - in-memory Store until the Postgres one lands.
+//   - pgstore.go   - the Postgres Store used by the API,
+//   - memstore.go  - in-memory Store for unit tests.
 //
-// Class-based built-in groups (parents/students of class 3A) are not implemented yet: the
-// schema has no class and no parent-student link. See docs/adr/0007-ksztalt-resolve.md.
+// Class groups (students of class 3A, parents of students of class 3A) are built-in groups
+// computed from recipients' class assignments; their IDs are stable UUIDv5 values. See
+// docs/adr/0009-grupy-klasowe.md and docs/adr/0007-ksztalt-resolve.md.
 //
-// Owner: DEV A.
+// Owner: domain A (docs/podzial-pracy.md).
 package groups

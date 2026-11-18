@@ -13,14 +13,10 @@ services:
       timeout: 3s
       retries: 10
 
-  redis:
-    image: redis:7-alpine
-    ports: ["6379:6379"]
-
   # Atrapa serwera SMTP: przechwytuje wszystkie e-maile, nic nie wychodzi na zewnatrz.
   # UI: http://localhost:8025
   mailpit:
-    image: axllent/mailpit:latest
+    image: axllent/mailpit:v1.33.1
     ports: ["1025:1025", "8025:8025"]
 
 volumes:

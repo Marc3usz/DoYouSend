@@ -15,7 +15,7 @@ import (
 	"github.com/Marc3usz/DoYouSend/backend/internal/integrations/notion"
 )
 
-const testDatabaseID = "1429989f-e8ac-4eff-bc8f-57f56486db54"
+const testDatabaseID = "0d0a1b2c-3d4e-4f50-8a6b-7c8d9e0f1a2b"
 
 // notionPage renders one Notion page with rich-text properties.
 func notionPage(id string, props map[string]string) string {
@@ -47,7 +47,7 @@ func fakeNotion(t *testing.T, dbStatus int, dbBody string, pages ...string) []no
 	return []notion.Option{notion.WithBaseURL(srv.URL), notion.WithHTTPClient(srv.Client())}
 }
 
-const oneSource = `{"data_sources":[{"id":"ds-1","name":"Leady"}]}`
+const oneSource = `{"data_sources":[{"id":"ds-1","name":"Odbiorcy"}]}`
 
 func serveNotion(t *testing.T, h NotionImport) *httptest.ResponseRecorder {
 	t.Helper()
@@ -60,7 +60,7 @@ func serveNotion(t *testing.T, h NotionImport) *httptest.ResponseRecorder {
 }
 
 func configured() NotionConfig {
-	return NotionConfig{Token: "ntn_test", DatabaseID: "https://www.notion.so/Leady-1429989fe8ac4effbc8f57f56486db54"}
+	return NotionConfig{Token: "ntn_test", DatabaseID: "https://www.notion.so/Odbiorcy-0d0a1b2c3d4e4f508a6b7c8d9e0f1a2b"}
 }
 
 func TestNotionImportReport(t *testing.T) {

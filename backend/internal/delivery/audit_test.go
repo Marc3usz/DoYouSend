@@ -82,7 +82,7 @@ func TestServiceAuditsBatchRetry(t *testing.T) {
 	}
 
 	sender.errs = nil // on retry it will succeed
-	retried, err := svc.RetryBatch(ctx, b.ID)
+	retried, err := svc.RetryBatch(ctx, b.ID, false)
 	if err != nil {
 		t.Fatalf("RetryBatch() error = %v", err)
 	}

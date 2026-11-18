@@ -8,8 +8,13 @@
 	let { data, children }: LayoutProps = $props();
 
 	const links = $derived(navLinks(data.user));
-	const isCurrent = (href: string) =>
+	const matches = (href: string) =>
 		page.url.pathname === href || page.url.pathname.startsWith(`${href}/`);
+	// Only the most specific link is current: /admin/nadawcy, not also /admin.
+	const currentHref = $derived(
+		[...links.map((l) => l.href), '/konto'].filter(matches).sort((a, b) => b.length - a.length)[0]
+	);
+	const isCurrent = (href: string) => href === currentHref;
 </script>
 
 <header>
@@ -24,10 +29,16 @@
 			{/each}
 		</nav>
 		<div class="account">
-			<span>
+			<a
+				class="me"
+				href="/konto"
+				aria-current={isCurrent('/konto') ? 'page' : undefined}
+				title="Moje konto: hasło i adresy nadawcy"
+			>
 				{data.user.fullName}
 				<small>({roleLabels[data.user.role]})</small>
-			</span>
+				<span class="visually-hidden">— Moje konto</span>
+			</a>
 			<ThemeToggle />
 			<form method="POST" action="/logout">
 				<button type="submit">Wyloguj</button>
@@ -114,6 +125,23 @@
 	}
 	.account small {
 		color: var(--color-text-muted);
+	}
+	/* Keep the admin header on one line on common laptop widths. */
+	@media (max-width: 90rem) {
+		.account small {
+			display: none;
+		}
+	}
+	.me {
+		color: var(--color-text);
+		text-decoration: none;
+		padding: 0.3rem 0.6rem;
+		border-radius: var(--radius);
+	}
+	.me:hover,
+	.me[aria-current='page'] {
+		background: var(--color-primary-soft);
+		color: var(--color-primary);
 	}
 	main {
 		max-width: var(--content-width);

@@ -83,6 +83,15 @@ export function sortIndicator(p: ListParams, col: RecipientSortField): string {
 	return p.order === 'desc' ? '▼' : '▲';
 }
 
+/** aria-sort of a column header: what a screen reader says instead of the arrow. */
+export function ariaSort(
+	p: ListParams,
+	col: RecipientSortField
+): 'ascending' | 'descending' | 'none' {
+	if (p.sort !== col) return 'none';
+	return p.order === 'desc' ? 'descending' : 'ascending';
+}
+
 export function pageCount(total: number): number {
 	return Math.max(1, Math.ceil(total / PAGE_SIZE));
 }

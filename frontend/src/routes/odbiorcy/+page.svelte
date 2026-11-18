@@ -4,7 +4,7 @@
 	import { navigating, page as pageState } from '$app/state';
 	import type { PageProps } from './$types';
 	import HealthPanel from './HealthPanel.svelte';
-	import { listHref, pageCount, parseListParams, sortHref, sortIndicator } from './list';
+	import { listHref, pageCount, parseListParams, ariaSort, sortHref, sortIndicator } from './list';
 	import { issueHint, issueText, recipientTypeLabel } from './messages';
 
 	let { data }: PageProps = $props();
@@ -155,32 +155,42 @@
 		<table>
 			<thead>
 				<tr>
-					<th>
+					<th scope="col" aria-sort={ariaSort(data.params, 'name')}>
 						<a class="th-sort" href={sortHref(data.params, 'name')}>
-							Nazwisko i imię <span class="sort-icon">{sortIndicator(data.params, 'name')}</span>
+							Nazwisko i imię <span class="sort-icon" aria-hidden="true"
+								>{sortIndicator(data.params, 'name')}</span
+							>
 						</a>
 					</th>
-					<th>
+					<th scope="col" aria-sort={ariaSort(data.params, 'type')}>
 						<a class="th-sort" href={sortHref(data.params, 'type')}>
-							Typ <span class="sort-icon">{sortIndicator(data.params, 'type')}</span>
+							Typ <span class="sort-icon" aria-hidden="true"
+								>{sortIndicator(data.params, 'type')}</span
+							>
 						</a>
 					</th>
-					<th>
+					<th scope="col" aria-sort={ariaSort(data.params, 'class')}>
 						<a class="th-sort" href={sortHref(data.params, 'class')}>
-							Klasa <span class="sort-icon">{sortIndicator(data.params, 'class')}</span>
+							Klasa <span class="sort-icon" aria-hidden="true"
+								>{sortIndicator(data.params, 'class')}</span
+							>
 						</a>
 					</th>
-					<th>
+					<th scope="col" aria-sort={ariaSort(data.params, 'email')}>
 						<a class="th-sort" href={sortHref(data.params, 'email')}>
-							E-mail <span class="sort-icon">{sortIndicator(data.params, 'email')}</span>
+							E-mail <span class="sort-icon" aria-hidden="true"
+								>{sortIndicator(data.params, 'email')}</span
+							>
 						</a>
 					</th>
-					<th>
+					<th scope="col" aria-sort={ariaSort(data.params, 'phone')}>
 						<a class="th-sort" href={sortHref(data.params, 'phone')}>
-							Telefon <span class="sort-icon">{sortIndicator(data.params, 'phone')}</span>
+							Telefon <span class="sort-icon" aria-hidden="true"
+								>{sortIndicator(data.params, 'phone')}</span
+							>
 						</a>
 					</th>
-					<th>Uwagi</th>
+					<th scope="col">Uwagi</th>
 				</tr>
 			</thead>
 			<tbody>

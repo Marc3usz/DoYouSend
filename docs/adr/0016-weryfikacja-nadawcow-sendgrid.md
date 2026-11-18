@@ -1,6 +1,8 @@
 # ADR-0016: Weryfikacja nadawców e-mail (SendGrid Single Sender) zakładana przez administratora
 
-- **Status:** propozycja
+- **Status:** przyjęta (2026-11-13) — decyzje 1–6 wdrożone w #87 (kontrakt) i #90
+  (implementacja). Punkt otwarty rozstrzygnięty w ADR-0021. MichalK252 odszedł z projektu przed
+  decyzją w sprawie wysyłki; rozstrzygnął Marc3usz jako właściciel wszystkich domen (ADR-0020).
 - **Data:** 2026-11-03
 - **Uczestnicy:** Marc3usz (domeny A i D: `iam`, panel administratora) proponuje,
   MichalK252 (domeny B i C: `delivery`, `providers`) decyduje o punktach dotyczących wysyłki
@@ -36,8 +38,9 @@
    (`GET /api/admin/senders`). Wszystko w `/api/users` i `/api/admin`, więc tylko dla administratora.
 2. **Stan w bazie, bez sekretów:** tabela `user_sender_identities` (migracja 0009) trzyma
    operatora, id tożsamości u operatora, adres, status `pending|verified|missing` i czasy
-   sprawdzeń. Klucz API zostaje w `.env` (ADR-0015 bez zmian: panel nie zmienia konfiguracji
-   operatora, tylko zakłada tożsamości na skonfigurowanym koncie).
+   sprawdzeń. Klucz API nie trafia do tej tabeli. *Zmiana (ADR-0018):* klucz API SendGrid
+   i konfigurację operatora ustawia się teraz w panelu (zaszyfrowane w `app_settings`), a `.env`
+   jest tylko wartością zapasową; tożsamości nadal zakłada się na skonfigurowanym koncie.
 3. **DRY_RUN obowiązuje także tu.** Przy `DRY_RUN=true` albo `EMAIL_PROVIDER` innym niż
    `sendgrid` działa atrapa w pamięci (`email.FakeSenders`, provider `fake`). Nic nie jest
    wysyłane, a pierwsze sprawdzenie statusu zwraca `verified`. Panel dostaje `live: false`
@@ -51,7 +54,17 @@
 6. **Audyt:** `sender_verification_requested`, `sender_verification_resent` i
    `sender_identity_removed` (encja `user`).
 
-## Otwarte (do decyzji MichalK252, domeny B i C)
+## Punkt otwarty — rozstrzygnięty w ADR-0021
+
+Rozstrzygnięcie (2026-11-13, ADR-0021): adres nadawcy (`From`) e-maila wybiera się przy każdym
+wsadzie spośród adresów, których autor może używać — wspólny `EMAIL_FROM`, własny adres autora
+(gdy jest zweryfikowany albo należy do uwierzytelnionej domeny) albo adresy, które przydzielił
+mu administrator. Uwierzytelnianie domeny szkoły w SendGrid (Domain Authentication) jest
+zarządzane z panelu, więc dowolny adres w takiej domenie może wysyłać bez weryfikacji
+pojedynczego nadawcy. Treść e-maila i SMS-a zostaje bajt w bajt identyczna (zasada 4);
+nadawca SMS pozostaje wspólny (`SMS_SENDER_NAME`).
+
+Pierwotny opis punktu (do decyzji MichalK252, domeny B i C):
 
 - **Czy wysyłka ma używać tożsamości autora wsadu?** Ten ADR tylko zakłada i śledzi
   tożsamości. Wysyłka dalej idzie z `EMAIL_FROM`. Propozycja: `providers.Message` dostaje
@@ -81,5 +94,8 @@
 - Włączenie prawdziwego SendGrid (`DRY_RUN=false`, `EMAIL_PROVIDER=sendgrid`) sprawi, że
   przycisk w panelu wyśle prawdziwy e-mail do pracownika. To nadal wymaga zgody opiekuna
   (CLAUDE.md, zasada 3).
-- Dopóki punkt otwarty nie zostanie rozstrzygnięty, zweryfikowana tożsamość niczego nie
-  zmienia w wysyłce.
+- Zweryfikowana tożsamość staje się jednym z adresów, które autor może wybrać jako nadawcę
+  wsadu (ADR-0021). Bez niej wysyłka idzie z `EMAIL_FROM` albo z adresu przydzielonego przez
+  administratora.
+- Dla adresów w domenie szkoły zalecane jest uwierzytelnienie domeny w SendGrid zamiast
+  weryfikowania każdej osoby osobno (ADR-0021).

@@ -2,7 +2,9 @@
 // backend (GET /batches, GET /batches/{id}).
 import type { Channel } from '$lib/api/recipients';
 import type { BatchRecipient, BatchStatus, Delivery, DeliveryStatus } from '$lib/api/batches';
-import { plural } from '../wiadomosci/estimate';
+import { plural } from '$lib/format/text';
+
+export { dateTimeText } from '$lib/format/text';
 
 export const batchStatusLabels: Record<BatchStatus, string> = {
 	draft: 'Szkic',
@@ -33,16 +35,6 @@ export function isBatchStatus(value: string | null): value is BatchStatus {
 	return value !== null && Object.hasOwn(batchStatusLabels, value);
 }
 
-const dateTime = new Intl.DateTimeFormat('pl-PL', {
-	dateStyle: 'medium',
-	timeStyle: 'short',
-	timeZone: 'Europe/Warsaw'
-});
-
-export function dateTimeText(iso: string | null): string {
-	return iso ? dateTime.format(new Date(iso)) : '—';
-}
-
 /** The delivery of one channel, or undefined when the batch did not use it for the person. */
 export function deliveryOf(r: BatchRecipient, channel: Channel): Delivery | undefined {
 	return r.deliveries.find((d) => d.channel === channel);
@@ -51,9 +43,13 @@ export function deliveryOf(r: BatchRecipient, channel: Channel): Delivery | unde
 /** Formats retry attempts count in Polish (e.g. "2 próby", "5 prób"). */
 export const attemptsText = (n: number) => `${n} ${plural(n, 'próba', 'próby', 'prób')}`;
 
-/** One table cell: the status, the SMS parts, retry attempts and the classified reason of a failure. */
-export function deliveryText(d: Delivery | undefined): string {
-	if (!d) return 'brak kanału';
+/**
+ * One table cell: the status, the SMS parts, retry attempts and the classified
+ * reason of a failure. Without a delivery, `used` tells a channel the batch
+ * skipped on purpose ("nie dotyczy") from a person missing that contact.
+ */
+export function deliveryText(d: Delivery | undefined, used = true): string {
+	if (!d) return used ? 'brak kontaktu' : 'nie dotyczy';
 	const label = deliveryStatusLabels[d.status];
 	const details: string[] = [];
 	if (d.channel === 'sms' && d.parts > 1) {
@@ -63,13 +59,54 @@ export function deliveryText(d: Delivery | undefined): string {
 		details.push(attemptsText(d.attempts));
 	}
 	const meta = details.length > 0 ? ` (${details.join(', ')})` : '';
-	const reason = d.status === 'failed' && d.error ? `: ${d.error}` : '';
+	const reason = d.status === 'failed' && d.error ? `: ${failureReasonText(d.error)}` : '';
 	return `${label}${meta}${reason}`;
+}
+
+/**
+ * The Polish text of a stored failure reason. The backend stores short English
+ * reasons (delivery.describe, delivery reports); the known ones read as Polish,
+ * anything else is shown as the operator's own words.
+ */
+export function failureReasonText(reason: string): string {
+	const r = reason.toLowerCase();
+	const known: [boolean, string][] = [
+		[r.startsWith('render body'), 'brak danych do pola w treści (np. imienia)'],
+		[r.startsWith('sms over the part limit'), 'SMS dłuższy niż limit części z ustawień'],
+		[r.includes('interrupted while sending'), 'wysyłkę przerwał restart serwera — wynik nieznany'],
+		[
+			r.includes('report expired') || r.includes('no delivery report'),
+			'operator nie ma raportu doręczenia — wynik nieznany'
+		],
+		[r.startsWith('unclassified'), 'nieznany wynik — wiadomość mogła dotrzeć'],
+		[r.includes('invalid recipient'), 'nieprawidłowy adres lub numer'],
+		[r.includes('rate limit'), 'operator chwilowo ograniczył wysyłkę'],
+		[r.includes('no sender configured'), 'brak skonfigurowanego operatora'],
+		[
+			r.includes('timeout') || r.includes('timed out') || r.includes('deadline'),
+			'operator nie odpowiedział na czas'
+		],
+		[r.includes('unavailable'), 'operator był niedostępny'],
+		[r.startsWith('transient'), 'chwilowy błąd operatora'],
+		[r.startsWith('permanent'), 'operator odrzucił wiadomość'],
+		[r === 'delivery failed', 'nie doręczono']
+	];
+	const hit = known.find(([match]) => match);
+	return hit ? hit[1] : `operator: ${reason}`;
 }
 
 /** Whether a history page should keep refreshing: something is still being sent. */
 export function stillSending(status: BatchStatus): boolean {
 	return status === 'running';
+}
+
+/** "1 raz", "2 razy", "5 razy": how many times a batch was retried. */
+export const timesText = (n: number) => `${n} ${n === 1 ? 'raz' : 'razy'}`;
+
+/** The e-mail From as shown in history: "Name <address>", or a dash for old batches. */
+export function fromText(from: { email: string; name: string } | null | undefined): string {
+	if (!from) return '—';
+	return from.name ? `${from.name} <${from.email}>` : from.email;
 }
 
 /** Page number from ?strona=, 1 for anything that is not a positive integer. */

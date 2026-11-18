@@ -43,9 +43,11 @@ var (
 	ErrNotFound           = errors.New("user not found")
 	ErrInvalidCredentials = errors.New("invalid e-mail or password")
 	ErrTooManyAttempts    = errors.New("too many failed login attempts")
-	ErrUnauthenticated    = errors.New("not logged in")
-	ErrForbidden          = errors.New("not allowed for this role")
-	ErrEmailTaken         = errors.New("e-mail is already used by another user")
+	// ErrWrongPassword: the current password given to change it is wrong.
+	ErrWrongPassword   = errors.New("the current password is wrong")
+	ErrUnauthenticated = errors.New("not logged in")
+	ErrForbidden       = errors.New("not allowed for this role")
+	ErrEmailTaken      = errors.New("e-mail is already used by another user")
 	// ErrLastAdmin protects against locking everybody out of the panel.
 	ErrLastAdmin = errors.New("the last active administrator cannot be demoted or disabled")
 	// ErrSelfLockout keeps administrators from disabling or demoting themselves.

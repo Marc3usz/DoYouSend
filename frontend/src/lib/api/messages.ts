@@ -36,6 +36,8 @@ export type SendEstimate = {
 	renderFailedIds: string[];
 	sampleBody?: string;
 	sampleRecipientName?: string;
+	/** Most parts one SMS may have (settings: sms_max_parts); 0 or absent = no limit. */
+	smsPartLimit?: number;
 };
 
 /** Pre-send summary of a draft: POST /messages/preview. */

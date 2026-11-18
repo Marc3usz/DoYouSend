@@ -3,19 +3,12 @@
 import type { AuditEntry } from '$lib/api/admin';
 import type { User } from '$lib/api/auth';
 import { roleLabels } from '$lib/access';
+import { costText } from '$lib/format/text';
 
-const pln = new Intl.NumberFormat('pl-PL', {
-	style: 'currency',
-	currency: 'PLN',
-	minimumFractionDigits: 2,
-	maximumFractionDigits: 3,
-	useGrouping: true
-});
+export { dateTimeText } from '$lib/format/text';
 
 /** A cost in thousandths of a złoty (80 -> "0,08 zł"). */
-export function plnText(milli: number): string {
-	return pln.format(milli / 1000);
-}
+export const plnText = costText;
 
 const pointsFormat = new Intl.NumberFormat('pl-PL', {
 	minimumFractionDigits: 2,
@@ -42,15 +35,6 @@ export function creditsText(remain?: number, total?: number): string {
 	}
 	return `${remain} kredytów`;
 }
-const dateTime = new Intl.DateTimeFormat('pl-PL', {
-	dateStyle: 'medium',
-	timeStyle: 'short',
-	timeZone: 'Europe/Warsaw'
-});
-
-export function dateTimeText(iso: string | null): string {
-	return iso ? dateTime.format(new Date(iso)) : '—';
-}
 
 const monthName = new Intl.DateTimeFormat('pl-PL', {
 	month: 'long',
@@ -60,19 +44,67 @@ const monthName = new Intl.DateTimeFormat('pl-PL', {
 
 /** The current month in Warsaw as an inclusive YYYY-MM-DD range and its name. */
 export function currentMonth(now: Date): { from: string; to: string; label: string } {
+	const { from, to, label } = monthOf(null, now);
+	return { from, to, label };
+}
+
+export type Month = {
+	/** YYYY-MM, as in ?miesiac=. */
+	key: string;
+	from: string;
+	to: string;
+	label: string;
+	previous: string;
+	/** null for the current month: there is nothing to show after it. */
+	next: string | null;
+	isCurrent: boolean;
+};
+
+function warsawYearMonth(now: Date): { year: number; month: number } {
 	const parts = new Intl.DateTimeFormat('en-CA', {
 		year: 'numeric',
 		month: '2-digit',
 		timeZone: 'Europe/Warsaw'
 	}).formatToParts(now);
-	const year = Number(parts.find((p) => p.type === 'year')?.value);
-	const month = Number(parts.find((p) => p.type === 'month')?.value);
-	const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-	const mm = String(month).padStart(2, '0');
 	return {
-		from: `${year}-${mm}-01`,
-		to: `${year}-${mm}-${String(lastDay).padStart(2, '0')}`,
-		label: monthName.format(now)
+		year: Number(parts.find((p) => p.type === 'year')?.value),
+		month: Number(parts.find((p) => p.type === 'month')?.value)
+	};
+}
+
+const keyOf = (year: number, month: number) => `${year}-${String(month).padStart(2, '0')}`;
+
+/**
+ * The month to report: ?miesiac=YYYY-MM when it is a past or the current
+ * month, otherwise the current month in Warsaw.
+ */
+export function monthOf(raw: string | null, now: Date): Month {
+	const current = warsawYearMonth(now);
+	let { year, month } = current;
+	const m = raw?.match(/^(\d{4})-(\d{2})$/);
+	if (m) {
+		const y = Number(m[1]);
+		const mo = Number(m[2]);
+		const notFuture = y < current.year || (y === current.year && mo <= current.month);
+		if (mo >= 1 && mo <= 12 && y >= 2000 && notFuture) {
+			year = y;
+			month = mo;
+		}
+	}
+	const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+	const key = keyOf(year, month);
+	const isCurrent = year === current.year && month === current.month;
+	const prev = month === 1 ? keyOf(year - 1, 12) : keyOf(year, month - 1);
+	const next = month === 12 ? keyOf(year + 1, 1) : keyOf(year, month + 1);
+	return {
+		key,
+		from: `${key}-01`,
+		to: `${key}-${String(lastDay).padStart(2, '0')}`,
+		// Mid-month at noon UTC is the same month in Warsaw.
+		label: monthName.format(new Date(Date.UTC(year, month - 1, 15, 12))),
+		previous: prev,
+		next: isCurrent ? null : next,
+		isCurrent
 	};
 }
 
@@ -87,16 +119,60 @@ const actionTexts: Record<string, string> = {
 	batch_sent: 'Zatwierdzenie wysyłki',
 	batch_retried: 'Ponowienie wysyłki',
 	recipient_contact_fixed: 'Uzupełnienie kontaktu odbiorcy',
+	recipients_imported: 'Import odbiorców',
 	settings_changed: 'Zmiana ustawień wysyłki',
+	settings_test_sent: 'Wiadomość testowa',
 	sender_verification_requested: 'Zgłoszenie nadawcy e-mail do weryfikacji',
 	sender_verification_resent: 'Ponowne wysłanie linku weryfikacji nadawcy',
-	sender_identity_removed: 'Usunięcie nadawcy e-mail'
+	sender_identity_removed: 'Usunięcie nadawcy e-mail',
+	sender_domain_added: 'Dodanie domeny nadawcy',
+	sender_domain_validated: 'Sprawdzenie DNS domeny nadawcy',
+	sender_domain_removed: 'Usunięcie domeny nadawcy',
+	sender_address_added: 'Dodanie adresu nadawcy',
+	sender_address_updated: 'Zmiana adresu nadawcy',
+	sender_address_removed: 'Usunięcie adresu nadawcy'
 };
 
-/** A Polish name for an audit action; actions of other domains show as they are. */
+/**
+ * A Polish name for an audit action. An action this version does not know yet
+ * shows as "inne zdarzenie (code)" rather than a bare English code.
+ */
 export function actionText(action: string): string {
-	return actionTexts[action] ?? action;
+	return actionTexts[action] ?? `inne zdarzenie (${action})`;
 }
+
+/** Where an audit entry's subject can be seen, if anywhere. */
+export function entityHref(entry: Pick<AuditEntry, 'entity' | 'entityId'>): string | null {
+	if (!entry.entityId) return null;
+	switch (entry.entity) {
+		case 'batch':
+			return `/historia/${encodeURIComponent(entry.entityId)}`;
+		case 'recipient':
+			return `/odbiorcy/${encodeURIComponent(entry.entityId)}`;
+		case 'user':
+			return '/admin/uzytkownicy';
+		default:
+			return null;
+	}
+}
+
+const settingKeyNames: Record<string, string> = {
+	email_provider: 'operator e-mail',
+	sms_provider: 'operator SMS'
+};
+
+const providerNames: Record<string, string> = {
+	fake: 'testowy',
+	mailpit: 'Mailpit',
+	sendgrid: 'SendGrid',
+	smsapi: 'SMSAPI'
+};
+
+const sourceNames: Record<string, string> = {
+	notion: 'Notion',
+	csv: 'plik CSV',
+	xlsx: 'plik XLSX'
+};
 
 /** The details of an audit entry as one line, e.g. "rola: administrator". */
 export function detailsText(entry: AuditEntry): string {
@@ -132,8 +208,46 @@ export function detailsText(entry: AuditEntry): string {
 						.join(', ')}`
 				);
 				break;
+			case 'source':
+				out.push(`źródło: ${sourceNames[value] ?? value}`);
+				break;
+			case 'pages':
+				out.push(`stron: ${value}`);
+				break;
+			case 'imported':
+				out.push(`zapisano: ${value}`);
+				break;
+			case 'invalid':
+				out.push(`błędnych: ${value}`);
+				break;
+			case 'duplicates':
+				out.push(`duplikatów: ${value}`);
+				break;
+			case 'provider':
+				out.push(`operator: ${providerNames[value] ?? value}`);
+				break;
+			case 'keys':
+				out.push(`zmienione ustawienia: ${value.split(',').filter(Boolean).length}`);
+				break;
+			case 'dry_run':
+				out.push(value === 'true' ? 'tryb testowy włączony' : 'tryb testowy wyłączony');
+				break;
+			case 'email_provider':
+			case 'sms_provider':
+				out.push(`${settingKeyNames[key]}: ${providerNames[value] ?? value}`);
+				break;
+			case 'domain':
+				out.push(`domena: ${value}`);
+				break;
+			case 'email':
+				out.push(`adres: ${value}`);
+				break;
+			case 'channel':
+				out.push(`kanał: ${value === 'sms' ? 'SMS' : value === 'email' ? 'e-mail' : value}`);
+				break;
 			default:
-				out.push(`${key}: ${value}`);
+				// Unknown keys stay out rather than show raw English codes.
+				break;
 		}
 	}
 	return out.join(', ');
@@ -161,10 +275,10 @@ export function setupChecks(c: {
 	const fakeSms = c.sms.provider === 'fake';
 	return [
 		c.dryRun
-			? { ok: true, text: 'Tryb próbny (DRY_RUN) — żadna wiadomość nie wychodzi poza serwer.' }
+			? { ok: true, text: 'Tryb testowy (DRY_RUN) — żadna wiadomość nie wychodzi poza serwer.' }
 			: {
 					ok: false,
-					text: 'Tryb próbny wyłączony — wiadomości trafiają do prawdziwych odbiorców.'
+					text: 'Tryb testowy wyłączony — wiadomości trafiają do prawdziwych odbiorców.'
 				},
 		localEmail
 			? { ok: true, text: 'E-mail: lokalny Mailpit (testowy).' }

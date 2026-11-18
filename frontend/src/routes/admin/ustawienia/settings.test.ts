@@ -60,6 +60,23 @@ describe('collectChanges', () => {
 		// sms_sender_name comes from .env: there is nothing to reset.
 		expect(got).toEqual({ sendgrid_api_key: 'SG.x', sms_api_key: null });
 	});
+	it('drops an emptied address instead of sending an empty string', () => {
+		const withReplyTo: Settings = {
+			...current,
+			items: [
+				item({
+					key: 'email_reply_to',
+					group: 'email',
+					kind: 'address',
+					value: 'sekretariat@example.test',
+					source: 'panel'
+				})
+			]
+		};
+		expect(collectChanges(form({ email_reply_to: '  ' }), withReplyTo)).toEqual({
+			email_reply_to: null
+		});
+	});
 	it('never keeps secrets to show them again', () => {
 		expect(keptValues(form({ sms_api_key: 'secret', sms_sender_name: 'A' }), current)).toEqual({
 			sms_sender_name: 'A'

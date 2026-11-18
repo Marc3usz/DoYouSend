@@ -1,33 +1,36 @@
 # Wlasciciel domeny jest domyslnym recenzentem PR-a.
-# Zob. docs/podzial-pracy.md dla pelnego opisu domen i ADR-0012 (zespol dwuosobowy).
+# Od 2026-11-13 wszystkie domeny prowadzi Marc3usz (ADR-0020); podzial A-D zostaje,
+# zeby kolejna osoba mogla przejac domene. Opis domen: docs/podzial-pracy.md.
 
-# Fallback - zmiany poza domenami oglada caly zespol
-*                                   @Marc3usz @MichalK252
+# Fallback - zmiany poza domenami
+*                                       @Marc3usz
 
-# Marc3usz - domena A (odbiorcy i grupy)
-/backend/internal/recipients/       @Marc3usz
-/backend/internal/groups/           @Marc3usz
-/frontend/src/routes/odbiorcy/      @Marc3usz
-/frontend/src/routes/grupy/         @Marc3usz
+# Domena A (odbiorcy i grupy)
+/backend/internal/recipients/           @Marc3usz
+/backend/internal/groups/               @Marc3usz
+/backend/internal/integrations/notion/  @Marc3usz
+/frontend/src/routes/odbiorcy/          @Marc3usz
+/frontend/src/routes/grupy/             @Marc3usz
 
-# MichalK252 - domena B (wiadomosci i wysylka)
-/backend/internal/messaging/        @MichalK252
-/backend/internal/delivery/         @MichalK252
-/frontend/src/routes/wiadomosci/    @MichalK252
-/frontend/src/routes/historia/      @MichalK252
+# Domena B (wiadomosci i wysylka)
+/backend/internal/messaging/            @Marc3usz
+/backend/internal/delivery/             @Marc3usz
+/frontend/src/routes/wiadomosci/        @Marc3usz
+/frontend/src/routes/historia/          @Marc3usz
 
-# MichalK252 - domena C (integracje e-mail/SMS)
-/backend/internal/providers/        @MichalK252
+# Domena C (integracje e-mail/SMS)
+/backend/internal/providers/            @Marc3usz
 
-# Marc3usz - domena D (iam, admin, bezpieczenstwo, CI)
-/backend/internal/iam/              @Marc3usz
-/frontend/src/routes/admin/         @Marc3usz
-/frontend/src/routes/login/         @Marc3usz
-/.github/                           @Marc3usz
+# Domena D (iam, ustawienia, admin, bezpieczenstwo, CI)
+/backend/internal/iam/                  @Marc3usz
+/backend/internal/settings/             @Marc3usz
+/frontend/src/routes/admin/             @Marc3usz
+/frontend/src/routes/login/             @Marc3usz
+/.github/                               @Marc3usz
 
-# Pliki wspolne - review calego zespolu
-/backend/internal/platform/         @Marc3usz @MichalK252
-/backend/migrations/                @Marc3usz @MichalK252
-/docs/api/openapi.yaml              @Marc3usz @MichalK252
-/CLAUDE.md                          @Marc3usz @MichalK252
-/.claude/                           @Marc3usz @MichalK252
+# Pliki wspolne
+/backend/internal/platform/             @Marc3usz
+/backend/migrations/                    @Marc3usz
+/docs/api/openapi.yaml                  @Marc3usz
+/CLAUDE.md                              @Marc3usz
+/.claude/                               @Marc3usz

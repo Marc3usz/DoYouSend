@@ -7,6 +7,8 @@ import {
 	creditsText,
 	currentMonth,
 	detailsText,
+	entityHref,
+	monthOf,
 	LOW_EMAIL_CREDITS_THRESHOLD,
 	LOW_POINTS_THRESHOLD,
 	plnText,
@@ -86,12 +88,63 @@ describe('currentMonth', () => {
 	});
 });
 
+describe('monthOf', () => {
+	const now = new Date('2026-11-13T10:00:00Z');
+	it('reads ?miesiac= for a past month and links both ways', () => {
+		const m = monthOf('2026-01', now);
+		expect([m.from, m.to, m.previous, m.next]).toEqual([
+			'2026-01-01',
+			'2026-01-31',
+			'2025-12',
+			'2026-02'
+		]);
+		expect(m.label).toMatch(/styczeń 2026/);
+		expect(m.isCurrent).toBe(false);
+	});
+	it('has no next link for the current month', () => {
+		const m = monthOf(null, now);
+		expect(m.key).toBe('2026-11');
+		expect(m.next).toBeNull();
+		expect(m.isCurrent).toBe(true);
+	});
+	it.each(['2026-12', '2026-13', '26-01', 'abc'])('ignores %s', (raw) => {
+		expect(monthOf(raw, now).key).toBe('2026-11');
+	});
+});
+
 describe('audit texts', () => {
 	it('names known actions and passes others through', () => {
 		expect(actionText('user_created')).toBe('Utworzenie konta');
 		expect(actionText('batch_sent')).toBe('Zatwierdzenie wysyłki');
 		expect(actionText('batch_retried')).toBe('Ponowienie wysyłki');
-		expect(actionText('group_deleted')).toBe('group_deleted');
+		expect(actionText('recipients_imported')).toBe('Import odbiorców');
+		expect(actionText('group_deleted')).toBe('inne zdarzenie (group_deleted)');
+	});
+	it('describes an import and a settings change in Polish', () => {
+		expect(
+			detailsText(
+				entry({
+					action: 'recipients_imported',
+					details: { source: 'notion', imported: '12', invalid: '1', duplicates: '0' }
+				})
+			)
+		).toBe('źródło: Notion, zapisano: 12, błędnych: 1, duplikatów: 0');
+		expect(
+			detailsText(
+				entry({
+					action: 'settings_changed',
+					details: { keys: 'dry_run,sms_provider', dry_run: 'false', sms_provider: 'smsapi' }
+				})
+			)
+		).toBe('zmienione ustawienia: 2, tryb testowy wyłączony, operator SMS: SMSAPI');
+	});
+	it('leaves unknown detail keys out instead of showing English', () => {
+		expect(detailsText(entry({ details: { somethingNew: 'x' } }))).toBe('');
+	});
+	it('links an entry to what it is about', () => {
+		expect(entityHref({ entity: 'batch', entityId: 'b1' })).toBe('/historia/b1');
+		expect(entityHref({ entity: 'recipient', entityId: 'r1' })).toBe('/odbiorcy/r1');
+		expect(entityHref({ entity: 'recipients', entityId: null })).toBeNull();
 	});
 	it('describes a confirmed batch by its size only', () => {
 		expect(

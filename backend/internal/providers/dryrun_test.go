@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -43,8 +44,13 @@ func TestWrapDryRun_SendSuppression(t *testing.T) {
 	if inner.sendCalled {
 		t.Fatal("inner provider was called despite DRY_RUN wrapper")
 	}
-	if res.ProviderMessageID != "dryrun-email-r-dry" {
-		t.Errorf("got ProviderMessageID = %s, want %s", res.ProviderMessageID, "dryrun-email-r-dry")
+	if !strings.HasPrefix(res.ProviderMessageID, "dryrun-email-r-dry-") {
+		t.Errorf("got ProviderMessageID = %s, want prefix %s", res.ProviderMessageID, "dryrun-email-r-dry-")
+	}
+	// Reports and retries match deliveries by this ID, so it must differ per send.
+	again, err := wrapped.Send(context.Background(), Message{RecipientID: "r-dry", To: "test@example.test", Body: "Body"})
+	if err != nil || again.ProviderMessageID == res.ProviderMessageID {
+		t.Errorf("second send ID = %q (err %v), want a new ID", again.ProviderMessageID, err)
 	}
 }
 

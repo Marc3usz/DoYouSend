@@ -2,6 +2,8 @@ package providers
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -40,7 +42,13 @@ func (d *dryRunProvider) Send(ctx context.Context, msg Message) (Result, error) 
 		)
 	}
 
-	id := fmt.Sprintf("dryrun-%s-%s", d.inner.Channel(), msg.RecipientID)
+	// The random suffix keeps IDs unique across batches: delivery reports and
+	// retries match a delivery by its provider message ID alone.
+	var suffix [4]byte
+	if _, err := rand.Read(suffix[:]); err != nil {
+		return Result{}, TransientError(fmt.Errorf("send %s to recipient %s: message id: %w", d.inner.Channel(), msg.RecipientID, err))
+	}
+	id := fmt.Sprintf("dryrun-%s-%s-%s", d.inner.Channel(), msg.RecipientID, hex.EncodeToString(suffix[:]))
 
 	d.logger.Info("dry run: message suppressed",
 		"channel", d.inner.Channel(),

@@ -33,7 +33,7 @@
 		<p class="summary">
 			Bez e-maila: <strong>{data.summary.noEmail}</strong> · bez telefonu:
 			<strong>{data.summary.noPhone}</strong> · bez żadnego kanału:
-			<strong>{data.summary.truncated ? 'co najmniej ' : ''}{data.summary.unreachable}</strong>
+			<strong>{data.summary.unreachable}</strong>
 		</p>
 		{#if data.summary.truncated}
 			<p class="notice" role="status">

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	ariaSort,
 	listHref,
 	PAGE_SIZE,
 	pageCount,
@@ -147,6 +148,14 @@ describe('sortHref and sortIndicator', () => {
 		const pDesc = parseListParams(new URLSearchParams('sort=type&order=desc'));
 		expect(sortIndicator(pDesc, 'type')).toBe('▼');
 		expect(sortIndicator(pDesc, 'name')).toBe('↕');
+	});
+
+	it('tells screen readers how a column is sorted', () => {
+		const pDesc = parseListParams(new URLSearchParams('sort=type&order=desc'));
+		expect(ariaSort(pDesc, 'type')).toBe('descending');
+		expect(ariaSort(pDesc, 'name')).toBe('none');
+		const pAsc = parseListParams(new URLSearchParams('sort=class&order=asc'));
+		expect(ariaSort(pAsc, 'class')).toBe('ascending');
 	});
 });
 

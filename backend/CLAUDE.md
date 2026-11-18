@@ -5,8 +5,8 @@ Go 1.24 API + delivery worker. Read the root `CLAUDE.md` first; this file adds t
 ## Layout
 
 - `cmd/api` — entrypoint, wiring only. No business logic here.
-- `internal/platform/**` — config, database pool, HTTP helpers. **Shared by all four devs:
-  announce changes, keep the surface small.**
+- `internal/platform/**` — config, database pool, HTTP helpers. **Shared by every domain: change
+  it in a separate small PR, keep the surface small.**
 - `internal/<domain>` — one package per domain (see the package doc comment in each for its
   scope and owner). A domain package owns its own storage access, HTTP handlers and tests.
 - `migrations/` — numbered SQL. Append only; never edit an applied file.
@@ -30,7 +30,10 @@ Go 1.24 API + delivery worker. Read the root `CLAUDE.md` first; this file adds t
    subject is separate.
 2. A recipient selected through several groups is messaged exactly once per batch.
 3. One recipient's failure never aborts the batch; each `deliveries` row fails on its own.
-4. A sent batch is immutable — reuse means copying it into a new draft (exception: `POST /api/batches/{id}/retry` re-sends only failed deliveries, temporarily returning status to `running`).
+4. A sent batch is immutable — reuse means pre-filling a new message in the composer from it; there
+   are no stored drafts. Batch statuses in use are `running`, `done` and `done_with_errors`
+   (ADR-0015). Exception: `POST /api/batches/{id}/retry` re-sends failed deliveries, temporarily
+   returning the batch to `running`.
 5. `DRY_RUN=true` must short-circuit every real provider call.
 
 ## Commands
@@ -38,6 +41,6 @@ Go 1.24 API + delivery worker. Read the root `CLAUDE.md` first; this file adds t
 ```bash
 go run ./cmd/api          # API on :8080
 go test ./...             # unit tests
-TEST_DATABASE_URL=... go test -tags integration ./...   # Postgres stores (dbtest gives each test its own schema)
+make test-integration     # Postgres stores; TEST_DATABASE_URL from .env (dbtest gives each test its own schema)
 go vet ./... && gofmt -l . && golangci-lint run
 ```

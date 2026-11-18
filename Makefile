@@ -16,7 +16,7 @@ frontend/node_modules: frontend/package-lock.json
 	cd frontend && npm ci
 	@touch frontend/node_modules
 
-up: ## Postgres + Redis + Mailpit (czeka, az kontenery beda gotowe)
+up: ## Postgres + Mailpit (czeka, az kontenery beda gotowe)
 	$(COMPOSE) up -d --wait
 	@echo "Mailpit UI: http://localhost:8025"
 
@@ -52,13 +52,26 @@ test: ## Testy backendu i frontendu
 	cd backend && go test ./...
 	cd frontend && npm run test
 
-test-integration: ## Testy backendu na prawdziwym Postgresie (wymaga TEST_DATABASE_URL, make up)
-	cd backend && go test -tags integration -count=1 ./...
+# TEST_DATABASE_URL: ze srodowiska, a gdy go tam nie ma - z .env (go test sam nie czyta .env,
+# a bez adresu bazy dbtest pomija kazdy test).
+test-integration: ## Testy backendu na Postgresie (TEST_DATABASE_URL ze srodowiska albo z .env; wymaga make up)
+	@url="$${TEST_DATABASE_URL:-$$(sed -n 's/^TEST_DATABASE_URL=//p' .env 2>/dev/null | tail -n 1 | tr -d '\r"')}"; \
+	if [ -z "$$url" ]; then \
+		echo "Brak TEST_DATABASE_URL: ustaw zmienna albo wpisz ja do .env (zob. .env.example)"; \
+		exit 1; \
+	fi; \
+	cd backend && TEST_DATABASE_URL="$$url" go test -tags integration -count=1 ./...
 
-check: lint-go lint-web ## Wszystkie kontrole (to samo co CI)
+check: lint-go lint-web ## Kontrole jak w CI: gofmt, go vet, golangci-lint (gdy zainstalowany), svelte-check, prettier, eslint
 
 lint-go:
-	cd backend && gofmt -l . && go vet ./...
+	@cd backend && files="$$(gofmt -l .)"; \
+	if [ -n "$$files" ]; then \
+		echo "$$files"; \
+		echo "Niesformatowane pliki - uruchom make fmt"; \
+		exit 1; \
+	fi
+	cd backend && go vet ./...
 	cd backend && (command -v golangci-lint >/dev/null && golangci-lint run || echo "golangci-lint niezainstalowany - pomijam")
 
 lint-web:

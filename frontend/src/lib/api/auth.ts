@@ -21,6 +21,45 @@ export function me(fetch?: typeof globalThis.fetch): Promise<User> {
 	return api<User>('/auth/me', { fetch });
 }
 
+/**
+ * PUT /auth/password: the logged-in user changes their own password. 403
+ * wrong_password when the current one does not match. The backend ends every
+ * session of the user and answers with a new one in Set-Cookie; the form
+ * action must set it on its own response (as login does), or the user is
+ * signed out.
+ */
+export async function changePassword(
+	currentPassword: string,
+	newPassword: string,
+	fetch: typeof globalThis.fetch
+): Promise<{ token: string; expires: Date | null }> {
+	const captured = capturingSession(fetch);
+	await api<void>('/auth/password', {
+		method: 'PUT',
+		body: { currentPassword, newPassword },
+		fetch: captured.fetch
+	});
+	if (!captured.session) throw new Error('password change response has no session cookie');
+	return captured.session;
+}
+
+/** A fetch that remembers the session cookie of the last response. */
+function capturingSession(fetch: typeof globalThis.fetch) {
+	// Local to one call, so concurrent requests on the server never mix.
+	const out: {
+		session: ReturnType<typeof sessionFromSetCookie>;
+		fetch: typeof globalThis.fetch;
+	} = {
+		session: null,
+		fetch: async (input, init) => {
+			const response = await fetch(input, init);
+			out.session = sessionFromSetCookie(response.headers.get('set-cookie'));
+			return response;
+		}
+	};
+	return out;
+}
+
 /** POST /auth/logout: ends the session of the cookie sent with the request. */
 export function logout(fetch?: typeof globalThis.fetch): Promise<void> {
 	return api<void>('/auth/logout', { method: 'POST', fetch });
@@ -38,16 +77,11 @@ export async function login(
 	password: string,
 	fetch: typeof globalThis.fetch
 ): Promise<LoginResult> {
-	// Local to this call, so concurrent logins on the server never mix.
-	const captured: { session: ReturnType<typeof sessionFromSetCookie> } = { session: null };
+	const captured = capturingSession(fetch);
 	const user = await api<User>('/auth/login', {
 		method: 'POST',
 		body: { email, password },
-		fetch: async (input, init) => {
-			const response = await fetch(input, init);
-			captured.session = sessionFromSetCookie(response.headers.get('set-cookie'));
-			return response;
-		}
+		fetch: captured.fetch
 	});
 	if (!captured.session) throw new Error('login response has no session cookie');
 	return { user, ...captured.session };

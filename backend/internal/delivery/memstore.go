@@ -179,8 +179,9 @@ func (s *MemStore) Batch(_ context.Context, id string) (Batch, error) {
 	return cloneBatch(b), nil
 }
 
-// ResetFailedDeliveries implements Store.
-func (s *MemStore) ResetFailedDeliveries(_ context.Context, batchID string) (Batch, error) {
+// ResetFailedDeliveries implements Store. MemStore has no recipient base, so the
+// addresses are not refreshed.
+func (s *MemStore) ResetFailedDeliveries(_ context.Context, batchID string, includeUncertain bool) (Batch, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	b, ok := s.batches[batchID]
@@ -190,7 +191,7 @@ func (s *MemStore) ResetFailedDeliveries(_ context.Context, batchID string) (Bat
 	if b.Status == BatchRunning {
 		return Batch{}, fmt.Errorf("reset failed deliveries for batch %s: %w", batchID, ErrBatchRunning)
 	}
-	retriedPlan, count := b.Plan.RetryPlan()
+	retriedPlan, count := b.Plan.RetryPlan(includeUncertain)
 	if count == 0 {
 		return Batch{}, fmt.Errorf("reset failed deliveries for batch %s: %w", batchID, ErrNoFailedDeliveries)
 	}
@@ -198,12 +199,55 @@ func (s *MemStore) ResetFailedDeliveries(_ context.Context, batchID string) (Bat
 	b.Status = BatchRunning
 	b.FinishedAt = time.Time{}
 	b.Counts = retriedPlan.Counts()
+	b.RetryCount++
+	b.LastRetryAt = s.now()
 	s.batches[batchID] = b
 	return cloneBatch(b), nil
 }
 
+// RunningBatchIDs implements Store.
+func (s *MemStore) RunningBatchIDs(_ context.Context) ([]string, error) {
+	s.mu.Lock()
+	var running []Batch
+	for _, b := range s.batches {
+		if b.Status == BatchRunning {
+			running = append(running, b)
+		}
+	}
+	s.mu.Unlock()
+	slices.SortFunc(running, func(a, b Batch) int { return a.CreatedAt.Compare(b.CreatedAt) })
+	ids := make([]string, len(running))
+	for i, b := range running {
+		ids[i] = b.ID
+	}
+	return ids, nil
+}
+
+// InterruptSending implements Store.
+func (s *MemStore) InterruptSending(_ context.Context, batchID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, ok := s.batches[batchID]
+	if !ok {
+		return fmt.Errorf("interrupt batch %s: %w", batchID, ErrBatchNotFound)
+	}
+	b.Plan = b.Plan.clone()
+	for i := range b.Plan.Recipients {
+		for j := range b.Plan.Recipients[i].Deliveries {
+			d := &b.Plan.Recipients[i].Deliveries[j]
+			if d.Status == StatusSending {
+				d.Status, d.Error = StatusFailed, reasonInterrupted
+			}
+		}
+	}
+	b.Counts = b.Plan.Counts()
+	s.batches[batchID] = b
+	return nil
+}
+
 func cloneBatch(b Batch) Batch {
 	b.Groups = append([]GroupRef(nil), b.Groups...)
+	b.Channels = append([]providers.Channel(nil), b.Channels...)
 	b.RecipientIDs = append([]string(nil), b.RecipientIDs...)
 	b.ExcludedRecipientIDs = append([]string(nil), b.ExcludedRecipientIDs...)
 	b.Plan = b.Plan.clone()

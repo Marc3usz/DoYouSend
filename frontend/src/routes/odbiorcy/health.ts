@@ -2,6 +2,7 @@
 // each channel, and the merged list of people whose contact data needs fixing.
 // Pure functions, so the numbers on screen are testable without the API.
 import type { Channel, Recipient, RecipientCounts } from '$lib/api/recipients';
+import { peopleText } from '$lib/format/text';
 
 export type ChannelCoverage = {
 	channel: Channel;
@@ -21,7 +22,9 @@ function percentOf(part: number, total: number): number {
 }
 
 /** Per-channel coverage. A count above the total (a race between requests) is clamped. */
-export function coverage(counts: RecipientCounts): ChannelCoverage[] {
+export function coverage(
+	counts: Omit<RecipientCounts, 'unreachable'> & { unreachable?: number }
+): ChannelCoverage[] {
 	const row = (channel: Channel, label: string, missing: number): ChannelCoverage => {
 		const bad = Math.min(Math.max(missing, 0), Math.max(counts.total, 0));
 		return {
@@ -87,14 +90,7 @@ export function isTruncated(shown: number, total: number): boolean {
 }
 
 /** "1 osoba", "2 osoby", "5 osób": Polish plural for a count of people. */
-export function peopleLabel(n: number): string {
-	const abs = Math.abs(n);
-	if (abs === 1) return `${n} osoba`;
-	const last = abs % 10;
-	const lastTwo = abs % 100;
-	if (last >= 2 && last <= 4 && !(lastTwo >= 12 && lastTwo <= 14)) return `${n} osoby`;
-	return `${n} osób`;
-}
+export const peopleLabel = peopleText;
 
 export type FixView = 'all' | 'email' | 'sms' | 'both';
 
