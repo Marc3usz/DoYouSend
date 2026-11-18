@@ -38,7 +38,8 @@ const fileErrorTexts: Record<ImportFileError['code'], string> = {
 	too_many_rows:
 		'Plik ma za dużo wierszy — limit to 5000 osób. Usuń z arkusza wszystko poza listą.',
 	unclosed_quote:
-		'W pliku jest niezamknięty cudzysłów, przez który nie da się odczytać dalszych wierszy.'
+		'W pliku jest niezamknięty cudzysłów, przez który nie da się odczytać dalszych wierszy.',
+	internal: 'Serwer nie zapisał importu — nic nie zostało dodane. Spróbuj ponownie za chwilę.'
 };
 
 export type FileErrorText = { text: string; detail?: string };

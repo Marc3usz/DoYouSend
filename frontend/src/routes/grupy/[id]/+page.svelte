@@ -131,7 +131,7 @@
 	<h2>Dodaj osoby</h2>
 	<RecipientPicker
 		initial={data.people}
-		pageSize={20}
+		pageSize={data.pickerPageSize}
 		selectedIds={pickedIds}
 		lockedIds={memberIds}
 		lockedLabel="(już w grupie)"

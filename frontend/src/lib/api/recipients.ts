@@ -48,7 +48,8 @@ export const importFileErrorCodes = [
 	'unsupported_format',
 	'file_too_large',
 	'too_many_rows',
-	'unclosed_quote'
+	'unclosed_quote',
+	'internal'
 ] as const;
 
 export type ImportFileError = {

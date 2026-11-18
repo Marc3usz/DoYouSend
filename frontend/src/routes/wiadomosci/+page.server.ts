@@ -94,6 +94,7 @@ export const load: PageServerLoad = async ({ url, fetch }) => {
 		copiedBatchSubject,
 		copyFailed,
 		people: await people,
+		pickerPageSize: PICKER_PAGE_SIZE,
 		senders: await senders
 	};
 };

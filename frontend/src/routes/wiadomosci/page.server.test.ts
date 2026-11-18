@@ -59,6 +59,7 @@ describe('wiadomosci load', () => {
 			copiedBatchSubject: null,
 			copyFailed: false,
 			people: null,
+			pickerPageSize: 10,
 			senders: null
 		});
 	});

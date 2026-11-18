@@ -10,8 +10,8 @@
 
 <h1>Dzień dobry{data.user ? `, ${data.user.fullName}` : ''}</h1>
 <p class="lead">
-	Jedna treść trafia do wybranych osób jednocześnie e-mailem i SMS-em — w obu kanałach dokładnie
-	taka sama.
+	Jedna treść trafia do wybranych osób e-mailem i SMS-em (albo tylko jednym z tych kanałów) —
+	wszędzie dokładnie taka sama.
 </p>
 
 <ul class="tiles">

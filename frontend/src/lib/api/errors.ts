@@ -38,6 +38,7 @@ export const errorCodes = [
 	'domain_exists',
 	'address_exists',
 	'provider_rejected',
+	'not_supported',
 	'internal'
 ] as const;
 

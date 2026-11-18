@@ -338,8 +338,8 @@
 
 <h1>Nowa wiadomość</h1>
 <p class="lead">
-	Jedna treść trafia do odbiorców jednocześnie e-mailem i SMS-em — w obu kanałach dokładnie taka
-	sama. Temat dotyczy tylko e-maila, więc wszystko, co ważne, wpisz w treść.
+	Jedna treść trafia do odbiorców e-mailem i SMS-em (albo tylko wybranym kanałem) — wszędzie
+	dokładnie taka sama. Temat dotyczy tylko e-maila, więc wszystko, co ważne, wpisz w treść.
 </p>
 
 {#if data.copyFailed}
@@ -520,7 +520,7 @@
 					<summary>Wybierz osoby z listy odbiorców</summary>
 					<RecipientPicker
 						initial={data.people}
-						pageSize={10}
+						pageSize={data.pickerPageSize}
 						selectedIds={selectedIdSet}
 						ontoggle={togglePeople}
 						caption="Odbiorcy do wyboru"
