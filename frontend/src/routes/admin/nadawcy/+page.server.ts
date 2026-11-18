@@ -23,8 +23,9 @@ export const load: PageServerLoad = async ({ fetch }) => {
 	return {
 		domains,
 		addresses: addresses?.items ?? null,
-		// Only active accounts can be given an address.
-		users: users?.filter((u) => !u.disabled) ?? null
+		// All accounts: blocked ones that already have an address must stay in its edit form,
+		// or saving it would take the address away from them. Only active ones can be added.
+		users
 	};
 };
 

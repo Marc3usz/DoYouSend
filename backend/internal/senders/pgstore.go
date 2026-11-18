@@ -283,22 +283,40 @@ func (s *PGStore) UpdateAddress(ctx context.Context, id string, name *string, us
 	return out, err
 }
 
-// setUsers replaces the users of an address; every ID must be an active user.
+// setUsers replaces the users of an address. A new user must be active; a blocked user who
+// already has the address may stay in the list, so editing the address does not silently
+// take it away from them (unblocking the account restores their access).
 func setUsers(ctx context.Context, tx pgx.Tx, addressID string, userIDs []string, actorID string) error {
-	if _, err := tx.Exec(ctx, `DELETE FROM sender_address_users WHERE address_id = $1`, addressID); err != nil {
+	unique := make([]string, 0, len(userIDs))
+	seen := make(map[string]bool, len(userIDs))
+	for _, id := range userIDs {
+		key := strings.ToLower(id)
+		if !seen[key] {
+			seen[key] = true
+			unique = append(unique, id)
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM sender_address_users
+		WHERE address_id = $1 AND NOT (user_id = ANY($2::uuid[]))`, addressID, unique); err != nil {
 		return fmt.Errorf("clear address users: %w", err)
 	}
-	if len(userIDs) == 0 {
+	if len(unique) == 0 {
 		return nil
 	}
-	tag, err := tx.Exec(ctx, `
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO sender_address_users (address_id, user_id, granted_by)
 		SELECT $1, u.id, nullif($3, '')::uuid FROM users u
-		WHERE u.id = ANY($2::uuid[]) AND u.disabled_at IS NULL`, addressID, userIDs, actorID)
-	if err != nil {
+		WHERE u.id = ANY($2::uuid[]) AND u.disabled_at IS NULL
+		ON CONFLICT (address_id, user_id) DO NOTHING`, addressID, unique, actorID); err != nil {
 		return fmt.Errorf("insert address users: %w", err)
 	}
-	if int(tag.RowsAffected()) != len(userIDs) {
+	var n int
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*) FROM sender_address_users WHERE address_id = $1`, addressID).Scan(&n); err != nil {
+		return fmt.Errorf("count address users: %w", err)
+	}
+	if n != len(unique) {
 		return ErrUnknownUsers
 	}
 	return nil
