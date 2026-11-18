@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
-	import { goto } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { loginHref } from '$lib/access';
 	import { sendBatch } from '$lib/api/batches';
@@ -19,6 +19,7 @@
 	import {
 		canConfirm,
 		confirmText,
+		draftFingerprint,
 		idempotencyFor,
 		sendFailureText,
 		unknownSelectionIds,
@@ -46,6 +47,7 @@
 	let excludedRecipientIds = $state<string[]>(
 		untrack(() => data.initialDraft?.excludedRecipientIds ?? [])
 	);
+	const excludedIdSet = $derived(new Set(excludedRecipientIds));
 	let excludedPeople = $state<{ id: string; name: string }[]>(
 		untrack(() => data.initialDraft?.excludedPeople ?? [])
 	);
@@ -193,6 +195,27 @@
 		};
 	}
 
+	// Leaving with unsent changes asks first; the draft lives only in this page.
+	const startFingerprint = untrack(() => draftFingerprint(currentDraft()));
+	let sent = false;
+	const unsaved = $derived(
+		draftFingerprint(currentDraft()) !== startFingerprint &&
+			(subject.trim() !== '' ||
+				body.trim() !== '' ||
+				selectedGroupIds.length > 0 ||
+				selectedRecipients.length > 0)
+	);
+	beforeNavigate(({ cancel, willUnload }) => {
+		if (sent || !unsaved) return;
+		// On a reload or tab close the browser shows its own question.
+		if (willUnload) return cancel();
+		if (
+			!confirm('Wiadomość nie została wysłana. Opuścić stronę? Treść i wybór odbiorców przepadną.')
+		) {
+			cancel();
+		}
+	});
+
 	async function openConfirmation() {
 		idempotency = idempotencyFor(idempotency, currentDraft());
 		sendFailure = null;
@@ -247,6 +270,7 @@
 				},
 				idempotency.key
 			);
+			sent = true;
 			await goto(`/historia/${batch.id}`);
 		} catch (err) {
 			sendFailure = sendFailureText(err);
@@ -263,6 +287,15 @@
 	}
 
 	const warnings = $derived(estimate ? estimateWarnings(estimate, targetChannels) : []);
+	// Names of the people whose body could not be filled in, from the resolved list.
+	const renderFailedNames = $derived.by(() => {
+		const byId = new Map(resolvedRecipients.map((r) => [r.recipient.id, r.recipient]));
+		return (estimate?.renderFailedIds ?? []).map((id) => {
+			const r = byId.get(id);
+			const name = r ? `${r.lastName} ${r.firstName}`.trim() : '';
+			return { id, name: name || `Osoba bez imienia i nazwiska (${id.slice(0, 8)}…)` };
+		});
+	});
 	const hasRecipients = $derived((estimate?.recipientCount ?? 0) > 0);
 	const hasSelection = $derived(selectedGroupIds.length > 0 || selectedRecipients.length > 0);
 	// Counts and cost are only meaningful once the body renders for the recipients.
@@ -502,8 +535,14 @@
 						<p class="hint">Wybrani odbiorcy ({selectedRecipients.length}):</p>
 						<ul class="chips">
 							{#each selectedRecipients as r (r.id)}
-								<li class="chip">
+								<li class="chip" class:excluded={excludedIdSet.has(r.id)}>
 									<span>{r.lastName} {r.firstName}</span>
+									{#if excludedIdSet.has(r.id)}
+										<small>wykluczona</small>
+										<button type="button" class="link" onclick={() => unexcludeRecipient(r.id)}
+											>przywróć</button
+										>
+									{/if}
 									<button
 										type="button"
 										class="chip-remove"
@@ -524,6 +563,9 @@
 						selectedIds={selectedIdSet}
 						ontoggle={togglePeople}
 						caption="Odbiorcy do wyboru"
+						markedIds={excludedIdSet}
+						markedLabel="wykluczona z wysyłki"
+						reloadKey={refreshTrigger}
 					/>
 				</details>
 
@@ -759,6 +801,19 @@
 						{/each}
 					</ul>
 				{/if}
+				{#if renderFailedNames.length > 0}
+					<details class="render-failed">
+						<summary
+							>Kto nie dostanie wiadomości przez brak danych ({renderFailedNames.length})</summary
+						>
+						<ul>
+							{#each renderFailedNames as p (p.id)}
+								<li>{p.name}</li>
+							{/each}
+						</ul>
+						<p class="hint">Uzupełnij ich dane w bazie odbiorców albo usuń pole z treści.</p>
+					</details>
+				{/if}
 			</div>
 		{:else if !failure}
 			<p class="hint">Liczę…</p>
@@ -960,6 +1015,13 @@
 		list-style: none;
 		padding: 0;
 		margin: 0.25rem 0 0;
+	}
+	.chip.excluded {
+		background: var(--color-danger-soft);
+		text-decoration: none;
+	}
+	.chip.excluded > span {
+		text-decoration: line-through;
 	}
 	.chip {
 		display: inline-flex;

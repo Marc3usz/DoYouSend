@@ -47,3 +47,29 @@ export function pageSelection(
 	if (picked === 0) return 'none';
 	return picked === selectable.length ? 'all' : 'some';
 }
+
+/** The most people "select everyone matching" picks in one go. */
+export const SELECT_ALL_CAP = 1000;
+
+/**
+ * Every person matching the filters, read `pageSize` at a time, stopping at `cap`.
+ * `truncated` says the cap cut the list short.
+ */
+export async function collectMatching(
+	fetchPage: (
+		query: ReturnType<typeof pickerQuery>
+	) => Promise<{ items: RecipientLookup[]; total: number }>,
+	filters: PickerFilters,
+	pageSize = 200,
+	cap = SELECT_ALL_CAP
+): Promise<{ people: RecipientLookup[]; truncated: boolean }> {
+	const people: RecipientLookup[] = [];
+	for (let page = 1; people.length < cap; page++) {
+		const res = await fetchPage(pickerQuery(filters, page, pageSize));
+		people.push(...res.items);
+		if (res.items.length === 0 || people.length >= res.total) {
+			return { people: people.slice(0, cap), truncated: res.total > cap };
+		}
+	}
+	return { people: people.slice(0, cap), truncated: true };
+}
