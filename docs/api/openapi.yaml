@@ -249,6 +249,17 @@ paths:
           description: Tylko odbiorcy przypisani do tej klasy (normalizowana jak ClassName)
           schema: { $ref: "#/components/schemas/ClassName" }
         - in: query
+          name: ids
+          description: |
+            Tylko te osoby (najwyzej 200; powtorzony parametr albo lista po przecinku).
+            Nieznane ID sa pomijane. Sluzy do podpisania osob juz wybranych, np. wykluczonych.
+          style: form
+          explode: true
+          schema:
+            type: array
+            maxItems: 200
+            items: { type: string, format: uuid }
+        - in: query
           name: sort
           description: Kolumna sortowania (domyslnie name)
           schema:

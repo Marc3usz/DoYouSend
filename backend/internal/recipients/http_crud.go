@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/httpx"
@@ -83,7 +84,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) lookup(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	lq := ListQuery{
-		Filter: Filter{Query: q.Get("q"), Type: Type(q.Get("type")), Class: q.Get("class")},
+		Filter: Filter{Query: q.Get("q"), Type: Type(q.Get("type")), Class: q.Get("class"), IDs: idsParam(q["ids"])},
 		Sort:   SortField(q.Get("sort")),
 		Order:  SortOrder(q.Get("order")),
 	}
@@ -105,6 +106,19 @@ func (h *Handler) lookup(w http.ResponseWriter, r *http.Request) {
 		out.Items[i] = toLookupJSON(rec)
 	}
 	httpx.JSON(w, http.StatusOK, out)
+}
+
+// idsParam reads ?ids=a&ids=b and ?ids=a,b alike, skipping empty entries.
+func idsParam(raw []string) []string {
+	var ids []string
+	for _, v := range raw {
+		for _, id := range strings.Split(v, ",") {
+			if id = strings.TrimSpace(id); id != "" {
+				ids = append(ids, id)
+			}
+		}
+	}
+	return ids
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {

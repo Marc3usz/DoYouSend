@@ -91,6 +91,11 @@ func TestHandlerLookup(t *testing.T) {
 		t.Errorf("lookup by e-mail = %s, want nothing", got)
 	}
 
+	rec, body = do(t, mux, http.MethodGet, "/api/recipients/lookup?ids=00000000-0000-4000-8000-000000000001,00000000-0000-4000-8000-000000000003&ids=00000000-0000-4000-8000-000000000002", "")
+	if rec.Code != http.StatusOK || body["total"] != 3.0 {
+		t.Errorf("lookup by ids = %d %v, want the three people", rec.Code, body)
+	}
+
 	rec, body = do(t, mux, http.MethodGet, "/api/recipients/lookup?limit=abc", "")
 	if rec.Code != http.StatusBadRequest || body["code"] != "invalid_request" {
 		t.Errorf("bad limit = %d %v, want 400", rec.Code, body)

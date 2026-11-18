@@ -183,6 +183,18 @@ func TestServiceList(t *testing.T) {
 	}
 }
 
+func TestServiceListTooManyIDs(t *testing.T) {
+	ids := make([]string, MaxPageSize+1)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("r%d", i)
+	}
+	_, err := NewService(serviceFixture()).List(context.Background(), ListQuery{Filter: Filter{IDs: ids}})
+	var pe *ParamError
+	if !errors.As(err, &pe) || pe.Fields[0].Field != "ids" {
+		t.Errorf("List(%d ids) error = %v, want a ParamError on ids", len(ids), err)
+	}
+}
+
 func TestServiceLookup(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -195,6 +207,7 @@ func TestServiceLookup(t *testing.T) {
 		{"phone does not match", ListQuery{Filter: Filter{Query: "500100103"}}, []string{}, 0},
 		{"issue filter ignored", ListQuery{Issue: ChannelEmail}, []string{"Maria", "Jan", "Pawel", "Lena"}, 4},
 		{"type and page", ListQuery{Filter: Filter{Type: TypeParent}, Limit: 1, Offset: 1}, []string{"Jan"}, 3},
+		{"by ids, unknown left out", ListQuery{Filter: Filter{IDs: []string{"00000000-0000-4000-8000-000000000003", "00000000-0000-4000-8000-000000000001", "nope"}}}, []string{"Jan", "Lena"}, 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

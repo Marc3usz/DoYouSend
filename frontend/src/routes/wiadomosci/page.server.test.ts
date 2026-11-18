@@ -140,7 +140,7 @@ describe('wiadomosci load', () => {
 				...batch,
 				excludedRecipientIds: [excludedId]
 			}),
-			'/api/recipients/lookup?limit=200&offset=0': json({
+			'/api/recipients/lookup?ids=00000000-0000-4000-8000-000000000099&limit=200': json({
 				items: [
 					{
 						id: excludedId,

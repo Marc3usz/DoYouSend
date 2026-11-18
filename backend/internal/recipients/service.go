@@ -76,6 +76,9 @@ type Filter struct {
 	Class string
 	// NamesOnly makes Query match the name only, not the e-mail or phone.
 	NamesOnly bool
+	// IDs, when set, keeps only these recipients (at most MaxPageSize); unknown IDs
+	// are left out. Used to name people already picked, e.g. excluded ones.
+	IDs []string
 }
 
 // SortField names a column by which recipients can be sorted.
@@ -200,6 +203,19 @@ func (s *Service) List(ctx context.Context, q ListQuery) (Page, error) {
 	if err != nil {
 		return Page{}, fmt.Errorf("list recipients: %w", err)
 	}
+	if len(q.IDs) > 0 {
+		wanted := make(map[string]bool, len(q.IDs))
+		for _, id := range q.IDs {
+			wanted[strings.ToLower(id)] = true
+		}
+		kept := all[:0]
+		for _, r := range all {
+			if wanted[strings.ToLower(r.ID)] {
+				kept = append(kept, r)
+			}
+		}
+		all = kept
+	}
 	if q.Issue != "" {
 		kept := all[:0]
 		for _, r := range all {
@@ -285,6 +301,9 @@ func checkListQuery(q ListQuery) (ListQuery, error) {
 	}
 	if q.Class = NormalizeClass(q.Class); q.Class != "" && !ValidClass(q.Class) {
 		errs = append(errs, FieldError{Field: "class", Message: "not a valid class name, expected e.g. 3A"})
+	}
+	if len(q.IDs) > MaxPageSize {
+		errs = append(errs, FieldError{Field: "ids", Message: fmt.Sprintf("at most %d ids", MaxPageSize)})
 	}
 	if q.Issue != "" && q.Issue != ChannelEmail && q.Issue != ChannelSMS {
 		errs = append(errs, FieldError{Field: "issue", Message: "issue must be 'email' or 'sms'"})
