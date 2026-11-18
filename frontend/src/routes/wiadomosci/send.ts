@@ -101,6 +101,12 @@ export function confirmText(est: SendEstimate): string {
 	return `Wyślesz ${what} do ${n} ${n === 1 ? 'odbiorcy' : 'odbiorców'}.`;
 }
 
+/** The IDs a 409 selection_changed names as no longer existing; empty for any other error. */
+export function unknownSelectionIds(err: unknown): string[] {
+	const body = errorBody(err);
+	return body?.code === 'selection_changed' ? body.ids : [];
+}
+
 /** Text for a confirmation the backend refused or that did not reach it. */
 export function sendFailureText(err: unknown): string {
 	const body = errorBody(err);
@@ -117,7 +123,7 @@ export function sendFailureText(err: unknown): string {
 		case 'empty_selection':
 			return 'Wybierz co najmniej jedną grupę lub osobę.';
 		case 'selection_changed':
-			return 'Część zaznaczonych grup lub osób już nie istnieje. Odśwież stronę i wybierz odbiorców ponownie. Nic nie zostało wysłane.';
+			return 'Część zaznaczonych grup lub osób już nie istnieje — usunęliśmy je z wyboru. Sprawdź odbiorców i zatwierdź ponownie. Nic nie zostało wysłane.';
 		case 'no_recipients':
 			return 'Wybrane grupy i osoby nie dają teraz żadnego odbiorcy. Nic nie zostało wysłane.';
 		case 'idempotency_conflict':

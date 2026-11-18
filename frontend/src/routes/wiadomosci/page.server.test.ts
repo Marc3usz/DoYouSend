@@ -87,10 +87,39 @@ describe('wiadomosci load', () => {
 			groupIds: ['g1'],
 			excludedRecipientIds: [],
 			excludedPeople: [],
+			skippedGroups: [],
 			recipients: [
 				{ id: '00000000-0000-4000-8000-000000000002', firstName: 'Jan', lastName: 'Kowalski' }
 			]
 		});
+	});
+
+	it('leaves out groups of the copied batch that no longer exist', async () => {
+		const ev = fakeEvent('http://localhost/wiadomosci?kopia=b3', {
+			'/api/groups': json(groups),
+			'/api/batches/b3': json({
+				...batch,
+				id: 'b3',
+				groups: [
+					{ id: 'g1', name: 'Rada rodziców' },
+					{ id: 'gone', name: 'Wycieczka 2025' }
+				]
+			})
+		});
+		const got = await load(ev);
+		expect(got?.initialDraft?.groupIds).toEqual(['g1']);
+		expect(got?.initialDraft?.skippedGroups).toEqual(['Wycieczka 2025']);
+	});
+
+	it('keeps the copied groups when the group list failed to load', async () => {
+		const ev = fakeEvent('http://localhost/wiadomosci?kopia=b4', {
+			'/api/groups': json({ code: 'internal', message: 'x' }, 500),
+			'/api/batches/b4': json({ ...batch, id: 'b4' })
+		});
+		const got = await load(ev);
+		expect(got?.groupsFailed).toBe(true);
+		expect(got?.initialDraft?.groupIds).toEqual(['g1']);
+		expect(got?.initialDraft?.skippedGroups).toEqual([]);
 	});
 
 	it('restores the channel choice of an SMS-only batch', async () => {

@@ -7,6 +7,7 @@ import {
 	idempotencyFor,
 	newIdempotencyKey,
 	sendFailureText,
+	unknownSelectionIds,
 	type DraftSnapshot
 } from './send';
 
@@ -93,7 +94,7 @@ describe('sendFailureText', () => {
 		],
 		[
 			apiError(409, { code: 'selection_changed', message: 'x', ids: ['g1'] }),
-			'Część zaznaczonych grup lub osób już nie istnieje. Odśwież stronę i wybierz odbiorców ponownie. Nic nie zostało wysłane.'
+			'Część zaznaczonych grup lub osób już nie istnieje — usunęliśmy je z wyboru. Sprawdź odbiorców i zatwierdź ponownie. Nic nie zostało wysłane.'
 		],
 		[
 			apiError(422, { code: 'no_recipients', message: 'x' }),
@@ -179,5 +180,16 @@ describe('newIdempotencyKey', () => {
 		const a = newIdempotencyKey(insecure);
 		expect(a).toMatch(uuidV4);
 		expect(newIdempotencyKey(insecure)).not.toBe(a);
+	});
+});
+
+describe('unknownSelectionIds', () => {
+	it('returns the missing IDs of a selection_changed refusal', () => {
+		const err = apiError(409, { code: 'selection_changed', message: 'x', ids: ['g1', 'r2'] });
+		expect(unknownSelectionIds(err)).toEqual(['g1', 'r2']);
+	});
+	it('is empty for other errors', () => {
+		expect(unknownSelectionIds(apiError(422, { code: 'no_recipients', message: 'x' }))).toEqual([]);
+		expect(unknownSelectionIds(new Error('network'))).toEqual([]);
 	});
 });
