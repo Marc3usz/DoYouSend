@@ -10,7 +10,8 @@ import {
 	isBatchStatus,
 	pageParam,
 	stillSending,
-	timesText
+	timesText,
+	unreachableText
 } from './format';
 
 const sms = (over: Partial<Delivery> = {}): Delivery => ({
@@ -174,5 +175,15 @@ describe('failureReasonText', () => {
 		['bounced: mailbox full', 'operator: bounced: mailbox full']
 	])('%s', (raw, want) => {
 		expect(failureReasonText(raw)).toBe(want);
+	});
+});
+
+describe('unreachableText', () => {
+	it.each([
+		[true, true, 'brak e-maila i telefonu'],
+		[true, false, 'brak e-maila'],
+		[false, true, 'brak telefonu']
+	])('email=%s sms=%s -> %s', (email, sms, want) => {
+		expect(unreachableText(email, sms)).toBe(want);
 	});
 });

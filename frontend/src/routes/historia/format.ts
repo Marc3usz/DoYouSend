@@ -26,6 +26,17 @@ export const deliveryStatusLabels: Record<DeliveryStatus, string> = {
 /** Statuses the history can be filtered by: the ones the API actually sets. */
 export const filterStatuses: BatchStatus[] = ['running', 'done', 'done_with_errors'];
 
+/**
+ * Why nobody could be reached. The backend marks a recipient unreachable when none of the
+ * batch's own channels has a contact, so an SMS-only batch means "no phone" even if the
+ * person has an e-mail.
+ */
+export function unreachableText(usesEmail: boolean, usesSms: boolean): string {
+	if (usesEmail && !usesSms) return 'brak e-maila';
+	if (usesSms && !usesEmail) return 'brak telefonu';
+	return 'brak e-maila i telefonu';
+}
+
 /** Formats count of excluded recipients: 1 wykluczona osoba, 2 wykluczone osoby, 5 wykluczonych osób. */
 export function excludedText(n: number): string {
 	return `${n} ${plural(n, 'wykluczona osoba', 'wykluczone osoby', 'wykluczonych osób')}`;

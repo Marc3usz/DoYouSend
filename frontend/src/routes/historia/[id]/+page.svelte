@@ -11,7 +11,8 @@
 		excludedText,
 		fromText,
 		stillSending,
-		timesText
+		timesText,
+		unreachableText
 	} from '../format';
 
 	// How often a running batch is reloaded to show new statuses.
@@ -222,7 +223,7 @@
 						{r.lastName}
 						{r.firstName}
 						{#if r.unreachable}
-							<br /><span class="bad">brak e-maila i telefonu</span>
+							<br /><span class="bad">{unreachableText(usesEmail, usesSms)}</span>
 						{:else if r.renderedBody === null}
 							<br /><span class="bad">brak danych do pola w treści</span>
 						{:else if r.partial}
