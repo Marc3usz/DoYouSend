@@ -43,3 +43,9 @@ const dateTime = new Intl.DateTimeFormat('pl-PL', {
 export function dateTimeText(iso: string | null | undefined): string {
 	return iso ? dateTime.format(new Date(iso)) : '—';
 }
+
+/** Page number from ?strona=, 1 for anything that is not a positive integer. */
+export function pageParam(raw: string | null): number {
+	const n = Number(raw ?? '1');
+	return Number.isInteger(n) && n > 0 ? n : 1;
+}

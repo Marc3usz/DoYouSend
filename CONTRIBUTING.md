@@ -15,8 +15,9 @@ Skrót zasad. Szczegóły w `docs/`, a pełna instrukcja uruchomienia w [README]
 5. **Pliki wspólne** (`backend/internal/platform/**`, `backend/migrations/**`,
    `docs/api/openapi.yaml`, `go.mod`, `frontend/package.json`, `Makefile`, `.github/**`) —
    osobny, mały PR; zmiana kontraktu API przed implementacją.
-6. **Decyzja architektoniczna** wykraczająca poza jedną domenę → ADR w
-   [`docs/adr/`](docs/adr/), nie ciche założenie w kodzie.
+6. **Decyzja architektoniczna** wykraczająca poza jedną domenę → opis w PR-ze i we właściwym
+   pliku w `docs/`, nie ciche założenie w kodzie. Nowych ADR-ów już nie piszemy;
+   [`docs/adr/`](docs/adr/) to archiwum.
 7. **Nigdy:** sekret w repo, prawdziwe dane osobowe w testach lub promptach,
    wysyłka na prawdziwe numery bez zgody opiekuna projektu.
    Zob. [`docs/bezpieczenstwo.md`](docs/bezpieczenstwo.md).

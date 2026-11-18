@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { User } from './api/auth';
-import { canOpen, navLinks, nextPath } from './access';
+import { canOpen, loginHref, navLinks, nextPath } from './access';
 
 const user = (role: User['role']): User => ({
 	id: '00000000-0000-4000-8000-000000000001',
@@ -63,5 +63,19 @@ describe('navLinks', () => {
 	});
 	it('is empty before logging in', () => {
 		expect(navLinks(null)).toEqual([]);
+	});
+});
+
+describe('loginHref', () => {
+	it.each([
+		['/wiadomosci', '', '/login?next=%2Fwiadomosci'],
+		['/wiadomosci', '?kopia=b1', '/login?next=%2Fwiadomosci%3Fkopia%3Db1'],
+		['/', '', '/login'],
+		['/login', '?next=/x', '/login']
+	])('%s%s -> %s', (path, search, want) => {
+		expect(loginHref(path, search)).toBe(want);
+		// The login page must accept what we send it.
+		const next = new URL(want, 'http://x').searchParams.get('next');
+		if (next) expect(nextPath(next)).toBe(path + search);
 	});
 });

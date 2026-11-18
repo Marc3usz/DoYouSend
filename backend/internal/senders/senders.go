@@ -149,7 +149,8 @@ type Store interface {
 	// CreateAddress fails with ErrAddressExists for an address already added and
 	// with ErrUnknownUsers when a user ID is not an active user.
 	CreateAddress(ctx context.Context, a Address, userIDs []string, actorID string) (Address, error)
-	// UpdateAddress changes the name and/or replaces the users; nil leaves a field.
+	// UpdateAddress changes the name and/or replaces the users; nil leaves a field. A blocked
+	// user who already has the address may stay; adding one fails with ErrUnknownUsers.
 	UpdateAddress(ctx context.Context, id string, name *string, userIDs []string, setUsers bool, actorID string) (Address, error)
 	DeleteAddress(ctx context.Context, id string) error
 	// AddressesOf returns the addresses delegated to userID.

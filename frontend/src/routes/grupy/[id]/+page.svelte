@@ -8,6 +8,7 @@
 	import GroupForm from '../GroupForm.svelte';
 	import { kindLabel, peopleCount } from '../messages';
 	import { issueHint, issueText, recipientTypeLabel } from '$lib/format/recipients';
+	import { pageParam } from '$lib/format/text';
 
 	let { data, form }: PageProps = $props();
 
@@ -15,6 +16,17 @@
 	const custom = $derived(g.kind === 'custom');
 	const created = $derived(!form && page.url.searchParams.has('utworzono'));
 	const memberIds = $derived(new Set(data.members.map((m) => m.id)));
+
+	// Built-in groups like "Wszyscy rodzice" can have hundreds of members: show them in pages.
+	const MEMBERS_PER_PAGE = 50;
+	const memberPages = $derived(Math.max(1, Math.ceil(data.members.length / MEMBERS_PER_PAGE)));
+	const memberPage = $derived(
+		Math.min(pageParam(page.url.searchParams.get('strona')), memberPages)
+	);
+	const shownMembers = $derived(
+		data.members.slice((memberPage - 1) * MEMBERS_PER_PAGE, memberPage * MEMBERS_PER_PAGE)
+	);
+	const memberPageHref = (p: number) => (p > 1 ? `?strona=${p}` : page.url.pathname);
 
 	// People ticked in the picker, kept across its pages and filters.
 	let picked = $state<RecipientLookup[]>([]);
@@ -97,7 +109,7 @@
 			</tr>
 		</thead>
 		<tbody>
-			{#each data.members as r (r.id)}
+			{#each shownMembers as r (r.id)}
 				<tr>
 					<td><a href="/odbiorcy/{r.id}">{r.lastName} {r.firstName}</a></td>
 					<td>{recipientTypeLabel(r.type)}</td>
@@ -125,13 +137,20 @@
 			{/each}
 		</tbody>
 	</table>
+	{#if memberPages > 1}
+		<nav class="pager" aria-label="Strony listy członków">
+			{#if memberPage > 1}<a href={memberPageHref(memberPage - 1)}>← Poprzednia</a>{/if}
+			<span>Strona {memberPage} z {memberPages} ({data.members.length} osób)</span>
+			{#if memberPage < memberPages}<a href={memberPageHref(memberPage + 1)}>Następna →</a>{/if}
+		</nav>
+	{/if}
 {/if}
 
 {#if custom}
 	<h2>Dodaj osoby</h2>
 	<RecipientPicker
 		initial={data.people}
-		pageSize={20}
+		pageSize={data.pickerPageSize}
 		selectedIds={pickedIds}
 		lockedIds={memberIds}
 		lockedLabel="(już w grupie)"
@@ -185,6 +204,12 @@
 {/if}
 
 <style>
+	.pager {
+		display: flex;
+		gap: 1rem;
+		align-items: center;
+		margin-top: 0.75rem;
+	}
 	.meta,
 	.note {
 		color: var(--color-text-muted);

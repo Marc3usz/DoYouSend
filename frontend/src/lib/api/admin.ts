@@ -100,11 +100,18 @@ export type AuditEntry = {
 
 export type AuditPage = { items: AuditEntry[]; total: number };
 
+/** Optional filters of GET /audit; dates are YYYY-MM-DD, both inclusive. */
+export type AuditFilter = { action?: string; userId?: string; from?: string; to?: string };
+
 export function listAudit(
-	params: { limit: number; offset: number },
+	params: { limit: number; offset: number } & AuditFilter,
 	fetch?: typeof globalThis.fetch
 ): Promise<AuditPage> {
 	const q = new URLSearchParams({ limit: String(params.limit), offset: String(params.offset) });
+	for (const key of ['action', 'userId', 'from', 'to'] as const) {
+		const v = params[key];
+		if (v) q.set(key, v);
+	}
 	return api<AuditPage>(`/audit?${q}`, { fetch });
 }
 

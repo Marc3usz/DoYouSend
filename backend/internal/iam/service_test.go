@@ -165,11 +165,16 @@ func (m *memStore) AddAudit(_ context.Context, e AuditEntry) error {
 	return nil
 }
 
-func (m *memStore) ListAudit(_ context.Context, limit, offset int) ([]AuditEntry, int, error) {
+func (m *memStore) ListAudit(_ context.Context, f AuditFilter, limit, offset int) ([]AuditEntry, int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	newest := slices.Clone(m.audit)
-	slices.Reverse(newest)
+	var newest []AuditEntry
+	for _, e := range slices.Backward(m.audit) {
+		if (f.Action == "" || e.Action == f.Action) && (f.UserID == "" || e.UserID == f.UserID) &&
+			(f.From.IsZero() || !e.CreatedAt.Before(f.From)) && (f.To.IsZero() || e.CreatedAt.Before(f.To)) {
+			newest = append(newest, e)
+		}
+	}
 	if offset >= len(newest) {
 		return nil, len(newest), nil
 	}
@@ -455,12 +460,42 @@ func TestListAuditPaging(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		_ = store.AddAudit(ctx, AuditEntry{UserID: admin.ID, Action: fmt.Sprintf("a%d", i)})
 	}
-	page, err := svc.ListAudit(ctx, 2, 0)
+	page, err := svc.ListAudit(ctx, AuditFilter{}, 2, 0)
 	if err != nil || page.Total != 3 || len(page.Items) != 2 || page.Items[0].Action != "a2" {
 		t.Errorf("ListAudit(2, 0) = %+v, %v, want newest first", page, err)
 	}
-	if _, err := svc.ListAudit(ctx, MaxAuditPage+1, 0); !errors.Is(err, ErrInvalidInput) {
+	if _, err := svc.ListAudit(ctx, AuditFilter{}, MaxAuditPage+1, 0); !errors.Is(err, ErrInvalidInput) {
 		t.Errorf("ListAudit(too big) error = %v", err)
+	}
+}
+
+func TestListAuditFilter(t *testing.T) {
+	svc, store, _, admin, sender := testService(t)
+	ctx := context.Background()
+	day := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	_ = store.AddAudit(ctx, AuditEntry{UserID: admin.ID, Action: "user_created", CreatedAt: day})
+	_ = store.AddAudit(ctx, AuditEntry{UserID: sender.ID, Action: "batch_sent", CreatedAt: day.AddDate(0, 0, 1)})
+	_ = store.AddAudit(ctx, AuditEntry{UserID: admin.ID, Action: "batch_sent", CreatedAt: day.AddDate(0, 0, 2)})
+	tests := []struct {
+		name string
+		f    AuditFilter
+		want int
+	}{
+		{"by action", AuditFilter{Action: "batch_sent"}, 2},
+		{"by user", AuditFilter{UserID: sender.ID}, 1},
+		{"by action and user", AuditFilter{Action: "batch_sent", UserID: admin.ID}, 1},
+		{"from inclusive, to exclusive", AuditFilter{From: day.AddDate(0, 0, 1), To: day.AddDate(0, 0, 2)}, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			page, err := svc.ListAudit(ctx, tt.f, 0, 0)
+			if err != nil || page.Total != tt.want || len(page.Items) != tt.want {
+				t.Errorf("ListAudit(%+v) = %d items (total %d), %v; want %d", tt.f, len(page.Items), page.Total, err, tt.want)
+			}
+		})
+	}
+	if _, err := svc.ListAudit(ctx, AuditFilter{From: day, To: day}, 0, 0); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("empty range error = %v, want ErrInvalidInput", err)
 	}
 }
 

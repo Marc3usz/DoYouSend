@@ -61,10 +61,13 @@ export const actions: Actions = {
 		const id = readText(data, 'id');
 		const role = asRole(readText(data, 'role'));
 		const disabled = readText(data, 'disabled');
+		// Only the rename form sends the field; an empty name is the backend's to refuse.
+		const fullName = data.has('fullName') ? readText(data, 'fullName') : null;
 		try {
 			const updated = await updateUser(
 				id,
 				{
+					...(fullName !== null ? { fullName } : {}),
 					...(role ? { role } : {}),
 					...(disabled === 'true' || disabled === 'false' ? { disabled: disabled === 'true' } : {})
 				},
@@ -72,8 +75,12 @@ export const actions: Actions = {
 			);
 			return { action: 'update' as const, id, done: `Zapisano zmiany konta ${updated.email}.` };
 		} catch (err) {
-			const { status, failure } = failureOf(err);
-			return fail(status, { action: 'update' as const, id, failure });
+			const { status, fields, failure } = failureOf(err);
+			return fail(status, {
+				action: 'update' as const,
+				id,
+				failure: fields.fullName ?? failure
+			});
 		}
 	},
 

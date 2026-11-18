@@ -204,6 +204,13 @@ func TestUserAdministrationOverHTTP(t *testing.T) {
 	if rec := request(t, h, http.MethodGet, "/api/audit?limit=x", "", c); rec.Code != http.StatusBadRequest {
 		t.Errorf("audit?limit=x = %d, want 400", rec.Code)
 	}
+	if rec := request(t, h, http.MethodGet, "/api/audit?from=18.11.2026", "", c); rec.Code != http.StatusBadRequest {
+		t.Errorf("audit?from=18.11.2026 = %d, want 400", rec.Code)
+	}
+	rec = request(t, h, http.MethodGet, "/api/audit?action=no_such_action&from=2026-01-01&to=2026-12-31", "", c)
+	if page := decode(t, rec); rec.Code != http.StatusOK || page["total"] != 0.0 {
+		t.Errorf("filtered audit = %d %v, want 200 with nothing", rec.Code, page)
+	}
 }
 
 func TestSendingConfigHasNoSecrets(t *testing.T) {

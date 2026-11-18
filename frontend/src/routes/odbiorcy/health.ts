@@ -81,14 +81,6 @@ export function unreachableCount(items: FixItem[]): number {
 	return items.filter((i) => i.channels.length > 1).length;
 }
 
-/**
- * Whether a list is cut off: the API returned fewer rows than it counted, so
- * the fix-it list must say it is partial instead of looking complete.
- */
-export function isTruncated(shown: number, total: number): boolean {
-	return total > shown;
-}
-
 /** "1 osoba", "2 osoby", "5 osób": Polish plural for a count of people. */
 export const peopleLabel = peopleText;
 

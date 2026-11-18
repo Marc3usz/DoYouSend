@@ -23,6 +23,9 @@
 		new Set(addressAdd && 'userIds' in addressAdd ? addressAdd.userIds : [])
 	);
 
+	// Only active accounts can be given an address; blocked ones show only where they already have it.
+	const activeUsers = $derived(data.users?.filter((u) => !u.disabled) ?? []);
+
 	// The form being sent; its buttons wait, so nothing goes twice.
 	let pending = $state<string | null>(null);
 
@@ -272,7 +275,7 @@
 					{#if data.users}
 						<fieldset>
 							<legend>Kto może wysyłać z tego adresu</legend>
-							{#each data.users as user (user.id)}
+							{#each data.users.filter((u) => !u.disabled || delegated.has(u.id)) as user (user.id)}
 								<label class="check">
 									<input
 										type="checkbox"
@@ -281,6 +284,7 @@
 										checked={delegated.has(user.id)}
 									/>
 									{user.fullName} <small class="muted">{user.email}</small>
+									{#if user.disabled}<small class="muted">(konto zablokowane)</small>{/if}
 								</label>
 							{:else}
 								<p class="hint">Brak aktywnych kont.</p>
@@ -360,10 +364,10 @@
 			{#if addFields(addressAdd).name}
 				<span class="field-error" id="new-address-name-error">{addFields(addressAdd).name}</span>
 			{/if}
-			{#if data.users && data.users.length > 0}
+			{#if activeUsers.length > 0}
 				<fieldset>
 					<legend>Kto może wysyłać z tego adresu (można zmienić później)</legend>
-					{#each data.users as user (user.id)}
+					{#each activeUsers as user (user.id)}
 						<label class="check">
 							<input
 								type="checkbox"

@@ -194,7 +194,29 @@ func (h *Handler) listAudit(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, httpx.ErrorBody{Code: "invalid_request", Message: "limit and offset must be integers"})
 		return
 	}
-	page, err := h.svc.ListAudit(r.Context(), limit, offset)
+	f := AuditFilter{Action: q.Get("action"), UserID: q.Get("userId")}
+	var fieldErrs []FieldError
+	// Dates are whole days in Polish time; "to" includes its whole day.
+	if v := q.Get("from"); v != "" {
+		d, err := time.ParseInLocation(time.DateOnly, v, warsaw())
+		if err != nil {
+			fieldErrs = append(fieldErrs, FieldError{Field: "from", Message: "expected YYYY-MM-DD"})
+		}
+		f.From = d
+	}
+	if v := q.Get("to"); v != "" {
+		d, err := time.ParseInLocation(time.DateOnly, v, warsaw())
+		if err != nil {
+			fieldErrs = append(fieldErrs, FieldError{Field: "to", Message: "expected YYYY-MM-DD"})
+		} else {
+			f.To = d.AddDate(0, 0, 1)
+		}
+	}
+	if len(fieldErrs) > 0 {
+		h.writeError(w, r, &ValidationError{Fields: fieldErrs})
+		return
+	}
+	page, err := h.svc.ListAudit(r.Context(), f, limit, offset)
 	if err != nil {
 		h.writeError(w, r, err)
 		return
@@ -255,6 +277,14 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) 
 		h.logger.Error("iam request failed", "method", r.Method, "path", r.URL.Path, "err", err)
 		httpx.Error(w, http.StatusInternalServerError, httpx.ErrorBody{Code: "internal", Message: "internal error"})
 	}
+}
+
+// warsaw is the school's time zone for date filters, UTC if the tz database is missing.
+func warsaw() *time.Location {
+	if loc, err := time.LoadLocation("Europe/Warsaw"); err == nil {
+		return loc
+	}
+	return time.UTC
 }
 
 func optionalInt(raw string) (int, error) {

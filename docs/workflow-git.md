@@ -52,7 +52,7 @@ Treść po angielsku, tryb rozkazujący, bez kropki na końcu tematu.
 - `CLAUDE.md` w katalogu głównym oraz w `backend/` i `frontend/` to kontrakt zespołu z agentem.
   Gdy poprawiasz Claude'a w kółko tak samo — dopisz regułę do właściwego `CLAUDE.md`
   zamiast powtarzać ją w promptach.
-- Wspólne komendy: `/zadanie`, `/pr`, `/adr`, `/status-projektu` (katalog `.claude/commands/`).
+- Wspólne komendy: `/zadanie`, `/pr`, `/status-projektu` (katalog `.claude/commands/`).
 - Nie wklejaj do promptów prawdziwych danych osobowych ani kluczy API.
 - Kod wygenerowany przez agenta przechodzi review jak każdy inny — autor PR odpowiada
   za to, co mergeuje.

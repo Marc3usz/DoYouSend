@@ -102,6 +102,24 @@ func TestPGStoreSenders(t *testing.T) {
 	if mine, _ := store.AddressesOf(ctx, ids["jan"]); len(mine) != 0 {
 		t.Errorf("Jan still has the address after the delegation moved: %+v", mine)
 	}
+	// A blocked user who already has the address keeps it when the address is edited.
+	if _, err := pool.Exec(ctx, `UPDATE users SET disabled_at = now() WHERE id = $1`, ids["anna"]); err != nil {
+		t.Fatal(err)
+	}
+	a, err = store.UpdateAddress(ctx, a.ID, nil, []string{ids["anna"], ids["jan"]}, true, "")
+	if err != nil || len(a.Users) != 2 {
+		t.Fatalf("UpdateAddress(keep blocked anna, add jan) = %+v, %v", a, err)
+	}
+	if _, err := store.UpdateAddress(ctx, a.ID, nil, []string{ids["anna"], ids["jan"], ids["off"]}, true, ""); !errors.Is(err, ErrUnknownUsers) {
+		t.Errorf("adding a blocked user on update: err = %v, want ErrUnknownUsers", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE users SET disabled_at = NULL WHERE id = $1`, ids["anna"]); err != nil {
+		t.Fatal(err)
+	}
+	a, err = store.UpdateAddress(ctx, a.ID, nil, []string{ids["anna"]}, true, "")
+	if err != nil || len(a.Users) != 1 {
+		t.Fatalf("UpdateAddress(back to anna) = %+v, %v", a, err)
+	}
 	a, err = store.UpdateAddress(ctx, a.ID, nil, nil, false, "")
 	if err != nil || a.Name != name || len(a.Users) != 1 {
 		t.Errorf("UpdateAddress(no changes) = %+v, %v; want everything kept", a, err)

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { RecipientLookup } from '$lib/api/recipients';
-import { emptyFilters, pageSelection, pickerPageCount, pickerQuery } from './recipientPicker';
+import {
+	collectMatching,
+	emptyFilters,
+	pageSelection,
+	pickerPageCount,
+	pickerQuery
+} from './recipientPicker';
 
 const person = (id: string): RecipientLookup => ({
 	id,
@@ -56,5 +62,61 @@ describe('pageSelection', () => {
 		{ name: 'only locked rows', selected: [], locked: ['a', 'b', 'c'], want: 'none' }
 	])('$name', ({ selected, locked, want }) => {
 		expect(pageSelection(items, new Set(selected), new Set(locked))).toBe(want);
+	});
+});
+
+describe('collectMatching', () => {
+	const person = (n: number): RecipientLookup => ({
+		id: `id-${n}`,
+		firstName: 'Imię',
+		lastName: `Nazwisko${n}`,
+		type: 'parent',
+		classes: [],
+		issues: []
+	});
+	const base = (n: number) => Array.from({ length: n }, (_, i) => person(i));
+	const served =
+		(all: RecipientLookup[], seen: number[]) => async (q: { limit?: number; offset?: number }) => {
+			seen.push(q.offset ?? 0);
+			const offset = q.offset ?? 0;
+			return { items: all.slice(offset, offset + (q.limit ?? 0)), total: all.length };
+		};
+
+	it('reads every page of the matches', async () => {
+		const seen: number[] = [];
+		const got = await collectMatching(served(base(450), seen), emptyFilters);
+		expect(got.people).toHaveLength(450);
+		expect(got.truncated).toBe(false);
+		expect(seen).toEqual([0, 200, 400]);
+	});
+
+	it('stops at the cap and says so', async () => {
+		const seen: number[] = [];
+		const got = await collectMatching(served(base(1300), seen), emptyFilters, 200, 1000);
+		expect(got.people).toHaveLength(1000);
+		expect(got.truncated).toBe(true);
+		expect(seen).toEqual([0, 200, 400, 600, 800]);
+	});
+
+	it('passes the filters on', async () => {
+		const queries: unknown[] = [];
+		await collectMatching(
+			async (q) => {
+				queries.push(q);
+				return { items: [], total: 0 };
+			},
+			{ q: ' anna ', type: 'parent', klasa: '3 a' }
+		);
+		expect(queries).toEqual([{ q: 'anna', type: 'parent', class: '3A', limit: 200, offset: 0 }]);
+	});
+
+	it('keeps each person once when the base shifts between pages', async () => {
+		const all = base(3);
+		const shifted = async (q: { offset?: number }) =>
+			q.offset === 0
+				? { items: all.slice(0, 2), total: 3 }
+				: { items: [all[1] as RecipientLookup, all[2] as RecipientLookup], total: 3 };
+		const got = await collectMatching(shifted, emptyFilters, 2);
+		expect(got.people.map((p) => p.id)).toEqual(['id-0', 'id-1', 'id-2']);
 	});
 });

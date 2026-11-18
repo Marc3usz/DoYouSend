@@ -91,6 +91,11 @@ func TestHandlerLookup(t *testing.T) {
 		t.Errorf("lookup by e-mail = %s, want nothing", got)
 	}
 
+	rec, body = do(t, mux, http.MethodGet, "/api/recipients/lookup?ids=00000000-0000-4000-8000-000000000001,00000000-0000-4000-8000-000000000003&ids=00000000-0000-4000-8000-000000000002", "")
+	if rec.Code != http.StatusOK || body["total"] != 3.0 {
+		t.Errorf("lookup by ids = %d %v, want the three people", rec.Code, body)
+	}
+
 	rec, body = do(t, mux, http.MethodGet, "/api/recipients/lookup?limit=abc", "")
 	if rec.Code != http.StatusBadRequest || body["code"] != "invalid_request" {
 		t.Errorf("bad limit = %d %v, want 400", rec.Code, body)
@@ -287,5 +292,30 @@ func TestHandlerFixContact(t *testing.T) {
 	}
 	if len(audit.got) != 1 {
 		t.Errorf("failed fixes must not be audited: %+v", audit.got)
+	}
+}
+
+func TestHandlerDuplicates(t *testing.T) {
+	store := serviceFixture()
+	if _, err := store.CreateRecipient(context.Background(), Recipient{FirstName: "Jan", LastName: "Kowalski", Email: "jan.drugi@example.test", Type: TypeParent}); err != nil {
+		t.Fatal(err)
+	}
+	rec, body := do(t, crudServer(store), http.MethodGet, "/api/recipients/duplicates", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %v", rec.Code, body)
+	}
+	items, _ := body["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("items = %v, want the two Jan Kowalski rows as one group", items)
+	}
+	g, _ := items[0].(map[string]any)
+	people, _ := g["recipients"].([]any)
+	if g["name"] != "Kowalski Jan" || len(people) != 2 {
+		t.Errorf("group = %v", g)
+	}
+
+	rec, _ = do(t, crudServer(newMemRecipients()), http.MethodGet, "/api/recipients/duplicates", "")
+	if got := strings.TrimSpace(rec.Body.String()); got != `{"items":[]}` {
+		t.Errorf("empty base = %s, want items as []", got)
 	}
 }

@@ -118,4 +118,4 @@ powstają w kodzie z `recipient_classes`, a ich ID to stałe UUIDv5 z nazwy klas
 ## Zmiany schematu
 
 Nowy plik `backend/migrations/NNNN_opis.sql`, nigdy edycja zastosowanej migracji.
-Zmiana dotykająca innej domeny — opisz ją w PR-ze i, gdy zmienia kontrakt, w ADR.
+Zmiana dotykająca innej domeny — opisz ją w PR-ze i, gdy zmienia kontrakt, w `docs/api/openapi.yaml`.

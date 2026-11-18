@@ -1,36 +1,46 @@
-import { getRecipientCounts, listRecipients } from '$lib/api/recipients';
+import { getRecipientCounts, listAllRecipients } from '$lib/api/recipients';
 import type { PageServerLoad } from './$types';
-import { filterFixItems, isTruncated, mergeFixItems, parseFixView } from '../health';
+import { filterFixItems, mergeFixItems, parseFixView } from '../health';
 import { failureText } from '../messages';
+import { pageParam } from '$lib/format/text';
 
-/** The API's page limit: the fix-it list shows up to this many people per channel. */
-const LIMIT = 200;
+/** People per page of the fix-it list. */
+const PAGE_SIZE = 50;
 
 export const load: PageServerLoad = async ({ url, fetch }) => {
 	const view = parseFixView(url.searchParams.get('pokaz'));
 	try {
+		// The whole lists, so nobody with a problem is left out; only the view is paged.
 		const [noEmail, noPhone, counts] = await Promise.all([
-			listRecipients({ issue: 'email', limit: LIMIT }, fetch),
-			listRecipients({ issue: 'sms', limit: LIMIT }, fetch),
+			listAllRecipients({ issue: 'email' }, fetch),
+			listAllRecipients({ issue: 'sms' }, fetch),
 			getRecipientCounts(fetch)
 		]);
-		const all = mergeFixItems(noEmail.items, noPhone.items);
+		const filtered = filterFixItems(mergeFixItems(noEmail, noPhone), view);
+		const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+		const page = Math.min(pageParam(url.searchParams.get('strona')), pages);
 		return {
 			view,
-			limit: LIMIT,
 			failure: null,
-			items: filterFixItems(all, view),
+			items: filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+			total: filtered.length,
+			page,
+			pages,
 			summary: {
 				noEmail: counts.noEmail,
 				noPhone: counts.noPhone,
-				// Exact, from the stats endpoint, even when the lists below are cut off.
-				unreachable: counts.unreachable,
-				truncated:
-					isTruncated(noEmail.items.length, noEmail.total) ||
-					isTruncated(noPhone.items.length, noPhone.total)
+				unreachable: counts.unreachable
 			}
 		};
 	} catch (err) {
-		return { view, limit: LIMIT, failure: failureText(err), items: [], summary: null };
+		return {
+			view,
+			failure: failureText(err),
+			items: [],
+			total: 0,
+			page: 1,
+			pages: 1,
+			summary: null
+		};
 	}
 };

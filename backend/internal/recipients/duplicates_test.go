@@ -51,3 +51,42 @@ func TestFindDuplicatesIgnoresEmptyFields(t *testing.T) {
 		t.Errorf("recipients with no e-mail should never collide on empty string, got %+v", dups)
 	}
 }
+
+func TestFindNameDuplicates(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []Recipient
+		want []string // keys, then the number of people in each group
+		size []int
+	}{
+		{"none", []Recipient{
+			{FirstName: "Jan", LastName: "Kowalski", Type: TypeParent},
+			{FirstName: "Anna", LastName: "Kowalska", Type: TypeParent},
+		}, nil, nil},
+		{"same name and type, case and spaces ignored", []Recipient{
+			{FirstName: "Jan", LastName: "Kowalski", Type: TypeParent, Email: "a@example.test"},
+			{FirstName: " jan", LastName: "KOWALSKI ", Type: TypeParent, Phone: "+48500100101"},
+		}, []string{"Kowalski Jan"}, []int{2}},
+		{"same name, different type", []Recipient{
+			{FirstName: "Lena", LastName: "Nowak", Type: TypeParent},
+			{FirstName: "Lena", LastName: "Nowak", Type: TypeStudent},
+		}, nil, nil},
+		{"empty names skipped", []Recipient{
+			{Type: TypeParent, Email: "a@example.test"},
+			{Type: TypeParent, Email: "b@example.test"},
+		}, nil, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FindNameDuplicates(tt.in)
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %d groups %+v, want %v", len(got), got, tt.want)
+			}
+			for i, d := range got {
+				if d.Key != tt.want[i] || len(d.Recipients) != tt.size[i] {
+					t.Errorf("group %d = %q (%d), want %q (%d)", i, d.Key, len(d.Recipients), tt.want[i], tt.size[i])
+				}
+			}
+		})
+	}
+}

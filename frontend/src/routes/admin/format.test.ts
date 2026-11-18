@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { ApiError } from '$lib/api/client';
 import type { AuditEntry } from '$lib/api/admin';
 import {
+	auditActionOptions,
+	auditFilterOf,
 	actionText,
 	actorText,
 	creditsText,
@@ -233,5 +235,33 @@ describe('failure texts', () => {
 	});
 	it('treats a dead backend as unavailable', () => {
 		expect(loginFailureText(new TypeError('fetch failed')).status).toBe(503);
+	});
+});
+
+describe('auditFilterOf', () => {
+	it('reads a valid filter', () => {
+		const q = new URLSearchParams({
+			zdarzenie: 'batch_sent',
+			kto: '00000000-0000-4000-8000-000000000001',
+			od: '2026-11-01',
+			do: '2026-11-18'
+		});
+		expect(auditFilterOf(q)).toEqual({
+			action: 'batch_sent',
+			userId: '00000000-0000-4000-8000-000000000001',
+			from: '2026-11-01',
+			to: '2026-11-18'
+		});
+	});
+	it('drops unknown actions, bad IDs and dates', () => {
+		const q = new URLSearchParams({ zdarzenie: 'drop table', kto: 'x', od: '18.11.2026' });
+		expect(auditFilterOf(q)).toEqual({ action: '', userId: '', from: '', to: '' });
+	});
+});
+
+describe('auditActionOptions', () => {
+	it('has a Polish label for every option', () => {
+		expect(auditActionOptions.length).toBeGreaterThan(10);
+		for (const o of auditActionOptions) expect(o.label).not.toMatch(/inne zdarzenie/);
 	});
 });

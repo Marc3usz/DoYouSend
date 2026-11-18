@@ -147,7 +147,7 @@ The documents below are in Polish.
 | [`docs/bezpieczenstwo.md`](docs/bezpieczenstwo.md) | secrets, test data, permissions |
 | [`docs/integracje.md`](docs/integracje.md) | e-mail (Mailpit/SendGrid), SMS (Fake/SMSAPI), panel settings and Notion import |
 | [`docs/api/openapi.yaml`](docs/api/openapi.yaml) | backend ↔ frontend API contract |
-| [`docs/adr/`](docs/adr/) | architecture decision records (ADRs) |
+| [`docs/adr/`](docs/adr/) | archive of past architecture decision records (no new ADRs are written) |
 | [`CLAUDE.md`](CLAUDE.md) | instructions for Claude Code |
 
 ## Useful commands

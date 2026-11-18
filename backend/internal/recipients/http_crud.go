@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Marc3usz/DoYouSend/backend/internal/platform/httpx"
@@ -43,6 +44,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/recipients", h.list)
 	mux.HandleFunc("GET /api/recipients/lookup", h.lookup)
 	mux.HandleFunc("GET /api/recipients/stats", h.stats)
+	mux.HandleFunc("GET /api/recipients/duplicates", h.duplicates)
 	mux.HandleFunc("POST /api/recipients", h.create)
 	mux.HandleFunc("GET /api/recipients/{id}", h.get)
 	mux.HandleFunc("PUT /api/recipients/{id}", h.update)
@@ -83,7 +85,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) lookup(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	lq := ListQuery{
-		Filter: Filter{Query: q.Get("q"), Type: Type(q.Get("type")), Class: q.Get("class")},
+		Filter: Filter{Query: q.Get("q"), Type: Type(q.Get("type")), Class: q.Get("class"), IDs: idsParam(q["ids"])},
 		Sort:   SortField(q.Get("sort")),
 		Order:  SortOrder(q.Get("order")),
 	}
@@ -105,6 +107,19 @@ func (h *Handler) lookup(w http.ResponseWriter, r *http.Request) {
 		out.Items[i] = toLookupJSON(rec)
 	}
 	httpx.JSON(w, http.StatusOK, out)
+}
+
+// idsParam reads ?ids=a&ids=b and ?ids=a,b alike, skipping empty entries.
+func idsParam(raw []string) []string {
+	var ids []string
+	for _, v := range raw {
+		for _, id := range strings.Split(v, ",") {
+			if id = strings.TrimSpace(id); id != "" {
+				ids = append(ids, id)
+			}
+		}
+	}
+	return ids
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
@@ -205,6 +220,31 @@ func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusOK, statsJSON(st))
+}
+
+// duplicates lists groups of possible duplicates, each with full recipient rows so the
+// administrator can open and fix them (docs/api/openapi.yaml, RecipientDuplicates).
+func (h *Handler) duplicates(w http.ResponseWriter, r *http.Request) {
+	dups, err := h.svc.Duplicates(r.Context())
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	type groupJSON struct {
+		Name       string          `json:"name"`
+		Recipients []RecipientJSON `json:"recipients"`
+	}
+	out := struct {
+		Items []groupJSON `json:"items"`
+	}{Items: make([]groupJSON, len(dups))}
+	for i, d := range dups {
+		g := groupJSON{Name: d.Key, Recipients: make([]RecipientJSON, len(d.Recipients))}
+		for j, rec := range d.Recipients {
+			g.Recipients[j] = toRecipientJSON(rec, nil)
+		}
+		out.Items[i] = g
+	}
+	httpx.JSON(w, http.StatusOK, out)
 }
 
 // writeError maps a service error to its status and stable code. Unexpected

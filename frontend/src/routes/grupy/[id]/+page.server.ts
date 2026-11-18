@@ -26,7 +26,7 @@ export const load: PageServerLoad = async ({ params, fetch }) => {
 		if (group.kind === 'custom') {
 			people = await lookupRecipients({ limit: PICKER_PAGE_SIZE }, fetch).catch(() => null);
 		}
-		return { group, members, people };
+		return { group, members, people, pickerPageSize: PICKER_PAGE_SIZE };
 	} catch (err) {
 		// A malformed ID is a 400 invalid_request: for the user, no such group.
 		if (isNotFound(err) || (err instanceof ApiError && err.status === 400)) {

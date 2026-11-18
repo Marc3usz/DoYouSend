@@ -17,6 +17,12 @@ export type InitialDraft = {
 	excludedRecipientIds: string[];
 	/** Names of the excluded people ("Nazwisko Imię"); missing ones show a short id. */
 	excludedPeople: { id: string; name: string }[];
+	/**
+	 * Groups of the copied batch that no longer exist (a deleted custom group, a class
+	 * nobody is in any more). They are left out of `groupIds`: the composer has no
+	 * checkbox for them, so keeping them would make every send fail with selection_changed.
+	 */
+	skippedGroups: string[];
 };
 
 /** Rows per page of the recipient picker. */
@@ -58,14 +64,22 @@ export const load: PageServerLoad = async ({ url, fetch }) => {
 					return name ? [{ id, name }] : [];
 				});
 			}
+			// Without the group list nothing can be checked; the backend still refuses
+			// stale IDs and the composer then drops them (see send.ts dropUnknownIds).
+			const known = new Set(groups.map((g) => g.id));
+			const kept = groupsFailed ? b.groups : b.groups.filter((g) => known.has(g.id));
+			const skippedGroups = groupsFailed
+				? []
+				: b.groups.filter((g) => !known.has(g.id)).map((g) => g.name);
 			initialDraft = {
 				subject: b.subject,
 				body: b.body,
 				channelMode: channelModeOf(b.channels),
-				groupIds: b.groups.map((g) => g.id),
+				groupIds: kept.map((g) => g.id),
 				recipients,
 				excludedRecipientIds,
-				excludedPeople
+				excludedPeople,
+				skippedGroups
 			};
 		} catch {
 			// Unknown, someone else's or unreachable: start empty and say so.
@@ -80,6 +94,7 @@ export const load: PageServerLoad = async ({ url, fetch }) => {
 		copiedBatchSubject,
 		copyFailed,
 		people: await people,
+		pickerPageSize: PICKER_PAGE_SIZE,
 		senders: await senders
 	};
 };

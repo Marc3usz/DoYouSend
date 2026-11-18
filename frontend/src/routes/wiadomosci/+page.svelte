@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
-	import { goto } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import { loginHref } from '$lib/access';
 	import { sendBatch } from '$lib/api/batches';
+	import { sessionExpired } from '$lib/api/client';
 	import { resolveSelection, type ResolvedRecipient } from '$lib/api/groups';
 	import { previewMessage, type SendEstimate } from '$lib/api/messages';
 	import { fixRecipientContact, type RecipientLookup } from '$lib/api/recipients';
@@ -16,8 +19,10 @@
 	import {
 		canConfirm,
 		confirmText,
+		draftFingerprint,
 		idempotencyFor,
 		sendFailureText,
+		unknownSelectionIds,
 		type DraftSnapshot,
 		type IdempotencyState
 	} from './send';
@@ -42,6 +47,7 @@
 	let excludedRecipientIds = $state<string[]>(
 		untrack(() => data.initialDraft?.excludedRecipientIds ?? [])
 	);
+	const excludedIdSet = $derived(new Set(excludedRecipientIds));
 	let excludedPeople = $state<{ id: string; name: string }[]>(
 		untrack(() => data.initialDraft?.excludedPeople ?? [])
 	);
@@ -56,6 +62,11 @@
 			const name = `${r.recipient.lastName} ${r.recipient.firstName}`.trim() || id;
 			excludedPeople = [...excludedPeople.filter((p) => p.id !== id), { id, name }];
 		}
+	}
+
+	function unexcludeMany(ids: Set<string>) {
+		excludedRecipientIds = excludedRecipientIds.filter((x) => !ids.has(x));
+		excludedPeople = excludedPeople.filter((p) => !ids.has(p.id));
 	}
 
 	function unexcludeRecipient(id: string) {
@@ -184,6 +195,27 @@
 		};
 	}
 
+	// Leaving with unsent changes asks first; the draft lives only in this page.
+	const startFingerprint = untrack(() => draftFingerprint(currentDraft()));
+	let sent = false;
+	const unsaved = $derived(
+		draftFingerprint(currentDraft()) !== startFingerprint &&
+			(subject.trim() !== '' ||
+				body.trim() !== '' ||
+				selectedGroupIds.length > 0 ||
+				selectedRecipients.length > 0)
+	);
+	beforeNavigate(({ cancel, willUnload }) => {
+		if (sent || !unsaved) return;
+		// On a reload or tab close the browser shows its own question.
+		if (willUnload) return cancel();
+		if (
+			!confirm('Wiadomość nie została wysłana. Opuścić stronę? Treść i wybór odbiorców przepadną.')
+		) {
+			cancel();
+		}
+	});
+
 	async function openConfirmation() {
 		idempotency = idempotencyFor(idempotency, currentDraft());
 		sendFailure = null;
@@ -238,15 +270,32 @@
 				},
 				idempotency.key
 			);
+			sent = true;
 			await goto(`/historia/${batch.id}`);
 		} catch (err) {
 			sendFailure = sendFailureText(err);
+			// Drop what no longer exists so the next confirmation can go through.
+			const gone = new Set(unknownSelectionIds(err));
+			if (gone.size > 0) {
+				selectedGroupIds = selectedGroupIds.filter((id) => !gone.has(id));
+				selectedRecipients = selectedRecipients.filter((r) => !gone.has(r.id));
+				unexcludeMany(gone);
+			}
 		} finally {
 			sending = false;
 		}
 	}
 
 	const warnings = $derived(estimate ? estimateWarnings(estimate, targetChannels) : []);
+	// Names of the people whose body could not be filled in, from the resolved list.
+	const renderFailedNames = $derived.by(() => {
+		const byId = new Map(resolvedRecipients.map((r) => [r.recipient.id, r.recipient]));
+		return (estimate?.renderFailedIds ?? []).map((id) => {
+			const r = byId.get(id);
+			const name = r ? `${r.lastName} ${r.firstName}`.trim() : '';
+			return { id, name: name || `Osoba bez imienia i nazwiska (${id.slice(0, 8)}…)` };
+		});
+	});
 	const hasRecipients = $derived((estimate?.recipientCount ?? 0) > 0);
 	const hasSelection = $derived(selectedGroupIds.length > 0 || selectedRecipients.length > 0);
 	// Counts and cost are only meaningful once the body renders for the recipients.
@@ -278,6 +327,7 @@
 					failure = null;
 				}
 			} catch (err) {
+				if (sessionExpired(err)) return void goto(loginHref(page.url.pathname, page.url.search));
 				if (request === latestRequest) failure = previewFailureText(err);
 			} finally {
 				if (request === latestRequest) counting = false;
@@ -321,8 +371,8 @@
 
 <h1>Nowa wiadomość</h1>
 <p class="lead">
-	Jedna treść trafia do odbiorców jednocześnie e-mailem i SMS-em — w obu kanałach dokładnie taka
-	sama. Temat dotyczy tylko e-maila, więc wszystko, co ważne, wpisz w treść.
+	Jedna treść trafia do odbiorców e-mailem i SMS-em (albo tylko wybranym kanałem) — wszędzie
+	dokładnie taka sama. Temat dotyczy tylko e-maila, więc wszystko, co ważne, wpisz w treść.
 </p>
 
 {#if data.copyFailed}
@@ -335,6 +385,9 @@
 		<span class="copy-banner-text">
 			Załadowano treść, kanały i odbiorców na podstawie wcześniejszej wysyłki{#if data.copiedBatchSubject}:
 				<strong>{data.copiedBatchSubject}</strong>{/if}.
+			{#if data.initialDraft && data.initialDraft.skippedGroups.length > 0}
+				Pominięto grupy, które już nie istnieją: {data.initialDraft.skippedGroups.join(', ')}.
+			{/if}
 		</span>
 		<button
 			type="button"
@@ -482,8 +535,14 @@
 						<p class="hint">Wybrani odbiorcy ({selectedRecipients.length}):</p>
 						<ul class="chips">
 							{#each selectedRecipients as r (r.id)}
-								<li class="chip">
+								<li class="chip" class:excluded={excludedIdSet.has(r.id)}>
 									<span>{r.lastName} {r.firstName}</span>
+									{#if excludedIdSet.has(r.id)}
+										<small>wykluczona</small>
+										<button type="button" class="link" onclick={() => unexcludeRecipient(r.id)}
+											>przywróć</button
+										>
+									{/if}
 									<button
 										type="button"
 										class="chip-remove"
@@ -500,10 +559,13 @@
 					<summary>Wybierz osoby z listy odbiorców</summary>
 					<RecipientPicker
 						initial={data.people}
-						pageSize={10}
+						pageSize={data.pickerPageSize}
 						selectedIds={selectedIdSet}
 						ontoggle={togglePeople}
 						caption="Odbiorcy do wyboru"
+						markedIds={excludedIdSet}
+						markedLabel="wykluczona z wysyłki"
+						reloadKey={refreshTrigger}
 					/>
 				</details>
 
@@ -739,6 +801,19 @@
 						{/each}
 					</ul>
 				{/if}
+				{#if renderFailedNames.length > 0}
+					<details class="render-failed">
+						<summary
+							>Kto nie dostanie wiadomości przez brak danych ({renderFailedNames.length})</summary
+						>
+						<ul>
+							{#each renderFailedNames as p (p.id)}
+								<li>{p.name}</li>
+							{/each}
+						</ul>
+						<p class="hint">Uzupełnij ich dane w bazie odbiorców albo usuń pole z treści.</p>
+					</details>
+				{/if}
 			</div>
 		{:else if !failure}
 			<p class="hint">Liczę…</p>
@@ -940,6 +1015,13 @@
 		list-style: none;
 		padding: 0;
 		margin: 0.25rem 0 0;
+	}
+	.chip.excluded {
+		background: var(--color-danger-soft);
+		text-decoration: none;
+	}
+	.chip.excluded > span {
+		text-decoration: line-through;
 	}
 	.chip {
 		display: inline-flex;

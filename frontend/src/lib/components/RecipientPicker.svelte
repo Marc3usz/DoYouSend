@@ -5,6 +5,11 @@
 	returns no contact data. The first page comes from the route's load.
 -->
 <script lang="ts">
+	import { untrack } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { page as appPage } from '$app/state';
+	import { loginHref } from '$lib/access';
+	import { sessionExpired } from '$lib/api/client';
 	import {
 		lookupRecipients,
 		type RecipientLookup,
@@ -12,6 +17,7 @@
 	} from '$lib/api/recipients';
 	import { issueHint, issueText, recipientTypeLabel } from '$lib/format/recipients';
 	import {
+		collectMatching,
 		emptyFilters,
 		pageSelection,
 		pickerPageCount,
@@ -34,6 +40,11 @@
 		ontoggle: (people: RecipientLookup[], selected: boolean) => void;
 		/** Accessible name of the table. */
 		caption: string;
+		/** Rows to flag without locking them, e.g. people excluded from the message. */
+		markedIds?: ReadonlySet<string>;
+		markedLabel?: string;
+		/** Changing it reloads the current page, e.g. after someone's contact data was fixed. */
+		reloadKey?: number;
 	};
 
 	let {
@@ -43,7 +54,10 @@
 		lockedIds = new Set<string>(),
 		lockedLabel = '',
 		ontoggle,
-		caption
+		caption,
+		markedIds = new Set<string>(),
+		markedLabel = '',
+		reloadKey = 0
 	}: Props = $props();
 
 	const uid = $props.id();
@@ -72,7 +86,10 @@
 			try {
 				const res = await lookupRecipients(pickerQuery(filters, page, pageSize));
 				if (req === latest) result = res;
-			} catch {
+			} catch (err) {
+				if (sessionExpired(err)) {
+					return void goto(loginHref(appPage.url.pathname, appPage.url.search));
+				}
 				if (req === latest) failure = 'Nie udało się pobrać listy odbiorców. Spróbuj ponownie.';
 			} finally {
 				if (req === latest) loading = false;
@@ -80,7 +97,39 @@
 		}, delay);
 	}
 
+	// Reload the page shown when the parent says the data changed (not on the first render).
+	let seenReloadKey = untrack(() => reloadKey);
+	$effect(() => {
+		if (reloadKey === seenReloadKey) return;
+		seenReloadKey = reloadKey;
+		void load(0);
+	});
+
+	let selectingAll = $state(false);
+	let selectAllNote = $state<string | null>(null);
+
+	async function selectAllMatching() {
+		selectingAll = true;
+		selectAllNote = null;
+		try {
+			const { people, truncated } = await collectMatching((q) => lookupRecipients(q), filters);
+			const selectable = people.filter((r) => !lockedIds.has(r.id));
+			ontoggle(selectable, true);
+			selectAllNote = truncated
+				? `Zaznaczono pierwsze ${selectable.length} osób — zawęź filtry, żeby wybrać resztę.`
+				: `Zaznaczono ${selectable.length} pasujących osób.`;
+		} catch (err) {
+			if (sessionExpired(err)) {
+				return void goto(loginHref(appPage.url.pathname, appPage.url.search));
+			}
+			selectAllNote = 'Nie udało się zaznaczyć wszystkich. Spróbuj ponownie.';
+		} finally {
+			selectingAll = false;
+		}
+	}
+
 	function onFilter(delay: number) {
+		selectAllNote = null;
 		page = 1;
 		void load(delay);
 	}
@@ -154,7 +203,13 @@
 		{:else if shown}
 			{filtered ? 'Pasujących osób' : 'Osób w bazie'}: <strong>{shown.total}</strong>
 			{#if selectedIds.size > 0}· zaznaczono: <strong>{selectedIds.size}</strong>{/if}
+			{#if filtered && shown.total > shown.items.length}
+				<button type="button" class="link" disabled={selectingAll} onclick={selectAllMatching}>
+					{selectingAll ? 'Zaznaczam…' : `Zaznacz wszystkich pasujących (${shown.total})`}
+				</button>
+			{/if}
 		{/if}
+		{#if selectAllNote}<br />{selectAllNote}{/if}
 	</p>
 
 	{#if failure || !shown}
@@ -205,6 +260,9 @@
 							<td>
 								<label for={id}>{r.lastName} {r.firstName}</label>
 								{#if locked && lockedLabel}<span class="locked-label">{lockedLabel}</span>{/if}
+								{#if markedIds.has(r.id) && markedLabel}<span class="marked-label"
+										>{markedLabel}</span
+									>{/if}
 							</td>
 							<td>{recipientTypeLabel(r.type)}</td>
 							<td>{r.classes.length > 0 ? r.classes.join(', ') : '—'}</td>
@@ -275,6 +333,13 @@
 	}
 	.locked-label {
 		margin-left: 0.4rem;
+		font-size: 0.85rem;
+	}
+	.marked-label {
+		margin-left: 0.4rem;
+		padding: 0 0.4rem;
+		border-radius: 0.25rem;
+		background: var(--color-danger-soft);
 		font-size: 0.85rem;
 	}
 	.issue {

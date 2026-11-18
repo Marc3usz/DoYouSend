@@ -11,11 +11,11 @@
 		excludedText,
 		fromText,
 		stillSending,
-		timesText
+		rawFailureReason,
+		refreshEveryMs,
+		timesText,
+		unreachableText
 	} from '../format';
-
-	// How often a running batch is reloaded to show new statuses.
-	const REFRESH_MS = 3000;
 
 	let { data }: PageProps = $props();
 
@@ -85,16 +85,20 @@
 	}
 
 	$effect(() => {
-		if (!stillSending(batch.status)) return;
+		const every = refreshEveryMs(batch, Date.now());
+		if (every === null) return;
 		const id = batch.id;
-		const timer = setInterval(async () => {
+		// One reload per batch change: the new answer re-runs this effect and picks the
+		// next interval (or stops once nothing is waiting).
+		const timer = setTimeout(async () => {
 			try {
 				live = await getBatch(id);
 			} catch {
-				// Keep the last statuses; the next tick tries again.
+				// Keep the last statuses and try again after the same pause.
+				live = live ? { ...live } : { ...data.batch };
 			}
-		}, REFRESH_MS);
-		return () => clearInterval(timer);
+		}, every);
+		return () => clearTimeout(timer);
 	});
 </script>
 
@@ -222,7 +226,7 @@
 						{r.lastName}
 						{r.firstName}
 						{#if r.unreachable}
-							<br /><span class="bad">brak e-maila i telefonu</span>
+							<br /><span class="bad">{unreachableText(usesEmail, usesSms)}</span>
 						{:else if r.renderedBody === null}
 							<br /><span class="bad">brak danych do pola w treści</span>
 						{:else if r.partial}
@@ -240,8 +244,12 @@
 							</button>
 						{/if}
 					</td>
-					<td class="delivery {email?.status ?? 'none'}">{deliveryText(email, usesEmail)}</td>
-					<td class="delivery {sms?.status ?? 'none'}">{deliveryText(sms, usesSms)}</td>
+					<td class="delivery {email?.status ?? 'none'}" title={rawFailureReason(email)}
+						>{deliveryText(email, usesEmail)}</td
+					>
+					<td class="delivery {sms?.status ?? 'none'}" title={rawFailureReason(sms)}
+						>{deliveryText(sms, usesSms)}</td
+					>
 				</tr>
 				{#if expandedBodies[r.recipientId] && r.renderedBody}
 					<tr class="preview-row">

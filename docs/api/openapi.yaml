@@ -249,6 +249,17 @@ paths:
           description: Tylko odbiorcy przypisani do tej klasy (normalizowana jak ClassName)
           schema: { $ref: "#/components/schemas/ClassName" }
         - in: query
+          name: ids
+          description: |
+            Tylko te osoby (najwyzej 200; powtorzony parametr albo lista po przecinku).
+            Nieznane ID sa pomijane. Sluzy do podpisania osob juz wybranych, np. wykluczonych.
+          style: form
+          explode: true
+          schema:
+            type: array
+            maxItems: 200
+            items: { type: string, format: uuid }
+        - in: query
           name: sort
           description: Kolumna sortowania (domyslnie name)
           schema:
@@ -289,6 +300,23 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/RecipientStats" }
+
+  /recipients/duplicates:
+    get:
+      tags: [recipients]
+      summary: Mozliwe duplikaty w bazie (ta sama osoba wpisana dwa razy)
+      description: |
+        Grupy odbiorcow tego samego typu o tym samym imieniu i nazwisku (bez wzgledu na wielkosc
+        liter i nadmiarowe spacje). Ten sam e-mail albo telefon baza odrzuca juz przy zapisie,
+        wiec tu widac osobe dodana ponownie z innymi danymi kontaktowymi. To podpowiedz dla
+        administratora, nie blad: dwie rozne osoby moga miec to samo imie i nazwisko.
+        Wymaga roli administratora.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RecipientDuplicates" }
 
   /recipients/{id}:
     parameters:
@@ -1164,7 +1192,14 @@ paths:
     get:
       tags: [admin]
       summary: Dziennik zdarzen (audit_log), od najnowszych
+      description: |
+        Filtry sa opcjonalne i lacza sie przez AND; total liczy wpisy po filtrach. from i to to
+        cale dni czasu polskiego (Europe/Warsaw), oba wlacznie; to wczesniejsze niz from -> 400.
       parameters:
+        - { in: query, name: action, description: Kod zdarzenia (AuditEntry.action), schema: { type: string } }
+        - { in: query, name: userId, description: Tylko zdarzenia tego uzytkownika, schema: { type: string, format: uuid } }
+        - { in: query, name: from, description: Od dnia (wlacznie), schema: { type: string, format: date } }
+        - { in: query, name: to, description: Do dnia (wlacznie), schema: { type: string, format: date } }
         - { in: query, name: limit,  schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
         - { in: query, name: offset, schema: { type: integer, minimum: 0, default: 0 } }
       responses:
@@ -1704,6 +1739,22 @@ components:
           type: array
           items: { $ref: "#/components/schemas/Recipient" }
         total: { type: integer, description: "Liczba wszystkich pasujacych, nie tylko na tej stronie" }
+
+    RecipientDuplicates:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [name, recipients]
+            properties:
+              name: { type: string, description: "Nazwisko i imie wspolne dla grupy" }
+              recipients:
+                type: array
+                minItems: 2
+                items: { $ref: "#/components/schemas/Recipient" }
 
     RecipientStats:
       type: object

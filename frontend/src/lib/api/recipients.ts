@@ -48,7 +48,8 @@ export const importFileErrorCodes = [
 	'unsupported_format',
 	'file_too_large',
 	'too_many_rows',
-	'unclosed_quote'
+	'unclosed_quote',
+	'internal'
 ] as const;
 
 export type ImportFileError = {
@@ -203,6 +204,33 @@ export function listRecipients(
 	return api<RecipientPage>(`/recipients${search}`, { fetch });
 }
 
+/**
+ * Every recipient matching `query`, read 200 at a time (the API's page maximum).
+ * For lists that must be complete, like the people with contact problems.
+ */
+export async function listAllRecipients(
+	query: Omit<RecipientListQuery, 'limit' | 'offset'>,
+	fetch?: typeof globalThis.fetch
+): Promise<Recipient[]> {
+	const all: Recipient[] = [];
+	for (let offset = 0; ; offset += 200) {
+		const page = await listRecipients({ ...query, limit: 200, offset }, fetch);
+		all.push(...page.items);
+		if (page.items.length === 0 || all.length >= page.total) return all;
+	}
+}
+
+/** The RecipientDuplicates schema: people of one type sharing a first and last name. */
+export type RecipientDuplicateGroup = { name: string; recipients: Recipient[] };
+
+/** GET /recipients/duplicates: possible duplicates in the base (admin only). */
+export async function listDuplicates(
+	fetch?: typeof globalThis.fetch
+): Promise<RecipientDuplicateGroup[]> {
+	const res = await api<{ items: RecipientDuplicateGroup[] }>('/recipients/duplicates', { fetch });
+	return res.items;
+}
+
 /** The RecipientLookup schema: a recipient without e-mail or phone. */
 export type RecipientLookup = Pick<
 	Recipient,
@@ -216,39 +244,40 @@ export type RecipientLookupPage = { items: RecipientLookup[]; total: number };
  * and exclusions. Open to senders; q matches names only.
  */
 export function lookupRecipients(
-	query: Omit<RecipientListQuery, 'issue'>,
+	query: Omit<RecipientListQuery, 'issue'> & { ids?: readonly string[] },
 	fetch?: typeof globalThis.fetch
 ): Promise<RecipientLookupPage> {
 	const params = new URLSearchParams();
 	for (const [key, value] of Object.entries(query)) {
-		if (value !== undefined && value !== '') params.set(key, String(value));
+		if (Array.isArray(value)) {
+			if (value.length > 0) params.set(key, value.join(','));
+		} else if (value !== undefined && value !== '') {
+			params.set(key, String(value));
+		}
 	}
 	const search = params.size > 0 ? `?${params}` : '';
 	return api<RecipientLookupPage>(`/recipients/lookup${search}`, { fetch });
 }
 
-/** The largest page GET /recipients/lookup accepts (openapi: limit maximum). */
+/** The largest page and ids list GET /recipients/lookup accepts (openapi: maximum). */
 const lookupMaxPage = 200;
 
 /**
- * Names ("Nazwisko Imię") of the given recipients, read page by page from
- * GET /recipients/lookup until every ID is found or the list ends. Senders may
- * not call GET /recipients/{id}, so this is how a history page names people
- * who are not in the batch snapshot, e.g. the excluded ones. IDs that no longer
- * exist are missing from the map.
+ * Names ("Nazwisko Imię") of the given recipients from GET /recipients/lookup?ids=,
+ * up to 200 IDs per call. Senders may not call GET /recipients/{id}, so this is how
+ * a history page names people who are not in the batch snapshot, e.g. the excluded
+ * ones. IDs that no longer exist are missing from the map.
  */
 export async function lookupNames(
 	ids: readonly string[],
 	fetch?: typeof globalThis.fetch
 ): Promise<Map<string, string>> {
-	const wanted = new Set(ids);
+	const unique = [...new Set(ids)];
 	const names = new Map<string, string>();
-	for (let offset = 0; names.size < wanted.size; offset += lookupMaxPage) {
-		const page = await lookupRecipients({ limit: lookupMaxPage, offset }, fetch);
-		for (const r of page.items) {
-			if (wanted.has(r.id)) names.set(r.id, `${r.lastName} ${r.firstName}`.trim());
-		}
-		if (page.items.length === 0 || offset + page.items.length >= page.total) break;
+	for (let i = 0; i < unique.length; i += lookupMaxPage) {
+		const chunk = unique.slice(i, i + lookupMaxPage);
+		const page = await lookupRecipients({ ids: chunk, limit: lookupMaxPage }, fetch);
+		for (const r of page.items) names.set(r.id, `${r.lastName} ${r.firstName}`.trim());
 	}
 	return names;
 }
