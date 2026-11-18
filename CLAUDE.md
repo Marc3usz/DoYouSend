@@ -16,8 +16,8 @@ user-facing UI text and `docs/**` in Polish. Write answers to the team in Polish
 | Delivery  | in-process worker (`backend/internal/delivery`); state is the `deliveries` table in Postgres, no separate queue |
 | Local env | Docker Compose: Postgres, Mailpit (fake SMTP)                  |
 
-Do not introduce a new framework, ORM or runtime dependency without an ADR
-(`docs/adr/`) — dependency choices outlive whoever makes them.
+Do not introduce a new framework, ORM or runtime dependency lightly — justify it in the PR
+description; dependency choices outlive whoever makes them.
 
 ## Repo map
 
@@ -37,7 +37,7 @@ backend/            Go API + delivery worker
     senders/        e-mail sender options, domain auth, delegated addresses -> domains C/D
   migrations/       numbered SQL migrations (shared, see below)
 frontend/           SvelteKit UI (routes mirror the same domain split)
-docs/               architecture, work split, git workflow, ADRs
+docs/               architecture, work split, git workflow, ADR archive (no new ADRs)
 docs/api/openapi.yaml   backend<->frontend contract (shared, see below)
 .claude/            shared team settings, slash commands, subagents
 ```
@@ -105,12 +105,6 @@ These cause the merge conflicts that actually hurt with parallel Claude sessions
   fight over the same working tree.
 - Before starting a task, read the owning package's `CLAUDE.md` (`backend/CLAUDE.md`,
   `frontend/CLAUDE.md`) — they carry the local details this file deliberately omits.
-- When a decision affects more than one domain, write an ADR in `docs/adr/` instead of
-  encoding it silently in code.
-- Before starting work that touches a cross-domain contact point (see "Punkty styku" in
-  `docs/podzial-pracy.md`), check `docs/adr/` for an ADR whose status is still
-  **propozycja** (open/undecided) on that point. Don't silently assume a shape for
-  something an open ADR is tracking — either resolve it first (with the other domain owner,
-  if there is one), or build against the status quo and flag the ADR again in the PR description. When you
-  resolve one, update its `Status`/`Decyzja`/`Konsekwencje` in place instead of leaving it
-  stale next to code that has moved on.
+- No new ADRs (decided 2026-11-18). Record decisions that cross domains in the PR
+  description and, if they change behaviour, in the matching `docs/*.md` page.
+  `docs/adr/` stays as a read-only archive of past decisions.
